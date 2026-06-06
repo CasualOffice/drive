@@ -17,6 +17,12 @@ All notable changes to Casual Drive land here. Format follows
     contract, UnlockAndRelock dispatch, and access-token scoping.
   - `spikes/04-two-origin` — Two-origin Axum binary with host-dispatch
     middleware and `/raw/{token}` HMAC handler. 10/10 tests.
+  - `spikes/05-spa-shell` — React 19 + Vite 7 + Tailwind v4 + Lucide on Inter,
+    polish-principle tokens ported into CSS @theme, empty-state surface
+    rendering in light + dark with `prefers-color-scheme` + manual override.
+    Build + typecheck clean.
+  - Spike #3 (sheet/ WOPI client retrofit) deferred — it's a cross-repo
+    change that lands as a deliberate Sheet PR after Phase 1.
 - Repo chassis: Cargo workspace with `drive-core`, `drive-storage`,
   `drive-wopi`, `drive-auth`, `drive-http`, `drive-bin` (stubs).
 - Apache-2.0 LICENSE + NOTICE.
