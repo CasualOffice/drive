@@ -1,0 +1,471 @@
+//! Integration tests for the file + folder REST API. All endpoints require
+//! a valid session cookie obtained via `/api/auth/sign-in`.
+
+use std::{net::SocketAddr, sync::Arc};
+
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use bytes::Bytes;
+use drive_auth::{hash_password, AuthState};
+use drive_core::{Backend, Config};
+use drive_db::{Db, NewUser, UserRepo};
+use drive_http::{router, HttpState};
+use drive_storage::Storage;
+use drive_wopi::WopiState;
+use http_body_util::BodyExt;
+use serde_json::Value;
+use tower::ServiceExt;
+use url::Url;
+
+const APP: &str = "drive.test";
+const UCN: &str = "usercontent-drive.test";
+
+async fn fixture() -> HttpState {
+    let storage = Storage::memory([1u8; 32]).unwrap();
+    let db = Db::connect("sqlite::memory:").await.unwrap();
+    UserRepo::new(&db)
+        .insert(&NewUser {
+            username: "admin".into(),
+            password_hash: hash_password("hunter2").unwrap(),
+            is_admin: true,
+        })
+        .await
+        .unwrap();
+    let cfg = Config {
+        app_origin: Url::parse(&format!("http://{APP}")).unwrap(),
+        usercontent_origin: Url::parse(&format!("http://{UCN}")).unwrap(),
+        bind: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        backend: Backend::Memory,
+        fs_root: None,
+        s3_bucket: None,
+        s3_region: None,
+        s3_endpoint: None,
+        aws_access_key_id: None,
+        aws_secret_access_key: None,
+        db_url: "sqlite::memory:".into(),
+        body_limit_mb: 100,
+        session_secret: vec![0u8; 32],
+        wopi_hmac_secret: [2u8; 32],
+        signed_url_hmac_secret: [1u8; 32],
+        admin_user: "admin".into(),
+        admin_password_hash: "$argon2id$test".into(),
+        recipient_footer: true,
+        is_prod: false,
+    };
+    let auth = AuthState::new(db.clone(), false, time::Duration::hours(1));
+    HttpState {
+        storage,
+        wopi: WopiState::new(),
+        db,
+        auth,
+        jwt_secret: Arc::new([2u8; 32]),
+        config: Arc::new(cfg),
+    }
+}
+
+/// Sign in as admin, return the session cookie value (full `Cookie:` header).
+async fn sign_in(app: &axum::Router) -> String {
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/sign-in")
+                .header("host", APP)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"username":"admin","password":"hunter2"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let set_cookie = r
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    // Set-Cookie header looks like "cd_sid=...; Path=/; HttpOnly; ...".
+    // Strip everything after the first `;` to get the cookie value.
+    let pair = set_cookie.split(';').next().unwrap();
+    pair.to_string()
+}
+
+fn auth_req(
+    method: &str,
+    path: &str,
+    cookie: &str,
+    content_type: Option<&str>,
+    body: Body,
+) -> Request<Body> {
+    let mut b = Request::builder()
+        .method(method)
+        .uri(path)
+        .header("host", APP)
+        .header("cookie", cookie);
+    if let Some(ct) = content_type {
+        b = b.header("content-type", ct);
+    }
+    b.body(body).unwrap()
+}
+
+async fn json_body(r: axum::http::Response<Body>) -> Value {
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+#[tokio::test]
+async fn list_root_requires_auth() {
+    let app = router(fixture().await);
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/folders/root/children")
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn list_root_is_empty_for_fresh_admin() {
+    let app = router(fixture().await);
+    let cookie = sign_in(&app).await;
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            "/api/folders/root/children",
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let body = json_body(r).await;
+    assert_eq!(body["folders"].as_array().unwrap().len(), 0);
+    assert_eq!(body["files"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn create_folder_then_list_root_shows_it() {
+    let app = router(fixture().await);
+    let cookie = sign_in(&app).await;
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            "/api/folders",
+            &cookie,
+            Some("application/json"),
+            Body::from(r#"{"name":"Reports"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let created = json_body(r).await;
+    assert_eq!(created["name"], "Reports");
+    let id = created["id"].as_str().unwrap().to_string();
+    assert!(!id.is_empty());
+
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            "/api/folders/root/children",
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    let listed = json_body(r).await;
+    assert_eq!(listed["folders"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["folders"][0]["id"], id);
+}
+
+#[tokio::test]
+async fn create_folder_rejects_empty_name() {
+    let app = router(fixture().await);
+    let cookie = sign_in(&app).await;
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            "/api/folders",
+            &cookie,
+            Some("application/json"),
+            Body::from(r#"{"name":"   "}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn upload_file_then_list_root_shows_it() {
+    let app = router(fixture().await);
+    let cookie = sign_in(&app).await;
+
+    let boundary = "----testboundary";
+    let body = build_multipart(
+        boundary,
+        &[
+            MultipartField::Text("parent_id", ""),
+            MultipartField::File("file", "hello.txt", "text/plain", b"hello world"),
+        ],
+    );
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            "/api/files",
+            &cookie,
+            Some(&format!("multipart/form-data; boundary={boundary}")),
+            Body::from(body),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let created = json_body(r).await;
+    assert_eq!(created["name"], "hello.txt");
+    assert_eq!(created["size"], 11);
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            "/api/folders/root/children",
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    let listed = json_body(r).await;
+    assert_eq!(listed["files"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["files"][0]["id"], id);
+    assert_eq!(listed["files"][0]["name"], "hello.txt");
+}
+
+#[tokio::test]
+async fn rename_then_move_then_trash_then_restore() {
+    let app = router(fixture().await);
+    let cookie = sign_in(&app).await;
+
+    // Create a folder and upload a file into root.
+    let folder = json_body(
+        app.clone()
+            .oneshot(auth_req(
+                "POST",
+                "/api/folders",
+                &cookie,
+                Some("application/json"),
+                Body::from(r#"{"name":"Reports"}"#),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let folder_id = folder["id"].as_str().unwrap().to_string();
+
+    let boundary = "----b";
+    let body = build_multipart(
+        boundary,
+        &[MultipartField::File("file", "a.txt", "text/plain", b"hi")],
+    );
+    let file = json_body(
+        app.clone()
+            .oneshot(auth_req(
+                "POST",
+                "/api/files",
+                &cookie,
+                Some(&format!("multipart/form-data; boundary={boundary}")),
+                Body::from(body),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let file_id = file["id"].as_str().unwrap().to_string();
+
+    // Rename the file.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "PATCH",
+            &format!("/api/files/{file_id}"),
+            &cookie,
+            Some("application/json"),
+            Body::from(r#"{"name":"a-renamed.txt"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json_body(r).await["name"], "a-renamed.txt");
+
+    // Move into the folder.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "PATCH",
+            &format!("/api/files/{file_id}"),
+            &cookie,
+            Some("application/json"),
+            Body::from(format!(r#"{{"parent_id":"{folder_id}"}}"#)),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json_body(r).await["parent_id"], folder_id);
+
+    // Root no longer lists it.
+    let listed = json_body(
+        app.clone()
+            .oneshot(auth_req(
+                "GET",
+                "/api/folders/root/children",
+                &cookie,
+                None,
+                Body::empty(),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(listed["files"].as_array().unwrap().is_empty());
+
+    // Trash it.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            &format!("/api/files/{file_id}/trash"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+
+    // Restore puts it back under the folder.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            &format!("/api/files/{file_id}/restore"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    let inside = json_body(
+        app.clone()
+            .oneshot(auth_req(
+                "GET",
+                &format!("/api/folders/{folder_id}"),
+                &cookie,
+                None,
+                Body::empty(),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let kids = inside["children"]["files"].as_array().unwrap();
+    assert_eq!(kids.len(), 1);
+    assert_eq!(kids[0]["id"], file_id);
+}
+
+#[tokio::test]
+async fn download_redirects_to_signed_user_content_url() {
+    let app = router(fixture().await);
+    let cookie = sign_in(&app).await;
+    let boundary = "----b";
+    let body = build_multipart(
+        boundary,
+        &[MultipartField::File("file", "x.txt", "text/plain", b"abc")],
+    );
+    let file = json_body(
+        app.clone()
+            .oneshot(auth_req(
+                "POST",
+                "/api/files",
+                &cookie,
+                Some(&format!("multipart/form-data; boundary={boundary}")),
+                Body::from(body),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let id = file["id"].as_str().unwrap();
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            &format!("/api/files/{id}/download"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FOUND);
+    let loc = r.headers().get("location").unwrap().to_str().unwrap();
+    assert!(
+        loc.starts_with(&format!("http://{UCN}/raw/")),
+        "got location {loc}"
+    );
+}
+
+// ─── Multipart helper ────────────────────────────────────────────────────
+
+enum MultipartField<'a> {
+    Text(&'a str, &'a str),
+    File(&'a str, &'a str, &'a str, &'a [u8]),
+}
+
+fn build_multipart(boundary: &str, fields: &[MultipartField<'_>]) -> Bytes {
+    let mut out: Vec<u8> = Vec::new();
+    for f in fields {
+        out.extend_from_slice(b"--");
+        out.extend_from_slice(boundary.as_bytes());
+        out.extend_from_slice(b"\r\n");
+        match f {
+            MultipartField::Text(name, value) => {
+                out.extend_from_slice(
+                    format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
+                        .as_bytes(),
+                );
+            }
+            MultipartField::File(name, filename, content_type, bytes) => {
+                out.extend_from_slice(
+                    format!(
+                        "Content-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\n\
+                         Content-Type: {content_type}\r\n\r\n"
+                    )
+                    .as_bytes(),
+                );
+                out.extend_from_slice(bytes);
+                out.extend_from_slice(b"\r\n");
+            }
+        }
+    }
+    out.extend_from_slice(b"--");
+    out.extend_from_slice(boundary.as_bytes());
+    out.extend_from_slice(b"--\r\n");
+    Bytes::from(out)
+}

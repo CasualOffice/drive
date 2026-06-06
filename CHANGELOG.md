@@ -6,6 +6,31 @@ All notable changes to Casual Drive land here. Format follows
 
 ## [Unreleased]
 
+### Phase 1 — file + folder REST API
+- `drive-db` grew `FolderRepo` + `FileRepo` with insert / find_by_id /
+  list_children / rename / move / trash / restore. `FileRepo` also has
+  `record_overwrite` for post-PutFile version bumps. 2 new repo tests
+  covering the create→rename→move→trash→restore cycle for both
+  folders and files (6 drive-db tests total).
+- `drive-http::files` new module: `GET /api/folders/root/children`,
+  `GET /api/folders/{id}`, `POST /api/folders`, `POST /api/files`
+  (multipart streaming upload via `axum::extract::Multipart`,
+  `DefaultBodyLimit` driven by `DRIVE_BODY_LIMIT_MB`), `PATCH
+  /api/files/{id}` + `PATCH /api/folders/{id}` (rename and/or move,
+  with `null` parent_id meaning "move to root"), `POST
+  /api/files/{id}/trash`, `POST /api/files/{id}/restore`, `GET
+  /api/files/{id}/download` (302 to the user-content `/raw/{token}`
+  for fs/memory backends, native presigned URL for S3/MinIO).
+- Every file/folder route requires `AuthSession`. Display-name
+  sanitisation rejects empty / control-char / path-separator / Windows-
+  reserved names per `docs/research/06-security.md` §2.
+- 7 integration tests in `crates/drive-http/tests/files.rs` covering
+  the happy and error paths: auth-required 401, empty root, folder
+  create + list, validation 400, multipart upload + list, full
+  rename → move → trash → restore round trip, download → 302 to the
+  signed user-content URL.
+- Workspace test count: **46 passing** (was 37). Clippy + fmt clean.
+
 ### Phase 1 — DB + admin auth
 - `drive-db` new crate: sqlx `Any` pool with portable SQLite + Postgres
   migrations. Initial schema covers users, sessions, folders, files,

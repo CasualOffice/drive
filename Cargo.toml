@@ -107,6 +107,8 @@ items_after_statements      = "allow"
 unused_self                 = "allow"
 no_effect_underscore_binding = "allow"
 return_self_not_must_use    = "allow"
+option_option               = "allow"
+too_many_lines              = "allow"
 
 [profile.release]
 lto = "thin"

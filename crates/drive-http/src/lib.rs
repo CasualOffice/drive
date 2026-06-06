@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+mod files;
 pub mod headers;
 mod host_dispatch;
 mod raw;
@@ -62,6 +63,10 @@ fn app_origin_router(state: HttpState) -> Router {
     };
     let wopi_router: Router = drive_wopi::router(wopi_state);
     let auth_router: Router = drive_auth::router(state.auth.clone());
+    let body_limit_bytes = (state.config.body_limit_mb as usize)
+        .saturating_mul(1024)
+        .saturating_mul(1024);
+    let files_router: Router = files::router(state.clone(), body_limit_bytes);
 
     Router::new()
         .route("/healthz", get(healthz))
@@ -69,6 +74,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .with_state(state.clone())
         .merge(wopi_router)
         .merge(auth_router)
+        .merge(files_router)
         // Security headers (app-origin profile).
         .layer(SetResponseHeaderLayer::overriding(
             H_CSP,
