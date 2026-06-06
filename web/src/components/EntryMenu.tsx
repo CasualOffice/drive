@@ -38,6 +38,7 @@ export interface EntryMenuHandlers {
   onTrash: () => void;
   onDownload?: () => void;
   onDetails?: () => void;
+  onShare?: () => void;
 }
 
 interface ItemDef {
@@ -70,7 +71,11 @@ function buildGroups(entry: Entry, h: EntryMenuHandlers): Group[] {
   }
 
   const collab: ItemDef[] = [
-    { label: "Share…", icon: <Share2 size={14} strokeWidth={1.8} />, onSelect: () => stub("Sharing") },
+    {
+      label: "Share…",
+      icon: <Share2 size={14} strokeWidth={1.8} />,
+      onSelect: h.onShare ?? (() => stub("Sharing")),
+    },
     { label: "Move…", icon: <FolderInput size={14} strokeWidth={1.8} />, onSelect: () => stub("Move") },
     { label: "Make a copy", icon: <Copy size={14} strokeWidth={1.8} />, onSelect: () => stub("Make a copy") },
     { label: "Rename", icon: <Pencil size={14} strokeWidth={1.8} />, onSelect: h.onRename, shortcut: "F2" },

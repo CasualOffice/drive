@@ -12,6 +12,7 @@ mod files;
 pub mod headers;
 mod host_dispatch;
 mod raw;
+mod share;
 mod spa;
 mod state;
 
@@ -77,6 +78,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .saturating_mul(1024)
         .saturating_mul(1024);
     let files_router: Router = files::router(state.clone(), body_limit_bytes);
+    let share_router: Router = share::router(state.clone());
 
     Router::new()
         .route("/healthz", get(healthz))
@@ -86,6 +88,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .merge(wopi_router)
         .merge(auth_router)
         .merge(files_router)
+        .merge(share_router)
         // SPA fallback — `/`, `/sign-in`, `/files/...`, hashed asset paths
         // — anything not matched above is served from the embedded `web/dist/`.
         .fallback(spa::serve)

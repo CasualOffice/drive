@@ -551,7 +551,9 @@ name = "drive-http"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "argon2",
  "axum",
+ "base64",
  "bytes",
  "drive-auth",
  "drive-core",

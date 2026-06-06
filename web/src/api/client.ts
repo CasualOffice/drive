@@ -4,7 +4,7 @@
 // In demo mode (VITE_DEMO_MODE=1, GitHub Pages build) requests are routed
 // to an in-memory shim instead — see ./demo.ts. Same return types.
 
-import { demoDownloadUrl, demoRequest } from "./demo.ts";
+import { demoDownloadUrl, demoRequest, demoShareDownload } from "./demo.ts";
 
 export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "1";
 
@@ -137,6 +137,66 @@ export async function setupAdmin(username: string, password: string): Promise<Si
   });
   setCsrfToken(r.csrf_token);
   return r;
+}
+
+// ─── Sharing ─────────────────────────────────────────────────────────
+
+export interface ShareDto {
+  id: string;
+  token: string;
+  url: string;
+  permissions: string;
+  has_password: boolean;
+  expires_at: string | null;
+  created_at: string;
+  last_accessed_at: string | null;
+  access_count: number;
+}
+
+export interface CreateShareBody {
+  permissions?: "view";
+  password?: string | null;
+  expires_in_seconds?: number | null;
+}
+
+export async function createShare(fileId: string, body: CreateShareBody): Promise<ShareDto> {
+  return request<ShareDto>(`/api/files/${encodeURIComponent(fileId)}/share`, {
+    method: "POST",
+    json: body,
+  });
+}
+
+export async function listShares(fileId: string): Promise<{ shares: ShareDto[] }> {
+  return request<{ shares: ShareDto[] }>(`/api/files/${encodeURIComponent(fileId)}/shares`);
+}
+
+export async function revokeShare(shareId: string): Promise<void> {
+  await request<void>(`/api/shares/${encodeURIComponent(shareId)}`, { method: "DELETE" });
+}
+
+export interface ResolvedShare {
+  file: {
+    name: string;
+    size: number;
+    content_type: string | null;
+    modified_at: string;
+  };
+  download_url: string;
+  permissions: string;
+}
+
+export async function resolveShare(token: string, password?: string | null): Promise<ResolvedShare> {
+  return request<ResolvedShare>(`/api/share/${encodeURIComponent(token)}`, {
+    method: "POST",
+    json: { password: password ?? null },
+  });
+}
+
+export function shareDownloadUrl(token: string): string {
+  if (DEMO_MODE) {
+    return demoShareDownload(token) ?? `/api/share/${encodeURIComponent(token)}/download`;
+  }
+  return `/api/share/${encodeURIComponent(token)}/download`;
 }
 
 export interface Me {

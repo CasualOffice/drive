@@ -11,10 +11,25 @@
 
 import type { About, FileDto, FolderDto, FolderDetail, ListResp, Me } from "./client.ts";
 
+interface DemoShare {
+  id: string;
+  token: string;
+  url: string;
+  permissions: "view";
+  has_password: boolean;
+  password?: string;
+  expires_at: string | null;
+  created_at: string;
+  last_accessed_at: string | null;
+  access_count: number;
+  file_id: string;
+}
+
 interface DemoState {
   signedIn: boolean;
   folders: FolderDto[];
   files: FileDto[];
+  shares: DemoShare[];
   nextId: number;
   username?: string;
 }
@@ -36,6 +51,7 @@ function loadState(): DemoState {
           signedIn: parsed.signedIn ?? false,
           folders: parsed.folders,
           files: parsed.files,
+          shares: Array.isArray(parsed.shares) ? parsed.shares : [],
           nextId: typeof parsed.nextId === "number" ? parsed.nextId : 1000,
           username: parsed.username,
         };
@@ -48,6 +64,7 @@ function loadState(): DemoState {
     signedIn: false,
     folders: seedFolders(),
     files: seedFiles(),
+    shares: [],
     nextId: 1000,
   };
 }
@@ -300,7 +317,114 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     }
   }
 
+  // ─── Sharing ─────────────────────────────────────────────────────────
+  const shareCreateMatch = p.match(/^\/api\/files\/([^/]+)\/share$/);
+  if (shareCreateMatch && method === "POST") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const fid = decodeURIComponent(shareCreateMatch[1]);
+    const file = state.files.find((f) => f.id === fid);
+    if (!file) throw makeError(404, "file not found");
+    const body = init.json as {
+      permissions?: string;
+      password?: string | null;
+      expires_in_seconds?: number | null;
+    };
+    if (body.permissions && body.permissions !== "view") {
+      throw makeError(400, "only 'view' permissions ship in v0");
+    }
+    const token = randomToken();
+    const created_at = nowIso();
+    const expires_at =
+      body.expires_in_seconds && body.expires_in_seconds > 0
+        ? new Date(Date.now() + body.expires_in_seconds * 1000).toISOString()
+        : null;
+    const share: DemoShare = {
+      id: nextId("shl"),
+      token,
+      url: `${window.location.origin}/s/${token}`,
+      permissions: "view",
+      has_password: !!(body.password && body.password.trim()),
+      password: body.password?.trim() || undefined,
+      expires_at,
+      created_at,
+      last_accessed_at: null,
+      access_count: 0,
+      file_id: fid,
+    };
+    state.shares.unshift(share);
+    persist();
+    const { password: _pwd, file_id: _fid, ...dto } = share;
+    void _pwd;
+    void _fid;
+    return dto as unknown as T;
+  }
+  const shareListMatch = p.match(/^\/api\/files\/([^/]+)\/shares$/);
+  if (shareListMatch && method === "GET") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const fid = decodeURIComponent(shareListMatch[1]);
+    const shares = state.shares
+      .filter((s) => s.file_id === fid)
+      .map(({ password: _p, file_id: _f, ...rest }) => {
+        void _p;
+        void _f;
+        return rest;
+      });
+    return { shares } as unknown as T;
+  }
+  const shareRevokeMatch = p.match(/^\/api\/shares\/([^/]+)$/);
+  if (shareRevokeMatch && method === "DELETE") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const sid = decodeURIComponent(shareRevokeMatch[1]);
+    const before = state.shares.length;
+    state.shares = state.shares.filter((s) => s.id !== sid);
+    if (state.shares.length === before) throw makeError(404, "not found");
+    persist();
+    return undefined as T;
+  }
+  const shareResolveMatch = p.match(/^\/api\/share\/([^/]+)$/);
+  if (shareResolveMatch && method === "POST") {
+    const token = decodeURIComponent(shareResolveMatch[1]);
+    const share = state.shares.find((s) => s.token === token);
+    if (!share) throw makeError(404, "not found");
+    if (share.expires_at && new Date(share.expires_at) < new Date()) {
+      throw makeError(410, "expired");
+    }
+    if (share.has_password) {
+      const body = init.json as { password?: string | null };
+      const candidate = body?.password ?? "";
+      if (!candidate || candidate !== share.password) {
+        throw makeError(401, "password required");
+      }
+    }
+    const file = state.files.find((f) => f.id === share.file_id);
+    if (!file) throw makeError(404, "file gone");
+    share.access_count += 1;
+    share.last_accessed_at = nowIso();
+    persist();
+    return {
+      file: {
+        name: file.name,
+        size: file.size,
+        content_type: file.content_type,
+        modified_at: file.modified_at,
+      },
+      download_url: `/api/share/${token}/download`,
+      permissions: share.permissions,
+    } as unknown as T;
+  }
+
   throw makeError(501, `demo: route not implemented (${method} ${p})`);
+}
+
+function randomToken(): string {
+  // 16 bytes of randomness → URL-safe base64 of length 22 (no padding).
+  // Uses crypto.getRandomValues so the demo at least *looks* legit; we
+  // never check this token against a server.
+  const bytes = new Uint8Array(16);
+  (crypto as Crypto).getRandomValues(bytes);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export function demoDownloadUrl(fileId: string): string {
@@ -315,6 +439,14 @@ export function demoDownloadUrl(fileId: string): string {
     { type: "text/plain" },
   );
   return URL.createObjectURL(placeholder);
+}
+
+/** Share-link download in demo mode — synthesize a placeholder for the
+ * underlying file. Used by Recipient when window.location.assign'd. */
+export function demoShareDownload(token: string): string | null {
+  const share = state.shares.find((s) => s.token === token);
+  if (!share) return null;
+  return demoDownloadUrl(share.file_id);
 }
 
 /** Hard-reset the demo. Wipes everything in localStorage and reloads.

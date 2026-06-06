@@ -9,6 +9,7 @@ import { EntryContextMenu, EntryKebab, type Entry as MenuEntry, type EntryMenuHa
 import { FileMiniIcon, FileThumb, inferKind } from "../components/FileThumb.tsx";
 import { PreviewModal } from "../components/PreviewModal.tsx";
 import { RenameDialog } from "../components/RenameDialog.tsx";
+import { ShareDialog } from "../components/ShareDialog.tsx";
 import type { ViewMode } from "../components/TopBar.tsx";
 
 interface Crumb {
@@ -56,6 +57,9 @@ export function Files({
 
   // Rename dialog
   const [renaming, setRenaming] = useState<MenuEntry | null>(null);
+
+  // Share dialog (files only — folder shares are v0.2)
+  const [sharing, setSharing] = useState<FileDto | null>(null);
 
   const refresh = useCallback(async () => {
     setState({ kind: "loading" });
@@ -196,6 +200,7 @@ export function Files({
       onPreview: () => openFile(file.id),
       onDetails: () => openFile(file.id),
       onRename: () => setRenaming(entry),
+      onShare: () => setSharing(file),
       onDownload: () => {
         const url = downloadUrl(file.id);
         const a = document.createElement("a");
@@ -380,6 +385,8 @@ export function Files({
           }}
         />
       )}
+
+      <ShareDialog open={sharing !== null} file={sharing} onClose={() => setSharing(null)} />
     </div>
   );
 }

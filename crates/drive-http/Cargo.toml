@@ -35,6 +35,8 @@ mime_guess    = { workspace = true }
 url           = { workspace = true }
 time          = { workspace = true }
 ulid          = { workspace = true }
+argon2        = { workspace = true }
+base64        = { workspace = true }
 
 [dev-dependencies]
 http-body-util = { workspace = true }

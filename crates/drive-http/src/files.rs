@@ -168,7 +168,7 @@ fn ensure_owner(folder_owner: &str, session: &AuthSession) -> Result<(), FilesEr
     Ok(())
 }
 
-fn storage_key(file_id: &str) -> String {
+pub(crate) fn storage_key(file_id: &str) -> String {
     format!("files/{file_id}")
 }
 

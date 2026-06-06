@@ -1,11 +1,22 @@
 import { Toaster } from "sonner";
 
 import { AuthProvider, useAuth } from "./auth/AuthContext.tsx";
+import { Recipient } from "./pages/Recipient.tsx";
 import { Setup } from "./pages/Setup.tsx";
 import { SignIn } from "./pages/SignIn.tsx";
 import { Shell } from "./pages/Shell.tsx";
 
+/** Public share-link path: `/s/<token>` — never gated by AuthContext. */
+function shareToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/s\/([^/?#]+)/);
+  return match ? match[1] : null;
+}
+
 function Router() {
+  const token = shareToken();
+  if (token) return <Recipient token={token} />;
+
   const { status } = useAuth();
   if (status.kind === "loading") {
     return (
