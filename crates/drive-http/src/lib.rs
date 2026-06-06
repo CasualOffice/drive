@@ -11,6 +11,7 @@ mod files;
 pub mod headers;
 mod host_dispatch;
 mod raw;
+mod spa;
 mod state;
 
 pub use state::HttpState;
@@ -75,6 +76,9 @@ fn app_origin_router(state: HttpState) -> Router {
         .merge(wopi_router)
         .merge(auth_router)
         .merge(files_router)
+        // SPA fallback — `/`, `/sign-in`, `/files/...`, hashed asset paths
+        // — anything not matched above is served from the embedded `web/dist/`.
+        .fallback(spa::serve)
         // Security headers (app-origin profile).
         .layer(SetResponseHeaderLayer::overriding(
             H_CSP,

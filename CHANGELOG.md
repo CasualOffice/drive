@@ -6,6 +6,41 @@ All notable changes to Casual Drive land here. Format follows
 
 ## [Unreleased]
 
+### Phase 1 — SPA (sign-in + shell + file list + upload)
+- New `web/` workspace (React 19 + Vite 7 + TypeScript 5 + Tailwind v4 +
+  Lucide on Inter Variable) — lifted the spike-05 scaffold + design
+  tokens, expanded into a runnable SPA.
+- `web/src/api/client.ts` — thin same-origin fetch wrapper with
+  `ApiError`, CSRF-token attach on non-safe methods, typed helpers for
+  every Phase-1 endpoint.
+- `web/src/auth/AuthContext.tsx` — bootstraps from `/api/me`, exposes
+  `signIn` / `signOut`, drives the `<Router>` choice between SignIn and
+  Shell.
+- SignIn card (surface §13): centred 360-px card, single password input,
+  primary button, Apple-style horizontal shake on wrong-password,
+  inline error, focus ring, reduced-motion respect.
+- App shell (surface §1, §2, §3): 240-px sidebar with active-stripe nav
+  rows (Home/Trash wired; Recent/Starred/Shared placeholders), 48-px
+  top bar with command-palette trigger (visual placeholder for Phase 2),
+  ThemeToggle (light/dark/system, persists), avatar menu with sign-out.
+- Files view (surface §5, flow §4 + §5 + §16): list view with
+  breadcrumbs, sort header, list-skeleton on load, FILE rows with
+  type-icon switch (folder / spreadsheet / document / image / generic),
+  tabular-numeral sizes, relative-time stamps. Upload button + drag-drop
+  drop-zone overlay; `U` keystroke opens the file picker. Ghost rows
+  while uploads stream.
+- `drive-http::spa` — embeds `web/dist/` at compile time via
+  `rust-embed`. App-origin fallback serves `index.html` for SPA routes;
+  hashed asset paths get `Cache-Control: public, max-age=31536000,
+  immutable`; missing asset paths honestly 404. SPA does NOT mount on
+  the user-content origin.
+- Verified end-to-end against the running binary: `/` 200+HTML,
+  `/sign-in` SPA-fallback 200+HTML, `/favicon.svg` 200 SVG,
+  `/assets/<missing>` honest 404, `/api/me` still returns JSON not the
+  SPA shell.
+- Build: 221 KB JS / 68 KB gzipped, 12 KB CSS / 4 KB gzipped — under
+  the < 150 KB shell-budget cited in spike #5.
+
 ### Phase 1 — file + folder REST API
 - `drive-db` grew `FolderRepo` + `FileRepo` with insert / find_by_id /
   list_children / rename / move / trash / restore. `FileRepo` also has
