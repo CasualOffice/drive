@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 drive-core    = { path = "../drive-core" }
+drive-db      = { path = "../drive-db" }
 drive-storage = { path = "../drive-storage" }
 drive-wopi    = { path = "../drive-wopi" }
 drive-auth    = { path = "../drive-auth" }

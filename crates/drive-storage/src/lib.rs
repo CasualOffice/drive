@@ -35,7 +35,7 @@ pub struct ListPage {
 
 #[derive(Debug, Clone)]
 pub enum SignedUrl {
-    /// Backend issued a native presigned URL (S3 / MinIO).
+    /// Backend issued a native presigned URL (S3 / `MinIO`).
     Native {
         url: url::Url,
         expires_at: time::OffsetDateTime,
@@ -183,11 +183,10 @@ impl Storage {
             etag: m.etag().map(str::to_string),
             modified: m
                 .last_modified()
-                .map(|dt| {
+                .map_or_else(time::OffsetDateTime::now_utc, |dt| {
                     time::OffsetDateTime::from_unix_timestamp(dt.timestamp())
                         .unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
-                })
-                .unwrap_or_else(time::OffsetDateTime::now_utc),
+                }),
             content_type: m.content_type().map(str::to_string),
         })
     }
@@ -199,7 +198,7 @@ impl Storage {
     }
 
     /// Copy with capability-gated synthesis. Memory backend doesn't support
-    /// native copy in OpenDAL 0.54; we read-then-write as fallback.
+    /// native copy in `OpenDAL` 0.54; we read-then-write as fallback.
     pub async fn copy(&self, src: &str, dst: &str) -> Result<(), StorageError> {
         validate_key(src)?;
         validate_key(dst)?;
@@ -244,11 +243,10 @@ impl Storage {
                     etag: m.etag().map(str::to_string),
                     modified: m
                         .last_modified()
-                        .map(|dt| {
+                        .map_or_else(time::OffsetDateTime::now_utc, |dt| {
                             time::OffsetDateTime::from_unix_timestamp(dt.timestamp())
                                 .unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
-                        })
-                        .unwrap_or_else(time::OffsetDateTime::now_utc),
+                        }),
                     content_type: m.content_type().map(str::to_string),
                 }
             })

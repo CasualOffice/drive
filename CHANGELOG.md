@@ -6,6 +6,34 @@ All notable changes to Casual Drive land here. Format follows
 
 ## [Unreleased]
 
+### Phase 1 — DB + admin auth
+- `drive-db` new crate: sqlx `Any` pool with portable SQLite + Postgres
+  migrations. Initial schema covers users, sessions, folders, files,
+  `wopi_locks`, share_links. `UserRepo` + `SessionRepo` shipped with 4
+  integration tests against `sqlite::memory:`. Pool sized 1 for SQLite
+  (single-writer + per-connection in-memory caveat).
+- `drive-auth` filled in: Argon2id at OWASP minimum (`m=19 MiB, t=2, p=1`),
+  constant-time-ish sign-in that never leaks "no such user" vs "wrong
+  password", server-side session inserts with 256-bit IDs + CSRF tokens,
+  `AuthSession` axum extractor, sign-in/sign-out handlers on
+  `/api/auth/{sign-in,sign-out}`. Cookie: `__Host-cd_sid` in prod /
+  `cd_sid` in unencrypted dev, `HttpOnly`, `SameSite=Lax`, `Path=/`,
+  Max-Age from session TTL.
+- `drive-http` extended: `HttpState` now carries `db: Db` and
+  `auth: AuthState`; `FromRef<HttpState> for AuthState` wires the
+  extractor; auth router merged into the app-origin router. 3 new
+  integration tests for the sign-in success and failure paths.
+- `drive-bin` wires it all: connects the DB, runs migrations on boot,
+  seeds the admin user from env if missing, builds `AuthState` with
+  `cookie_secure` derived from `app_origin` scheme. Verified end-to-end:
+  /healthz 200, wrong-host 421, /api/me returns JSON, unknown-user and
+  wrong-password both 401 (no enumeration leak).
+- Workspace test count: **37 passing** across the six crates (was 28).
+- Clippy `--all-targets -- -Dwarnings` clean. Workspace lints tuned: kept
+  the substantive `clippy::pedantic` group, allowed the pure-style
+  subcategories (`struct_excessive_bools`, `match_same_arms`,
+  `needless_pass_by_value`, `manual_let_else`, `doc_markdown`, etc.).
+
 ### Added
 - Planning artefacts: `PLAN.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`,
   `docs/research/00–06`, `docs/ux/01-flows.md`, `docs/ux/02-surface.md`.

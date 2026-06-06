@@ -60,9 +60,7 @@ pub(crate) async fn raw_get(
         .unwrap_or("application/octet-stream")
         .to_string();
     let filename = key.rsplit('/').next().unwrap_or("file").to_string();
-    let body = Body::from_stream(
-        stream.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
-    );
+    let body = Body::from_stream(stream.map_err(|e| std::io::Error::other(e.to_string())));
 
     let mut r = Response::new(body);
     let h = r.headers_mut();

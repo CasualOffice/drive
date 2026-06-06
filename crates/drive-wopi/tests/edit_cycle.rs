@@ -1,5 +1,5 @@
 //! End-to-end WOPI edit cycle against the Phase-1 crate.
-//! Carries over from `spike-02-wopi-host` using FileId IDs and a real Storage.
+//! Carries over from `spike-02-wopi-host` using `FileId` IDs and a real Storage.
 
 use std::sync::Arc;
 

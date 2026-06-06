@@ -1,5 +1,5 @@
 //! Conformance suite — same set of cases runs against fs + memory.
-//! MinIO via testcontainers comes online when Docker is part of CI.
+//! `MinIO` via testcontainers comes online when Docker is part of CI.
 
 use std::time::Duration;
 
@@ -92,7 +92,7 @@ async fn signed_token_rejects_tamper(b: Backend) {
     let last = bad.len() - 1;
     let ch = bad.chars().last().unwrap();
     let new = if ch == 'A' { 'B' } else { 'A' };
-    bad.replace_range(last..last + 1, &new.to_string());
+    bad.replace_range(last..=last, &new.to_string());
     assert!(matches!(
         s.verify_token(&bad).unwrap_err(),
         StorageError::InvalidToken

@@ -115,9 +115,7 @@ pub(crate) async fn get_file(
         .get(&storage_key(id), None)
         .await
         .map_err(|_| WopiError::NotFound)?;
-    let body = Body::from_stream(
-        stream.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
-    );
+    let body = Body::from_stream(stream.map_err(|e| std::io::Error::other(e.to_string())));
     let mut r = Response::new(body);
     r.headers_mut().insert(
         H_ITEMVER,

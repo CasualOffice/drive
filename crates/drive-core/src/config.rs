@@ -16,7 +16,7 @@ pub enum Backend {
     Memory,
     /// AWS S3 (or S3-protocol compatible service like Cloudflare R2).
     S3,
-    /// MinIO — S3-protocol with a custom endpoint.
+    /// `MinIO` — S3-protocol with a custom endpoint.
     Minio,
 }
 

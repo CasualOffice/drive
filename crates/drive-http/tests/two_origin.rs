@@ -8,7 +8,9 @@ use axum::{
     http::{Request, StatusCode},
 };
 use bytes::Bytes;
+use drive_auth::{hash_password, AuthState};
 use drive_core::{Backend, Config};
+use drive_db::{Db, NewUser, UserRepo};
 use drive_http::{router, HttpState};
 use drive_storage::{SignedUrl, Storage};
 use drive_wopi::WopiState;
@@ -23,6 +25,16 @@ async fn fixture() -> HttpState {
     let storage = Storage::memory([1u8; 32]).unwrap();
     storage
         .put("foo/bar.txt", Bytes::from_static(b"hello two-origin"), None)
+        .await
+        .unwrap();
+    let db = Db::connect("sqlite::memory:").await.unwrap();
+    // Seed the admin user so sign-in tests have something to log in as.
+    UserRepo::new(&db)
+        .insert(&NewUser {
+            username: "admin".into(),
+            password_hash: hash_password("hunter2").unwrap(),
+            is_admin: true,
+        })
         .await
         .unwrap();
     let cfg = Config {
@@ -46,9 +58,12 @@ async fn fixture() -> HttpState {
         recipient_footer: true,
         is_prod: false,
     };
+    let auth = AuthState::new(db.clone(), false, time::Duration::hours(1));
     HttpState {
         storage,
         wopi: WopiState::new(),
+        db,
+        auth,
         jwt_secret: Arc::new([2u8; 32]),
         config: Arc::new(cfg),
     }
@@ -183,6 +198,72 @@ async fn raw_on_usercontent_returns_bytes_and_security_headers() {
     assert!(cd.starts_with("attachment;"));
     let body = r.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(body.as_ref(), b"hello two-origin");
+}
+
+#[tokio::test]
+async fn sign_in_sets_session_cookie_and_returns_csrf() {
+    let app = router(fixture().await);
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/sign-in")
+                .header("host", APP)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"username":"admin","password":"hunter2"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let cookie = r.headers().get("set-cookie").unwrap().to_str().unwrap();
+    // Dev mode (no HTTPS in test) drops the `__Host-` prefix.
+    assert!(cookie.starts_with("cd_sid="), "got cookie {cookie}");
+    assert!(cookie.contains("HttpOnly"));
+    assert!(cookie.contains("SameSite=Lax"));
+    assert!(!cookie.contains("Secure"));
+    let body = r.into_body().collect().await.unwrap().to_bytes();
+    let body_s = std::str::from_utf8(&body).unwrap();
+    assert!(body_s.contains("csrf_token"));
+}
+
+#[tokio::test]
+async fn sign_in_with_wrong_password_returns_401() {
+    let app = router(fixture().await);
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/sign-in")
+                .header("host", APP)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"username":"admin","password":"WRONG"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn sign_in_with_unknown_username_returns_401() {
+    let app = router(fixture().await);
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/sign-in")
+                .header("host", APP)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"username":"nobody","password":"hunter2"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

@@ -31,7 +31,6 @@ use crate::{
 };
 
 /// Top-level Drive router. Assembles both origins.
-#[must_use]
 pub fn router(state: HttpState) -> Router {
     Router::new()
         .merge(app_origin_router(state.clone()))
@@ -61,14 +60,15 @@ fn app_origin_router(state: HttpState) -> Router {
         wopi: state.wopi.clone(),
         jwt_secret: state.jwt_secret.clone(),
     };
-    // `drive_wopi::router` returns Router<()> after .with_state(), so merge is fine.
     let wopi_router: Router = drive_wopi::router(wopi_state);
+    let auth_router: Router = drive_auth::router(state.auth.clone());
 
     Router::new()
         .route("/healthz", get(healthz))
         .route("/api/me", get(api_me))
         .with_state(state.clone())
         .merge(wopi_router)
+        .merge(auth_router)
         // Security headers (app-origin profile).
         .layer(SetResponseHeaderLayer::overriding(
             H_CSP,

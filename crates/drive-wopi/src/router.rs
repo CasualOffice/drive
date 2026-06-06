@@ -4,7 +4,6 @@ use axum::{routing::get, Router};
 
 use crate::handlers::{check_file_info, get_file, lock_dispatch, put_file, WopiAppState};
 
-#[must_use]
 pub fn router(state: WopiAppState) -> Router {
     Router::new()
         .route(

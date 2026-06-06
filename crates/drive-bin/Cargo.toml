@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 drive-core    = { path = "../drive-core" }
+drive-db      = { path = "../drive-db" }
 drive-storage = { path = "../drive-storage" }
 drive-wopi    = { path = "../drive-wopi" }
 drive-auth    = { path = "../drive-auth" }
@@ -26,5 +27,6 @@ axum               = { workspace = true }
 tokio              = { workspace = true }
 tower-http         = { workspace = true }
 anyhow             = { workspace = true }
+time               = { workspace = true }
 tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
