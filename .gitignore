@@ -23,6 +23,7 @@ out
 *.key
 
 # --- IDE ---
+.idea/
 .idea/workspace.xml
 .idea/usage.statistics.xml
 .idea/shelf

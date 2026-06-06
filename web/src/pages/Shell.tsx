@@ -8,6 +8,7 @@ import { EmptyState } from "../components/EmptyState.tsx";
 import { Sidebar, type NavId } from "../components/Sidebar.tsx";
 import { TopBar, type ViewMode } from "../components/TopBar.tsx";
 import { Files } from "./Files.tsx";
+import { Settings } from "./Settings.tsx";
 
 export function Shell() {
   const { status } = useAuth();
@@ -123,20 +124,7 @@ export function Shell() {
               />
             </CenteredPane>
           )}
-          {nav === "settings" && (
-            <CenteredPane>
-              <ComingSoon
-                title="Settings"
-                description="Sectioned configuration — Account, Workspace, Members, Roles, Sharing, Storage, Notifications, API tokens, Audit log, About."
-                bullets={[
-                  "Change admin password (real for v0)",
-                  "Storage backend + quota readout (real for v0)",
-                  "Members + Roles + Invitations (v0.2 — multi-user)",
-                  "API token management (v0.2)",
-                ]}
-              />
-            </CenteredPane>
-          )}
+          {nav === "settings" && <Settings />}
         </main>
       </div>
       </div>

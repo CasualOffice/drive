@@ -7,7 +7,7 @@
 // Sign-in accepts any non-empty username + password — there is no security
 // boundary in demo mode; we just need the flow to feel real.
 
-import type { FileDto, FolderDto, FolderDetail, ListResp, Me, SignInResp } from "./client.ts";
+import type { About, FileDto, FolderDto, FolderDetail, ListResp, Me, SignInResp } from "./client.ts";
 
 interface DemoFile extends FileDto {
   blob?: Blob;
@@ -134,6 +134,29 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
   if (p === "/api/auth/sign-in" && method === "POST") {
     signedIn = true;
     return jsonResp<SignInResp>({ csrf_token: "demo-csrf" }) as unknown as T;
+  }
+  if (p === "/api/auth/change-password" && method === "POST") {
+    const body = init.json as { old_password: string; new_password: string };
+    if (!body?.new_password || body.new_password.length < 12) {
+      throw makeError(422, "new password must be at least 12 characters");
+    }
+    if (body.new_password === body.old_password) {
+      throw makeError(422, "new password must differ from the old one");
+    }
+    // Demo doesn't persist credentials — accept and move on.
+    return undefined as T;
+  }
+  if (p === "/api/about" && method === "GET") {
+    if (!signedIn) throw makeError(401, "not signed in");
+    return jsonResp<About>({
+      version: "0.0.1 (demo)",
+      git_sha: "demo",
+      built_at: "2026-06-07T00:00:00Z",
+      license: "Apache-2.0",
+      repository: "https://github.com/schnsrw/drive",
+      storage_backend: "Memory (demo)",
+      db_backend: "Memory (demo)",
+    }) as unknown as T;
   }
   if (p === "/api/auth/sign-out" && method === "POST") {
     signedIn = false;

@@ -99,6 +99,20 @@ impl<'a> UserRepo<'a> {
             created_at: parse_ts(row.get::<String, _>("created_at"))?,
         })
     }
+
+    /// Replace the stored password hash for an existing user. Returns
+    /// `NotFound` if the user does not exist.
+    pub async fn update_password(&self, id: &str, new_hash: &str) -> Result<(), DbError> {
+        let res = sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+            .bind(new_hash)
+            .bind(id)
+            .execute(self.db.pool())
+            .await?;
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
 }
 
 fn map_unique_violation(e: sqlx::Error) -> DbError {

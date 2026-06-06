@@ -99,4 +99,19 @@ impl<'a> SessionRepo<'a> {
             .await?;
         Ok(res.rows_affected())
     }
+
+    /// Drop every session for `user_id` *except* one — used on password
+    /// change to invalidate other devices while keeping the caller signed in.
+    pub async fn delete_for_user_except(
+        &self,
+        user_id: &str,
+        keep_session_id: &str,
+    ) -> Result<u64, DbError> {
+        let res = sqlx::query("DELETE FROM sessions WHERE user_id = ? AND id <> ?")
+            .bind(user_id)
+            .bind(keep_session_id)
+            .execute(self.db.pool())
+            .await?;
+        Ok(res.rows_affected())
+    }
 }

@@ -14,6 +14,8 @@ pub enum AuthError {
     Unauthenticated,
     #[error("rate limited")]
     RateLimited,
+    #[error("password policy: {0}")]
+    PasswordPolicy(&'static str),
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -31,6 +33,7 @@ impl IntoResponse for AuthError {
             Self::InvalidCredentials => (StatusCode::UNAUTHORIZED, "invalid credentials"),
             Self::Unauthenticated => (StatusCode::UNAUTHORIZED, "unauthenticated"),
             Self::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate limited"),
+            Self::PasswordPolicy(reason) => (StatusCode::UNPROCESSABLE_ENTITY, reason),
             Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
         };
         (status, Json(ErrBody { error: msg })).into_response()

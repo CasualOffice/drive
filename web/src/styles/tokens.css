@@ -80,6 +80,7 @@
   --bg-hover:    rgba(26, 26, 30, 0.05);
   --bg-row-hover: rgba(26, 26, 30, 0.03);
   --bg-selected: rgba(200, 164, 92, 0.12);
+  --bg-subtle:   rgba(26, 26, 30, 0.035);
   --bg-overlay:  rgba(26, 26, 30, 0.42);
 
   --fg-onAccent: #FFFFFF;
@@ -199,3 +200,11 @@ body {
 
 .tabular-nums { font-variant-numeric: tabular-nums; }
 .hairline     { border: 1px solid var(--line); }
+
+/* Skeleton shimmer — gradient-based, used by loading placeholders across
+   the app. Consumers set `background-size: 200% 100%` and a
+   `--bg-subtle → --card → --bg-subtle` linear gradient. */
+@keyframes cd-skeleton {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}

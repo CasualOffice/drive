@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     extractor::AuthSession,
-    password::verify_password,
+    password::{hash_password, verify_password},
     state::AuthState,
     token::{generate_csrf_token, generate_session_id},
     AuthError,
@@ -74,6 +74,60 @@ pub(crate) async fn sign_in(
     resp.headers_mut()
         .insert(header::SET_COOKIE, HeaderValue::from_str(&cookie).unwrap());
     Ok(resp)
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ChangePasswordBody {
+    pub old_password: String,
+    pub new_password: String,
+}
+
+/// Replace the caller's password and invalidate every *other* session for
+/// the same user. The calling session stays alive, so the SPA doesn't get
+/// kicked back to sign-in after a successful change.
+///
+/// Returns 204 on success, 401 on wrong old password, 422 on policy failure.
+pub(crate) async fn change_password(
+    State(state): State<AuthState>,
+    session: AuthSession,
+    Json(body): Json<ChangePasswordBody>,
+) -> Result<Response, AuthError> {
+    // Minimum-viable password policy. Tightening this to NIST 800-63 happens
+    // alongside the haveibeenpwned check in Phase 2.
+    if body.new_password.chars().count() < 12 {
+        return Err(AuthError::PasswordPolicy(
+            "new password must be at least 12 characters",
+        ));
+    }
+    if body.new_password == body.old_password {
+        return Err(AuthError::PasswordPolicy(
+            "new password must differ from the old one",
+        ));
+    }
+
+    let users = UserRepo::new(&state.db);
+    let user = users
+        .find_by_id(&session.user_id)
+        .await
+        .map_err(|e| AuthError::Internal(e.to_string()))?;
+
+    if !verify_password(&user.password_hash, &body.old_password).unwrap_or(false) {
+        return Err(AuthError::InvalidCredentials);
+    }
+
+    let new_hash = hash_password(&body.new_password)?;
+    users
+        .update_password(&user.id, &new_hash)
+        .await
+        .map_err(|e| AuthError::Internal(e.to_string()))?;
+
+    let sessions = SessionRepo::new(&state.db);
+    sessions
+        .delete_for_user_except(&user.id, &session.session_id)
+        .await
+        .map_err(|e| AuthError::Internal(e.to_string()))?;
+
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 pub(crate) async fn sign_out(

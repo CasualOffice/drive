@@ -99,6 +99,27 @@ export async function signOut(): Promise<void> {
   setCsrfToken(null);
 }
 
+export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  await request<void>("/api/auth/change-password", {
+    method: "POST",
+    json: { old_password: oldPassword, new_password: newPassword },
+  });
+}
+
+export interface About {
+  version: string;
+  git_sha: string;
+  built_at: string;
+  license: string;
+  repository: string;
+  storage_backend: string;
+  db_backend: string;
+}
+
+export async function getAbout(): Promise<About> {
+  return request<About>("/api/about");
+}
+
 export interface Me {
   admin: string;
   backend: string;
