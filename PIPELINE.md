@@ -197,7 +197,7 @@
 | 13.4 | `/raw/{token}` on user-content origin | ✅ done | P0 | drive-http::raw |
 | 13.5 | `GET /api/files/{id}/download` 302 → signed URL | ✅ done | P0 | drive-http::files |
 | 13.6 | `POST /api/files/{id}/upload-url` (direct-to-S3 client upload) | ⬜ todo | P2 | bypasses Drive for large uploads |
-| 13.7 | Settings UI showing signed-URL TTL | 🟦 stub | P2 | Coming soon |
+| 13.7 | Settings UI showing signed-URL TTL | ✅ done | P2 | new `Config::signed_url_ttl_secs` (env `DRIVE_SIGNED_URL_TTL_SECS`, default 300s, floor 30s) threaded through `Storage::signed_get`; `/api/about` returns it + `body_limit_mb`; Settings → Storage → Backend card surfaces both |
 
 ## 14 — Backend chassis (recap — already shipped)
 
