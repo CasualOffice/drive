@@ -45,8 +45,8 @@ const LIBRARY: NavItem[] = [
 ];
 
 const WORKSPACE: NavItem[] = [
-  { id: "activity", label: "Activity", icon: Activity, comingSoon: true },
-  { id: "admin", label: "Admin", icon: Gauge, comingSoon: true },
+  { id: "activity", label: "Activity", icon: Activity },
+  { id: "admin", label: "Admin", icon: Gauge },
 ];
 
 const SYSTEM: NavItem[] = [
