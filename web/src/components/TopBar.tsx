@@ -1,5 +1,7 @@
 import { ChangeEvent } from "react";
-import { Grid3x3, List, Search } from "lucide-react";
+import { Grid3x3, HelpCircle, List, Search } from "lucide-react";
+
+import { NotificationsBell } from "./NotificationsBell.tsx";
 
 export type ViewMode = "grid" | "list";
 
@@ -8,18 +10,20 @@ export function TopBar({
   onQueryChange,
   view,
   onViewChange,
+  onShowHelp,
 }: {
   query: string;
   onQueryChange: (q: string) => void;
   view: ViewMode;
   onViewChange: (v: ViewMode) => void;
+  onShowHelp: () => void;
 }) {
   return (
     <header
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 18,
+        gap: 12,
         marginBottom: 26,
       }}
     >
@@ -64,6 +68,38 @@ export function TopBar({
       </div>
 
       <ViewToggle value={view} onChange={onViewChange} />
+      <NotificationsBell />
+      <button
+        type="button"
+        aria-label="Keyboard shortcuts"
+        title="Keyboard shortcuts (?)"
+        onClick={onShowHelp}
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 11,
+          border: "1px solid var(--line)",
+          background: "var(--card)",
+          color: "var(--muted)",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "background 150ms, border-color 150ms, color 150ms",
+        }}
+        onMouseOver={(e) => {
+          e.currentTarget.style.background = "var(--bg-hover)";
+          e.currentTarget.style.color = "var(--ink)";
+          e.currentTarget.style.borderColor = "var(--line-strong)";
+        }}
+        onMouseOut={(e) => {
+          e.currentTarget.style.background = "var(--card)";
+          e.currentTarget.style.color = "var(--muted)";
+          e.currentTarget.style.borderColor = "var(--line)";
+        }}
+      >
+        <HelpCircle size={17} strokeWidth={1.8} />
+      </button>
     </header>
   );
 }
