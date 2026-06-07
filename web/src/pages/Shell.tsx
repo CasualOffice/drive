@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { DEMO_MODE } from "../api/client.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
+import { CommandPalette } from "../components/CommandPalette.tsx";
 import { ComingSoon } from "../components/ComingSoon.tsx";
 import { DemoBanner } from "../components/DemoBanner.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
@@ -24,6 +25,7 @@ export function Shell() {
   const [uploadTick, setUploadTick] = useState(0);
   const [newFolderTick, setNewFolderTick] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // `?` opens the help modal when the user isn't typing. Listen to the
   // bell's "View all activity →" deep-link too so a click in the dropdown
@@ -142,6 +144,25 @@ export function Shell() {
       </div>
 
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onNavigate={setNav}
+        onOpenFile={(file) => {
+          // Surface the right tab + fire a custom event Files listens for.
+          setNav("home");
+          window.dispatchEvent(
+            new CustomEvent<string>("cd:open-file", { detail: file.id }),
+          );
+        }}
+        onOpenNote={(id) => {
+          setNav("notes");
+          window.dispatchEvent(
+            new CustomEvent<string>("cd:open-note", { detail: id }),
+          );
+        }}
+        onShowHelp={() => setHelpOpen(true)}
+      />
     </div>
   );
 }

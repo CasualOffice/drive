@@ -163,6 +163,40 @@ export function Files({
     void refresh();
   }, [refresh]);
 
+  // Cmd-K palette → "open file" routes here via a CustomEvent. We look
+  // up the file in whichever list is currently rendered; if it's not
+  // there (different folder or a search result that didn't survive the
+  // last fetch), fall back to fetching its metadata and opening anyway.
+  useEffect(() => {
+    function onOpen(e: Event) {
+      const id = (e as CustomEvent<string>).detail;
+      if (!id) return;
+      if (state.kind !== "ready") return;
+      const idx = state.files.findIndex((f) => f.id === id);
+      if (idx >= 0) {
+        setPreviewIdx(idx);
+        return;
+      }
+      // Not in the current pane — pull it as a singleton list so the
+      // preview modal has something to render.
+      void (async () => {
+        try {
+          const meta = await fetch(`/api/files/${encodeURIComponent(id)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+          if (meta && typeof meta === "object" && "id" in meta) {
+            setState({ kind: "ready", folders: [], files: [meta as FileDto] });
+            setPreviewIdx(0);
+          }
+        } catch {
+          /* ignored — palette caller already toasted */
+        }
+      })();
+    }
+    window.addEventListener("cd:open-file", onOpen);
+    return () => window.removeEventListener("cd:open-file", onOpen);
+  }, [state]);
+
   // Switch to global search when the query gets long enough; otherwise
   // fall back to the current folder listing. 200ms debounce + abort the
   // in-flight request on the next keystroke so we don't flash stale data.

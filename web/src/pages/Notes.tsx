@@ -93,6 +93,16 @@ export function Notes() {
     setOpen(null);
   }, [workspaceId]);
 
+  // Cmd-K palette → "open note" dispatches a CustomEvent we listen for.
+  useEffect(() => {
+    function onOpen(e: Event) {
+      const id = (e as CustomEvent<string>).detail;
+      if (id) setOpenId(id);
+    }
+    window.addEventListener("cd:open-note", onOpen);
+    return () => window.removeEventListener("cd:open-note", onOpen);
+  }, []);
+
   // Open a note by id.
   useEffect(() => {
     if (!openId) return;

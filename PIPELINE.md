@@ -48,7 +48,7 @@
 | 2.5 | System nav (Trash, Settings, Admin) | ✅ done | P0 | all three are real surfaces; Trash is functional for files + notes |
 | 2.6 | Storage card pinned bottom | ✅ done | P1 | shows live `used_bytes`; quota visible when set |
 | 2.7 | Avatar pinned at sidebar bottom | ✅ done | P0 | monogram + username + role |
-| 2.8 | Top bar search (cmdk command palette) | 🟡 wip | P1 | input + debounced server search are wired; full `cmdk`-style global palette with keyboard nav still pending |
+| 2.8 | Cmd-K command palette (cmdk) | ✅ done | P1 | `CommandPalette` mounted in `Shell`. ⌘K/Ctrl-K from anywhere outside an input. Grouped results (Go to · Folders · Files · Notes), debounced parallel search over `/api/search` + `/api/notes/search`, workspace-scoped. Selecting a file fires `cd:open-file` (Files listens, opens preview); selecting a note fires `cd:open-note` (Notes listens, opens it) |
 | 2.9 | Top bar notifications bell | ✅ done | P2 | `NotificationsBell` reads recipient-facing recent activity |
 | 2.10 | Help (keyboard-shortcuts modal `?`) | ✅ done | P2 | `HelpModal`; `?` / `Shift-/` opens from anywhere outside an input |
 | 2.11 | Theme toggle | 🟡 wip | P2 | `ThemeToggle` component is in the tree, but `tokens.css` has no dark palette yet — toggling changes the attribute, nothing visible |
