@@ -11,7 +11,9 @@ import { useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronLeft, ChevronRight, Download, Share2, Star, X } from "lucide-react";
 
-import { downloadUrl, type FileDto } from "../api/client.ts";
+import { toast } from "sonner";
+
+import { ApiError, downloadUrl, openInEditor, type FileDto } from "../api/client.ts";
 import { FileThumb, inferKind } from "./FileThumb.tsx";
 import { PreviewStage } from "./preview/PreviewStage.tsx";
 
@@ -339,13 +341,13 @@ function primaryAction(kind: ReturnType<typeof inferKind>, file: FileDto) {
       return {
         label: "Open in Casual Sheets",
         Icon: Download,
-        onClick: () => window.location.assign(downloadUrl(file.id)),
+        onClick: () => handoffToEditor(file.id, "Casual Sheets"),
       };
     case "doc":
       return {
         label: "Open in Casual Editor",
         Icon: Download,
-        onClick: () => window.location.assign(downloadUrl(file.id)),
+        onClick: () => handoffToEditor(file.id, "Casual Editor"),
       };
     default:
       return {
@@ -354,6 +356,48 @@ function primaryAction(kind: ReturnType<typeof inferKind>, file: FileDto) {
         onClick: () => window.location.assign(downloadUrl(file.id)),
       };
   }
+}
+
+/**
+ * Synchronously grab a popup handle inside the click handler — browsers
+ * only allow window.open in direct response to a user gesture — then await
+ * the mint and redirect the popup. On popup-block, fall back to a toast
+ * with a clickable link that re-attempts in a fresh gesture.
+ */
+function handoffToEditor(fileId: string, editorName: string) {
+  const popup = window.open("about:blank", "_blank");
+  void (async () => {
+    try {
+      const open = await openInEditor(fileId);
+      if (popup) {
+        popup.location.href = open.entry_url;
+      } else {
+        toast.info(`${editorName} is opening in a new tab`, {
+          description: "Pop-up was blocked — click below to open it manually.",
+          action: { label: "Open", onClick: () => window.open(open.entry_url, "_blank") },
+          duration: 10_000,
+        });
+      }
+    } catch (err) {
+      if (popup) popup.close();
+      const e = err as ApiError;
+      if (e.status === 503) {
+        toast.warning(`${editorName} isn't configured on this instance.`, {
+          description:
+            "Set DRIVE_SHEET_ORIGIN or DRIVE_DOCUMENT_ORIGIN in the backend, then restart Drive.",
+          action: {
+            label: "Download instead",
+            onClick: () => window.location.assign(downloadUrl(fileId)),
+          },
+          duration: 8_000,
+        });
+      } else if (e.status === 415) {
+        toast.error("This file type doesn't have an editor in v0.");
+      } else {
+        toast.error(`Couldn't open ${editorName}.`);
+      }
+    }
+  })();
 }
 
 function labelForKind(k: ReturnType<typeof inferKind>): string {

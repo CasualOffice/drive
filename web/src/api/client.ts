@@ -324,3 +324,17 @@ export function downloadUrl(id: string): string {
   if (DEMO_MODE) return demoDownloadUrl(id);
   return `/api/files/${encodeURIComponent(id)}/download`;
 }
+
+// ─── Editor handoff (WOPI) ────────────────────────────────────────────
+
+export interface OpenResp {
+  editor_app: "sheet" | "document";
+  entry_url: string;
+  access_token: string;
+  access_token_ttl: number;
+  wopi_src: string;
+}
+
+export async function openInEditor(fileId: string): Promise<OpenResp> {
+  return request<OpenResp>(`/api/files/${encodeURIComponent(fileId)}/open`);
+}

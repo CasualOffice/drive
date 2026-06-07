@@ -494,6 +494,15 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     persist();
     return fileDto as unknown as T;
   }
+  // Demo doesn't ship with a live Casual Sheets / Editor — pretend the
+  // origin is unconfigured. The SPA shows a polished "self-host to use
+  // this" toast and falls back to a Download action.
+  const openMatch = p.match(/^\/api\/files\/([^/]+)\/open$/);
+  if (openMatch && method === "GET") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    throw makeError(503, "editor not configured");
+  }
+
   const fileMatch = p.match(/^\/api\/files\/([^/]+)(\/(trash|download))?$/);
   if (fileMatch) {
     const fid = decodeURIComponent(fileMatch[1]);

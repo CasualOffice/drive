@@ -45,6 +45,8 @@ async fn bare_fixture() -> (HttpState, Db) {
         admin_password_hash: "$argon2id$test".into(),
         recipient_footer: true,
         is_prod: false,
+        sheet_origin: None,
+        document_origin: None,
     };
     let auth = AuthState::new(db.clone(), false, time::Duration::hours(1));
     let state = HttpState {

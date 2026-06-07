@@ -41,6 +41,8 @@ pub(crate) enum FilesError {
     Conflict(String),
     #[error("forbidden extension: {0}")]
     ForbiddenExtension(String),
+    #[error("editor not configured: {0}")]
+    EditorUnconfigured(&'static str),
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -65,6 +67,14 @@ impl IntoResponse for FilesError {
                 Json(ExtErrBody {
                     error: "file type not allowed",
                     extension: ext,
+                }),
+            )
+                .into_response(),
+            Self::EditorUnconfigured(app) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ExtErrBody {
+                    error: "editor not configured",
+                    extension: app.to_string(),
                 }),
             )
                 .into_response(),
@@ -202,6 +212,132 @@ fn ensure_owner(folder_owner: &str, session: &AuthSession) -> Result<(), FilesEr
 
 pub(crate) fn storage_key(file_id: &str) -> String {
     format!("files/{file_id}")
+}
+
+// ── Editor handoff ──────────────────────────────────────────────────────
+
+/// Per-launch WOPI access-token TTL. CLAUDE.md fixes this at 10 min.
+const HANDOFF_TTL_SECS: i64 = 600;
+
+#[derive(Serialize)]
+struct OpenResp {
+    editor_app: &'static str,
+    entry_url: String,
+    access_token: String,
+    access_token_ttl: i64, // milliseconds
+    wopi_src: String,
+}
+
+#[derive(Debug)]
+enum EditorTarget {
+    Sheet,
+    Document,
+}
+
+impl EditorTarget {
+    fn from_file(name: &str, content_type: Option<&str>) -> Option<Self> {
+        let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+        if matches!(ext.as_deref(), Some("xlsx"))
+            || content_type.is_some_and(|c| c.contains("spreadsheetml"))
+        {
+            return Some(Self::Sheet);
+        }
+        if matches!(ext.as_deref(), Some("docx"))
+            || content_type.is_some_and(|c| c.contains("wordprocessingml"))
+        {
+            return Some(Self::Document);
+        }
+        None
+    }
+    fn app_slug(&self) -> &'static str {
+        match self {
+            Self::Sheet => "sheet",
+            Self::Document => "document",
+        }
+    }
+    fn origin<'a>(&self, cfg: &'a drive_core::Config) -> Option<&'a url::Url> {
+        match self {
+            Self::Sheet => cfg.sheet_origin.as_ref(),
+            Self::Document => cfg.document_origin.as_ref(),
+        }
+    }
+}
+
+async fn open_in_editor(
+    State(s): State<HttpState>,
+    session: AuthSession,
+    Path(id): Path<String>,
+) -> Result<Json<OpenResp>, FilesError> {
+    use std::str::FromStr;
+
+    let files = FileRepo::new(&s.db);
+    let file = files
+        .find_by_id(&id)
+        .await
+        .map_err(|_| FilesError::NotFound)?;
+    ensure_owner(&file.owner_id, &session)?;
+    if file.trashed_at.is_some() {
+        return Err(FilesError::NotFound);
+    }
+
+    let target = EditorTarget::from_file(&file.name, file.content_type.as_deref())
+        .ok_or_else(|| FilesError::ForbiddenExtension("no-editor".into()))?;
+
+    let editor_origin = target.origin(&s.config).ok_or_else(|| {
+        // Distinct error: "editor exists in code, but this instance hasn't
+        // configured an origin for it." 503 surfaces a different toast in
+        // the SPA than 415 (unsupported file type).
+        FilesError::EditorUnconfigured(target.app_slug())
+    })?;
+
+    let file_id_typed = drive_core::FileId::from_str(&file.id)
+        .map_err(|e| FilesError::Internal(format!("file id parse: {e}")))?;
+    let perms = drive_wopi::WopiPerms::Write;
+    let exp = time::OffsetDateTime::now_utc().unix_timestamp() + HANDOFF_TTL_SECS;
+    let claims = drive_wopi::WopiClaims {
+        user_id: session.user_id.clone(),
+        file_id: file_id_typed,
+        perms,
+        exp,
+        jti: ulid::Ulid::new().to_string(),
+    };
+    let access_token = drive_wopi::mint_token(&s.jwt_secret, &claims);
+
+    // WOPISrc = the Drive's WOPI host URL for this file, on the app origin.
+    let mut wopi_src = s.config.app_origin.clone();
+    wopi_src.set_path(&format!("/wopi/files/{}", file.id));
+    let wopi_src_str = wopi_src.to_string();
+
+    // entry_url = the editor's launch endpoint with WOPISrc + access_token
+    // baked in. Editor's path is conventionally /wopi/editor.
+    let mut entry = editor_origin.clone();
+    entry.set_path("/wopi/editor");
+    entry
+        .query_pairs_mut()
+        .append_pair("WOPISrc", &wopi_src_str)
+        .append_pair("access_token", &access_token);
+
+    AuditRepo::emit(
+        &s.db,
+        NewAuditEvent {
+            actor_id: Some(session.user_id.clone()),
+            actor_username: Some(session.username.clone()),
+            action: "files.open_in_editor".into(),
+            target_kind: Some("file".into()),
+            target_id: Some(file.id),
+            target_name: Some(file.name),
+            ip_address: None,
+            metadata: Some(format!(r#"{{"editor_app":"{}"}}"#, target.app_slug())),
+        },
+    );
+
+    Ok(Json(OpenResp {
+        editor_app: target.app_slug(),
+        entry_url: entry.to_string(),
+        access_token,
+        access_token_ttl: HANDOFF_TTL_SECS * 1_000,
+        wopi_src: wopi_src_str,
+    }))
 }
 
 /// Extensions refused at upload time. See docs/ux/07-preview-surface.md
@@ -721,5 +857,6 @@ pub(crate) fn router(state: HttpState, body_limit_bytes: usize) -> Router {
         .route("/api/files/{id}/trash", post(trash_file))
         .route("/api/files/{id}/restore", post(restore_file))
         .route("/api/files/{id}/download", get(download_file))
+        .route("/api/files/{id}/open", get(open_in_editor))
         .with_state(state)
 }

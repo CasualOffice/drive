@@ -44,6 +44,13 @@ pub struct Config {
     pub admin_password_hash: String,
     pub recipient_footer: bool,
     pub is_prod: bool,
+    /// Casual Sheets origin (e.g. `https://sheet.casualoffice.org`). When
+    /// `None`, the editor handoff endpoint returns 503 and the SPA shows a
+    /// "editor isn't configured" toast. See docs/ux/08-editor-handoff.md.
+    pub sheet_origin: Option<Url>,
+    /// Casual Editor origin (e.g. `https://document.casualoffice.org`).
+    /// Same opt-in semantics as `sheet_origin`.
+    pub document_origin: Option<Url>,
 }
 
 #[derive(Debug, Error)]
@@ -134,6 +141,21 @@ impl Config {
 
         let recipient_footer = env_bool("DRIVE_RECIPIENT_FOOTER").unwrap_or(true);
 
+        let sheet_origin = match std::env::var("DRIVE_SHEET_ORIGIN").ok() {
+            Some(s) if !s.is_empty() => Some(
+                Url::parse(&s)
+                    .map_err(|e| ConfigError::Invalid("DRIVE_SHEET_ORIGIN", e.to_string()))?,
+            ),
+            _ => None,
+        };
+        let document_origin = match std::env::var("DRIVE_DOCUMENT_ORIGIN").ok() {
+            Some(s) if !s.is_empty() => Some(
+                Url::parse(&s)
+                    .map_err(|e| ConfigError::Invalid("DRIVE_DOCUMENT_ORIGIN", e.to_string()))?,
+            ),
+            _ => None,
+        };
+
         Ok(Self {
             app_origin,
             usercontent_origin,
@@ -154,6 +176,8 @@ impl Config {
             admin_password_hash,
             recipient_footer,
             is_prod,
+            sheet_origin,
+            document_origin,
         })
     }
 
