@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { ApiError, getAdminSystem, type AdminSystem } from "../api/client.ts";
+import { UsersCard } from "./admin/UsersCard.tsx";
 
 type State =
   | { kind: "loading" }
@@ -102,6 +103,7 @@ function Body({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <SystemCard system={system} />
+      <UsersCard />
       <StorageCard system={system} />
       <SessionsCard system={system} />
       <RecentSignInsCard system={system} onNavigate={onNavigate} />
