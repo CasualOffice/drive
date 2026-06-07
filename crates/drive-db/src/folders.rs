@@ -14,6 +14,9 @@ pub struct Folder {
     pub parent_id: Option<String>,
     pub name: String,
     pub owner_id: String,
+    /// Workspace this folder lives in. Nullable on disk only because the
+    /// 0006 ALTER TABLE migration backfills async; new rows always have one.
+    pub workspace_id: Option<String>,
     pub trashed_at: Option<time::OffsetDateTime>,
     pub original_parent_id: Option<String>,
     pub created_at: time::OffsetDateTime,
@@ -25,6 +28,7 @@ pub struct NewFolder {
     pub parent_id: Option<String>,
     pub name: String,
     pub owner_id: String,
+    pub workspace_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -44,8 +48,8 @@ impl<'a> FolderRepo<'a> {
         let now = time::OffsetDateTime::now_utc();
         let now_s = ts(now);
         sqlx::query(
-            "INSERT INTO folders (id, parent_id, name, owner_id, created_at, modified_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO folders (id, parent_id, name, owner_id, created_at, modified_at, workspace_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&new.parent_id)
@@ -53,6 +57,7 @@ impl<'a> FolderRepo<'a> {
         .bind(&new.owner_id)
         .bind(&now_s)
         .bind(&now_s)
+        .bind(&new.workspace_id)
         .execute(self.db.pool())
         .await?;
         Ok(Folder {
@@ -60,6 +65,7 @@ impl<'a> FolderRepo<'a> {
             parent_id: new.parent_id.clone(),
             name: new.name.clone(),
             owner_id: new.owner_id.clone(),
+            workspace_id: Some(new.workspace_id.clone()),
             trashed_at: None,
             original_parent_id: None,
             created_at: now,
@@ -69,7 +75,7 @@ impl<'a> FolderRepo<'a> {
 
     pub async fn find_by_id(&self, id: &str) -> Result<Folder, DbError> {
         let row = sqlx::query(
-            "SELECT id, parent_id, name, owner_id, trashed_at, original_parent_id, \
+            "SELECT id, parent_id, name, owner_id, workspace_id, trashed_at, original_parent_id, \
                     created_at, modified_at \
              FROM folders WHERE id = ?",
         )
@@ -89,7 +95,7 @@ impl<'a> FolderRepo<'a> {
     ) -> Result<Vec<Folder>, DbError> {
         let rows = match parent_id {
             Some(pid) => sqlx::query(
-                "SELECT id, parent_id, name, owner_id, trashed_at, original_parent_id, \
+                "SELECT id, parent_id, name, owner_id, workspace_id, trashed_at, original_parent_id, \
                             created_at, modified_at \
                      FROM folders \
                      WHERE parent_id = ? AND owner_id = ? AND trashed_at IS NULL \
@@ -98,7 +104,7 @@ impl<'a> FolderRepo<'a> {
             .bind(pid)
             .bind(owner_id),
             None => sqlx::query(
-                "SELECT id, parent_id, name, owner_id, trashed_at, original_parent_id, \
+                "SELECT id, parent_id, name, owner_id, workspace_id, trashed_at, original_parent_id, \
                         created_at, modified_at \
                  FROM folders \
                  WHERE parent_id IS NULL AND owner_id = ? AND trashed_at IS NULL \
@@ -111,24 +117,55 @@ impl<'a> FolderRepo<'a> {
         rows.iter().map(row_to_folder).collect()
     }
 
-    /// Case-insensitive substring search by display `name`. Owner-scoped,
+    /// Same as `list_children`, but scoped to a workspace instead of
+    /// owner. Phase 2 path.
+    pub async fn list_children_in_workspace(
+        &self,
+        parent_id: Option<&str>,
+        workspace_id: &str,
+    ) -> Result<Vec<Folder>, DbError> {
+        let rows = match parent_id {
+            Some(pid) => sqlx::query(
+                "SELECT id, parent_id, name, owner_id, workspace_id, trashed_at, original_parent_id, \
+                        created_at, modified_at \
+                 FROM folders \
+                 WHERE parent_id = ? AND workspace_id = ? AND trashed_at IS NULL \
+                 ORDER BY name ASC",
+            )
+            .bind(pid)
+            .bind(workspace_id),
+            None => sqlx::query(
+                "SELECT id, parent_id, name, owner_id, workspace_id, trashed_at, original_parent_id, \
+                        created_at, modified_at \
+                 FROM folders \
+                 WHERE parent_id IS NULL AND workspace_id = ? AND trashed_at IS NULL \
+                 ORDER BY name ASC",
+            )
+            .bind(workspace_id),
+        }
+        .fetch_all(self.db.pool())
+        .await?;
+        rows.iter().map(row_to_folder).collect()
+    }
+
+    /// Case-insensitive substring search by display `name`. Workspace-scoped,
     /// excludes trashed folders. Returns up to `limit` rows, name-sorted.
     /// Spec: docs/ux/12-search-surface.md.
     pub async fn search(
         &self,
-        owner_id: &str,
+        workspace_id: &str,
         query: &str,
         limit: i64,
     ) -> Result<Vec<Folder>, DbError> {
         let pattern = format!("%{}%", query.to_lowercase());
         let rows = sqlx::query(
-            "SELECT id, parent_id, name, owner_id, trashed_at, original_parent_id, \
+            "SELECT id, parent_id, name, owner_id, workspace_id, trashed_at, original_parent_id, \
                     created_at, modified_at \
              FROM folders \
-             WHERE owner_id = ? AND trashed_at IS NULL AND LOWER(name) LIKE ? \
+             WHERE workspace_id = ? AND trashed_at IS NULL AND LOWER(name) LIKE ? \
              ORDER BY name ASC LIMIT ?",
         )
-        .bind(owner_id)
+        .bind(workspace_id)
         .bind(pattern)
         .bind(limit.clamp(1, 200))
         .fetch_all(self.db.pool())
@@ -195,6 +232,10 @@ fn row_to_folder(row: &sqlx::any::AnyRow) -> Result<Folder, DbError> {
         parent_id: row.get("parent_id"),
         name: row.get("name"),
         owner_id: row.get("owner_id"),
+        workspace_id: row
+            .try_get::<Option<String>, _>("workspace_id")
+            .ok()
+            .flatten(),
         trashed_at: row
             .try_get::<Option<String>, _>("trashed_at")?
             .map(parse_ts)

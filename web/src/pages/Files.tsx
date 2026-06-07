@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import * as api from "../api/client.ts";
 import { ApiError, downloadUrl, type FileDto, type FolderDto } from "../api/client.ts";
+import { useActiveWorkspaceId } from "../state/WorkspaceContext.tsx";
 import { generateThumbnail } from "../api/thumbnail.ts";
 import { forbiddenUploadExtension } from "../api/uploadPolicy.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
@@ -83,9 +84,22 @@ export function Files({
   onNewFolderHandled: () => void;
   onItemCount: (n: number) => void;
 }) {
+  // Active workspace — switching it resets the breadcrumb and refetches.
+  const workspaceId = useActiveWorkspaceId();
+
   // Breadcrumb path: always starts with root.
   const [path, setPath] = useState<Crumb[]>([{ id: null, name: "My Drive" }]);
   const current = path[path.length - 1];
+
+  // When the workspace changes, drop the breadcrumb back to root — folder
+  // ids from the prior workspace would 404 (or worse, leak metadata via
+  // the find_by_id path) under the new scope.
+  const lastWorkspaceRef = useRef(workspaceId);
+  useEffect(() => {
+    if (lastWorkspaceRef.current === workspaceId) return;
+    lastWorkspaceRef.current = workspaceId;
+    setPath([{ id: null, name: "My Drive" }]);
+  }, [workspaceId]);
 
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [uploading, setUploading] = useState<string[]>([]);
@@ -122,7 +136,7 @@ export function Files({
     setSearched(false);
     try {
       if (current.id === null) {
-        const data = await api.listRoot();
+        const data = await api.listRoot(workspaceId);
         setState({ kind: "ready", folders: data.folders, files: data.files });
         onItemCount(data.folders.length + data.files.length);
       } else {
@@ -143,7 +157,7 @@ export function Files({
           : "Couldn't reach the server.";
       setState({ kind: "error", message: msg });
     }
-  }, [current, onItemCount]);
+  }, [current, onItemCount, workspaceId]);
 
   useEffect(() => {
     void refresh();
@@ -164,7 +178,7 @@ export function Files({
     const handle = setTimeout(async () => {
       setState({ kind: "loading" });
       try {
-        const data = await api.searchAll(q, controller.signal);
+        const data = await api.searchAll(q, controller.signal, workspaceId);
         setState({ kind: "ready", folders: data.folders, files: data.files });
         setSearched(true);
         onItemCount(data.folders.length + data.files.length);
@@ -185,9 +199,9 @@ export function Files({
     };
     // refresh + searched are intentionally not in the dep set — they
     // would re-fire the effect every render. Only the live query string
-    // should re-trigger search.
+    // and the active workspace should re-trigger search.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, onItemCount]);
+  }, [query, onItemCount, workspaceId]);
 
   // Parent-triggered upload + new-folder. Both use a "tick" counter
   // that the parent increments on action. We track the last seen tick
@@ -214,7 +228,7 @@ export function Files({
       const name = window.prompt("Folder name", "Untitled folder");
       if (name && name.trim()) {
         try {
-          await api.createFolder(name.trim(), current.id);
+          await api.createFolder(name.trim(), current.id, workspaceId);
           toast.success("Folder created");
           void refresh();
         } catch {
@@ -252,7 +266,7 @@ export function Files({
       const results = await Promise.allSettled(
         list.map(async (f) => {
           const thumb = await generateThumbnail(f).catch(() => null);
-          return api.uploadFile(f, current.id, thumb);
+          return api.uploadFile(f, current.id, thumb, workspaceId);
         }),
       );
       setUploading([]);
@@ -274,7 +288,7 @@ export function Files({
       }
       void refresh();
     },
-    [refresh, current.id],
+    [refresh, current.id, workspaceId],
   );
 
   function onDrop(e: React.DragEvent) {

@@ -1,5 +1,7 @@
-//! `GET /api/search?q=&limit=` — owner-scoped recursive search by name.
-//! Spec: docs/ux/12-search-surface.md.
+//! `GET /api/search?q=&limit=&workspace=` — workspace-scoped name search.
+//! Spec: docs/ux/12-search-surface.md. Workspace defaults to the caller's
+//! Personal when omitted; an explicit `workspace=` switches to a team scope
+//! when the caller is a member.
 
 use axum::{
     extract::{Query, State},
@@ -15,6 +17,8 @@ use crate::HttpState;
 pub(crate) struct SearchQuery {
     pub q: Option<String>,
     pub limit: Option<i64>,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -60,8 +64,19 @@ pub(crate) async fn search(
     }
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
 
+    let ws = crate::workspaces::resolve_active_workspace(
+        &s.db,
+        &session.user_id,
+        q.workspace.as_deref(),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(error = ?e, "search workspace resolve failed");
+        axum::http::StatusCode::FORBIDDEN
+    })?;
+
     let folders = FolderRepo::new(&s.db)
-        .search(&session.user_id, trimmed, limit)
+        .search(&ws, trimmed, limit)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "folder search failed");
@@ -78,7 +93,7 @@ pub(crate) async fn search(
         .collect();
 
     let files = FileRepo::new(&s.db)
-        .search(&session.user_id, trimmed, limit)
+        .search(&ws, trimmed, limit)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "file search failed");

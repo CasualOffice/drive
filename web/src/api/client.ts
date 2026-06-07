@@ -272,18 +272,23 @@ export interface FolderDetail {
   children: ListResp;
 }
 
-export async function listRoot(): Promise<ListResp> {
-  return request<ListResp>("/api/folders/root/children");
+export async function listRoot(workspaceId?: string | null): Promise<ListResp> {
+  const qs = workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : "";
+  return request<ListResp>(`/api/folders/root/children${qs}`);
 }
 
 export async function getFolder(id: string): Promise<FolderDetail> {
   return request<FolderDetail>(`/api/folders/${encodeURIComponent(id)}`);
 }
 
-export async function createFolder(name: string, parentId: string | null): Promise<FolderDto> {
+export async function createFolder(
+  name: string,
+  parentId: string | null,
+  workspaceId?: string | null,
+): Promise<FolderDto> {
   return request<FolderDto>("/api/folders", {
     method: "POST",
-    json: { name, parent_id: parentId },
+    json: { name, parent_id: parentId, workspace_id: workspaceId ?? undefined },
   });
 }
 
@@ -291,9 +296,11 @@ export async function uploadFile(
   file: File,
   parentId: string | null,
   thumbnail?: string | null,
+  workspaceId?: string | null,
 ): Promise<FileDto> {
   const fd = new FormData();
   if (parentId) fd.append("parent_id", parentId);
+  if (workspaceId) fd.append("workspace_id", workspaceId);
   if (thumbnail) fd.append("thumbnail", thumbnail);
   fd.append("file", file, file.name);
   return request<FileDto>("/api/files", {
@@ -469,7 +476,9 @@ export async function transferWorkspace(id: string, newOwnerId: string): Promise
 export async function searchAll(
   query: string,
   signal?: AbortSignal,
+  workspaceId?: string | null,
 ): Promise<ListResp> {
   const params = new URLSearchParams({ q: query, limit: "50" });
+  if (workspaceId) params.set("workspace", workspaceId);
   return request<ListResp>(`/api/search?${params.toString()}`, { signal });
 }

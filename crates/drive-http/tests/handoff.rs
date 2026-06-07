@@ -9,7 +9,7 @@ use axum::{
 };
 use drive_auth::{hash_password, AuthState};
 use drive_core::{Backend, Config};
-use drive_db::{Db, FileRepo, NewFile, NewUser, UserRepo};
+use drive_db::{Db, FileRepo, NewFile, NewUser, UserRepo, WorkspaceKind, WorkspaceRepo};
 use drive_http::{router, HttpState};
 use drive_storage::Storage;
 use drive_wopi::WopiState;
@@ -105,6 +105,14 @@ async fn owner_id(state: &HttpState) -> String {
 
 async fn seed_file(state: &HttpState, name: &str, content_type: &str) -> String {
     let owner = owner_id(state).await;
+    let ws = WorkspaceRepo::new(&state.db)
+        .list_for_user(&owner)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|w| matches!(w.kind, WorkspaceKind::Personal))
+        .expect("seeded user must have a Personal workspace")
+        .id;
     let id = ulid::Ulid::new().to_string();
     let f = FileRepo::new(&state.db)
         .insert(&NewFile {
@@ -115,6 +123,7 @@ async fn seed_file(state: &HttpState, name: &str, content_type: &str) -> String 
             content_type: Some(content_type.into()),
             etag: None,
             owner_id: owner,
+            workspace_id: ws,
             thumbnail: None,
         })
         .await

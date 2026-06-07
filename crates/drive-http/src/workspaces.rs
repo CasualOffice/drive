@@ -332,6 +332,39 @@ async fn list_members(
     }))
 }
 
+/// Resolves which workspace a write should target. `candidate` is the
+/// caller-supplied id (query param, form field, body). When present we
+/// validate membership; when absent we fall back to the caller's Personal
+/// workspace. Returns the workspace id to bind on the new row.
+///
+/// Errors:
+/// - `Forbidden` — candidate workspace exists but caller is not a member.
+/// - `NotFound`  — caller has no Personal workspace (shouldn't happen post-0006).
+pub(crate) async fn resolve_active_workspace(
+    db: &drive_db::Db,
+    user_id: &str,
+    candidate: Option<&str>,
+) -> Result<String, WsError> {
+    if let Some(id) = candidate.filter(|s| !s.is_empty()) {
+        let role = WorkspaceMemberRepo::new(db)
+            .role_of(id, user_id)
+            .await
+            .map_err(|e| WsError::Internal(e.to_string()))?;
+        if role.is_none() {
+            return Err(WsError::Forbidden);
+        }
+        return Ok(id.to_string());
+    }
+    let mine = WorkspaceRepo::new(db)
+        .list_for_user(user_id)
+        .await
+        .map_err(|e| WsError::Internal(e.to_string()))?;
+    mine.into_iter()
+        .find(|w| matches!(w.kind, WorkspaceKind::Personal))
+        .map(|w| w.id)
+        .ok_or(WsError::NotFound)
+}
+
 fn sanitise_name(s: &str) -> Result<String, WsError> {
     let t = s.trim();
     if t.chars().count() < 2 || t.chars().count() > 60 {

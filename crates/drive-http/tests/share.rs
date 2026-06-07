@@ -9,7 +9,7 @@ use axum::{
 };
 use drive_auth::{hash_password, AuthState};
 use drive_core::{Backend, Config};
-use drive_db::{Db, FileRepo, NewFile, NewUser, UserRepo};
+use drive_db::{Db, FileRepo, NewFile, NewUser, UserRepo, WorkspaceKind, WorkspaceRepo};
 use drive_http::{router, HttpState};
 use drive_storage::Storage;
 use drive_wopi::WopiState;
@@ -95,6 +95,14 @@ async fn sign_in(app: &axum::Router) -> String {
 }
 
 async fn seed_file(state: &HttpState, owner_id: &str) -> String {
+    let ws = WorkspaceRepo::new(&state.db)
+        .list_for_user(owner_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|w| matches!(w.kind, WorkspaceKind::Personal))
+        .expect("seeded user must have a Personal workspace")
+        .id;
     let id = ulid::Ulid::new().to_string();
     let files = FileRepo::new(&state.db);
     let f = files
@@ -106,6 +114,7 @@ async fn seed_file(state: &HttpState, owner_id: &str) -> String {
             content_type: Some("application/pdf".into()),
             etag: Some("etag".into()),
             owner_id: owner_id.into(),
+            workspace_id: ws,
             thumbnail: None,
         })
         .await

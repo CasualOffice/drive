@@ -9,7 +9,9 @@ use axum::{
 };
 use drive_auth::{hash_password, AuthState};
 use drive_core::{Backend, Config};
-use drive_db::{Db, FileRepo, FolderRepo, NewFile, NewFolder, NewUser, UserRepo};
+use drive_db::{
+    Db, FileRepo, FolderRepo, NewFile, NewFolder, NewUser, UserRepo, WorkspaceKind, WorkspaceRepo,
+};
 use drive_http::{router, HttpState};
 use drive_storage::Storage;
 use drive_wopi::WopiState;
@@ -103,13 +105,26 @@ async fn owner_id(state: &HttpState) -> String {
         .id
 }
 
+async fn personal_ws(state: &HttpState, user_id: &str) -> String {
+    WorkspaceRepo::new(&state.db)
+        .list_for_user(user_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|w| matches!(w.kind, WorkspaceKind::Personal))
+        .expect("seeded user must have a Personal workspace")
+        .id
+}
+
 async fn seed(state: &HttpState) {
     let owner = owner_id(state).await;
+    let ws = personal_ws(state, &owner).await;
     FolderRepo::new(&state.db)
         .insert(&NewFolder {
             parent_id: None,
             name: "Projects".into(),
             owner_id: owner.clone(),
+            workspace_id: ws.clone(),
         })
         .await
         .unwrap();
@@ -128,6 +143,7 @@ async fn seed(state: &HttpState) {
                 content_type: None,
                 etag: None,
                 owner_id: owner.clone(),
+                workspace_id: ws.clone(),
                 thumbnail: None,
             })
             .await
@@ -238,6 +254,7 @@ async fn search_excludes_other_users_files() {
         })
         .await
         .unwrap();
+    let other_ws = personal_ws(&state, &other.id).await;
     FileRepo::new(&state.db)
         .insert(&NewFile {
             id: ulid::Ulid::new().to_string(),
@@ -247,6 +264,7 @@ async fn search_excludes_other_users_files() {
             content_type: None,
             etag: None,
             owner_id: other.id,
+            workspace_id: other_ws,
             thumbnail: None,
         })
         .await
@@ -269,8 +287,10 @@ async fn search_excludes_trashed_files() {
     let state = fixture().await;
     seed(&state).await;
     // Trash one of the matching files.
+    let oid = owner_id(&state).await;
+    let ws = personal_ws(&state, &oid).await;
     let f = FileRepo::new(&state.db)
-        .search(&owner_id(&state).await, "Q3", 10)
+        .search(&ws, "Q3", 10)
         .await
         .unwrap()
         .into_iter()

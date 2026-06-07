@@ -19,6 +19,10 @@ pub struct File {
     pub etag: Option<String>,
     pub version: u32,
     pub owner_id: String,
+    /// Workspace this file lives in. Pipeline §8.8. Null for legacy rows
+    /// that predate the migration whose owner is also missing a Personal
+    /// workspace; otherwise always set.
+    pub workspace_id: Option<String>,
     pub trashed_at: Option<time::OffsetDateTime>,
     pub original_parent_id: Option<String>,
     pub created_at: time::OffsetDateTime,
@@ -37,6 +41,7 @@ pub struct NewFile {
     pub content_type: Option<String>,
     pub etag: Option<String>,
     pub owner_id: String,
+    pub workspace_id: String,
     pub thumbnail: Option<String>,
 }
 
@@ -58,8 +63,8 @@ impl<'a> FileRepo<'a> {
         let now_s = ts(now);
         let size_i = i64::try_from(new.size).unwrap_or(i64::MAX);
         sqlx::query(
-            "INSERT INTO files (id, parent_id, name, size, content_type, etag, owner_id, created_at, modified_at, thumbnail) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO files (id, parent_id, name, size, content_type, etag, owner_id, created_at, modified_at, thumbnail, workspace_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&new.id)
         .bind(&new.parent_id)
@@ -71,6 +76,7 @@ impl<'a> FileRepo<'a> {
         .bind(&now_s)
         .bind(&now_s)
         .bind(&new.thumbnail)
+        .bind(&new.workspace_id)
         .execute(self.db.pool())
         .await?;
         Ok(File {
@@ -82,6 +88,7 @@ impl<'a> FileRepo<'a> {
             etag: new.etag.clone(),
             version: 1,
             owner_id: new.owner_id.clone(),
+            workspace_id: Some(new.workspace_id.clone()),
             trashed_at: None,
             original_parent_id: None,
             created_at: now,
@@ -93,7 +100,7 @@ impl<'a> FileRepo<'a> {
     pub async fn find_by_id(&self, id: &str) -> Result<File, DbError> {
         let row = sqlx::query(
             "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
-                    trashed_at, original_parent_id, created_at, modified_at, thumbnail \
+                    workspace_id, trashed_at, original_parent_id, created_at, modified_at, thumbnail \
              FROM files WHERE id = ?",
         )
         .bind(id)
@@ -111,7 +118,7 @@ impl<'a> FileRepo<'a> {
         let rows = match parent_id {
             Some(pid) => sqlx::query(
                 "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
-                        trashed_at, original_parent_id, created_at, modified_at, thumbnail \
+                        workspace_id, trashed_at, original_parent_id, created_at, modified_at, thumbnail \
                  FROM files \
                  WHERE parent_id = ? AND owner_id = ? AND trashed_at IS NULL \
                  ORDER BY name ASC",
@@ -120,7 +127,7 @@ impl<'a> FileRepo<'a> {
             .bind(owner_id),
             None => sqlx::query(
                 "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
-                        trashed_at, original_parent_id, created_at, modified_at, thumbnail \
+                        workspace_id, trashed_at, original_parent_id, created_at, modified_at, thumbnail \
                  FROM files \
                  WHERE parent_id IS NULL AND owner_id = ? AND trashed_at IS NULL \
                  ORDER BY name ASC",
@@ -132,24 +139,68 @@ impl<'a> FileRepo<'a> {
         rows.iter().map(row_to_file).collect()
     }
 
-    /// Case-insensitive substring search by display `name`. Owner-scoped,
-    /// excludes trashed files. Returns up to `limit` rows, name-sorted.
-    /// Spec: docs/ux/12-search-surface.md.
+    /// Same as `list_children`, but scoped to a specific workspace
+    /// instead of owner. Backs the workspace-aware file browser
+    /// (pipeline §8.8). Trashed rows excluded.
+    pub async fn list_children_in_workspace(
+        &self,
+        parent_id: Option<&str>,
+        workspace_id: &str,
+    ) -> Result<Vec<File>, DbError> {
+        let rows = match parent_id {
+            Some(pid) => sqlx::query(
+                "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
+                        workspace_id, trashed_at, original_parent_id, created_at, modified_at, thumbnail \
+                 FROM files \
+                 WHERE parent_id = ? AND workspace_id = ? AND trashed_at IS NULL \
+                 ORDER BY name ASC",
+            )
+            .bind(pid)
+            .bind(workspace_id),
+            None => sqlx::query(
+                "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
+                        workspace_id, trashed_at, original_parent_id, created_at, modified_at, thumbnail \
+                 FROM files \
+                 WHERE parent_id IS NULL AND workspace_id = ? AND trashed_at IS NULL \
+                 ORDER BY name ASC",
+            )
+            .bind(workspace_id),
+        }
+        .fetch_all(self.db.pool())
+        .await?;
+        rows.iter().map(row_to_file).collect()
+    }
+
+    /// Sum of file sizes in one workspace. Phase 2 quota source.
+    pub async fn workspace_used_bytes(&self, workspace_id: &str) -> Result<u64, DbError> {
+        let n: Option<i64> = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(size), 0) FROM files \
+             WHERE workspace_id = ? AND trashed_at IS NULL",
+        )
+        .bind(workspace_id)
+        .fetch_one(self.db.pool())
+        .await?;
+        Ok(u64::try_from(n.unwrap_or(0)).unwrap_or(0))
+    }
+
+    /// Case-insensitive substring search by display `name`. Scoped to a
+    /// workspace, excludes trashed files. Returns up to `limit` rows,
+    /// name-sorted. Spec: docs/ux/12-search-surface.md.
     pub async fn search(
         &self,
-        owner_id: &str,
+        workspace_id: &str,
         query: &str,
         limit: i64,
     ) -> Result<Vec<File>, DbError> {
         let pattern = format!("%{}%", query.to_lowercase());
         let rows = sqlx::query(
             "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
-                    trashed_at, original_parent_id, created_at, modified_at, thumbnail \
+                    workspace_id, trashed_at, original_parent_id, created_at, modified_at, thumbnail \
              FROM files \
-             WHERE owner_id = ? AND trashed_at IS NULL AND LOWER(name) LIKE ? \
+             WHERE workspace_id = ? AND trashed_at IS NULL AND LOWER(name) LIKE ? \
              ORDER BY name ASC LIMIT ?",
         )
-        .bind(owner_id)
+        .bind(workspace_id)
         .bind(pattern)
         .bind(limit.clamp(1, 200))
         .fetch_all(self.db.pool())
@@ -242,6 +293,10 @@ fn row_to_file(row: &sqlx::any::AnyRow) -> Result<File, DbError> {
         etag: row.get("etag"),
         version: u32::try_from(row.get::<i64, _>("version")).unwrap_or(1),
         owner_id: row.get("owner_id"),
+        workspace_id: row
+            .try_get::<Option<String>, _>("workspace_id")
+            .ok()
+            .flatten(),
         trashed_at: row
             .try_get::<Option<String>, _>("trashed_at")?
             .map(parse_ts)

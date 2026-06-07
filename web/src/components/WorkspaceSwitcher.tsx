@@ -5,10 +5,10 @@
  * member of, groups by kind (Personal / Team), and exposes a
  * "+ Create team workspace" footer that opens a tiny inline form.
  *
- * Phase 1 keeps file scoping per-user (selecting a workspace doesn't
- * yet re-scope the file list — that's Phase 2). Selection still
- * persists in localStorage as `cd-workspace-id-v1` so the dropdown
- * remembers across reloads.
+ * Active workspace state lives in WorkspaceContext (backed by
+ * localStorage `cd-workspace-id-v1`). Picking a workspace pushes the
+ * id into the context, which re-scopes the Files list, search, upload,
+ * and folder-create requests in lock-step.
  */
 import { useEffect, useRef, useState } from "react";
 import { Building2, Check, ChevronDown, Plus } from "lucide-react";
@@ -21,18 +21,12 @@ import {
   listWorkspaces,
   type Workspace,
 } from "../api/client.ts";
-
-const CURRENT_KEY = "cd-workspace-id-v1";
+import { useActiveWorkspaceId, useWorkspaceMutator } from "../state/WorkspaceContext.tsx";
 
 export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => void }) {
   const [list, setList] = useState<Workspace[] | null>(null);
-  const [currentId, setCurrentId] = useState<string | null>(() => {
-    try {
-      return window.localStorage.getItem(CURRENT_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const currentId = useActiveWorkspaceId();
+  const setActive = useWorkspaceMutator();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -49,8 +43,7 @@ export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => v
       setList(r.workspaces);
       if (!currentId || !r.workspaces.some((w) => w.id === currentId)) {
         const next = r.current_id || r.workspaces[0]?.id || null;
-        setCurrentId(next);
-        if (next) writeCurrent(next);
+        setActive(next);
         if (initial && next && onChange) {
           const w = r.workspaces.find((x) => x.id === next);
           if (w) onChange(w);
@@ -66,8 +59,7 @@ export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => v
   }
 
   function pick(w: Workspace) {
-    setCurrentId(w.id);
-    writeCurrent(w.id);
+    setActive(w.id);
     setOpen(false);
     onChange?.(w);
   }
@@ -254,14 +246,6 @@ function Sep() {
       style={{ height: 1, background: "var(--line)", margin: "4px 6px" }}
     />
   );
-}
-
-function writeCurrent(id: string) {
-  try {
-    window.localStorage.setItem(CURRENT_KEY, id);
-  } catch {
-    /* ignored */
-  }
 }
 
 function triggerStyle(): React.CSSProperties {

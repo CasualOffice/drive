@@ -3,7 +3,7 @@
 
 use drive_db::{
     Db, DbError, FileRepo, FolderRepo, NewFile, NewFolder, NewSession, NewUser, SessionRepo,
-    UserRepo,
+    UserRepo, WorkspaceKind, WorkspaceRepo,
 };
 
 async fn fresh_db() -> Db {
@@ -110,10 +110,24 @@ async fn seed_admin(db: &Db) -> String {
         .id
 }
 
+/// Returns the auto-created Personal workspace id for a freshly seeded user.
+/// UserRepo::insert mandatorily creates one, so this is infallible in tests.
+async fn personal_ws(db: &Db, user_id: &str) -> String {
+    WorkspaceRepo::new(db)
+        .list_for_user(user_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|w| matches!(w.kind, WorkspaceKind::Personal))
+        .expect("user must have a Personal workspace")
+        .id
+}
+
 #[tokio::test]
 async fn folders_create_list_rename_move_trash_restore() {
     let db = fresh_db().await;
     let owner = seed_admin(&db).await;
+    let ws = personal_ws(&db, &owner).await;
     let repo = FolderRepo::new(&db);
 
     let f1 = repo
@@ -121,6 +135,7 @@ async fn folders_create_list_rename_move_trash_restore() {
             parent_id: None,
             name: "Reports".into(),
             owner_id: owner.clone(),
+            workspace_id: ws.clone(),
         })
         .await
         .unwrap();
@@ -129,6 +144,7 @@ async fn folders_create_list_rename_move_trash_restore() {
             parent_id: Some(f1.id.clone()),
             name: "Q2".into(),
             owner_id: owner.clone(),
+            workspace_id: ws.clone(),
         })
         .await
         .unwrap();
@@ -161,6 +177,7 @@ async fn folders_create_list_rename_move_trash_restore() {
 async fn files_insert_list_rename_overwrite_trash_restore() {
     let db = fresh_db().await;
     let owner = seed_admin(&db).await;
+    let ws = personal_ws(&db, &owner).await;
     let folders = FolderRepo::new(&db);
     let files = FileRepo::new(&db);
     let root_folder = folders
@@ -168,6 +185,7 @@ async fn files_insert_list_rename_overwrite_trash_restore() {
             parent_id: None,
             name: "Home".into(),
             owner_id: owner.clone(),
+            workspace_id: ws.clone(),
         })
         .await
         .unwrap();
@@ -184,6 +202,7 @@ async fn files_insert_list_rename_overwrite_trash_restore() {
             ),
             etag: None,
             owner_id: owner.clone(),
+            workspace_id: ws.clone(),
             thumbnail: None,
         })
         .await
@@ -259,4 +278,102 @@ async fn sessions_janitor_clears_expired() {
     assert_eq!(cleaned, 1);
     assert!(sessions.get("live").await.is_ok());
     assert!(matches!(sessions.get("dead").await, Err(DbError::NotFound)));
+}
+
+#[tokio::test]
+async fn files_and_folders_are_workspace_scoped() {
+    // Phase-2 invariant: list/search by workspace returns only rows
+    // bound to that workspace, even when two workspaces share an owner.
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let personal = personal_ws(&db, &owner).await;
+    let team = WorkspaceRepo::new(&db)
+        .insert("Team", WorkspaceKind::Team, &owner)
+        .await
+        .unwrap()
+        .id;
+
+    let folders = FolderRepo::new(&db);
+    let files = FileRepo::new(&db);
+
+    folders
+        .insert(&NewFolder {
+            parent_id: None,
+            name: "Personal-only".into(),
+            owner_id: owner.clone(),
+            workspace_id: personal.clone(),
+        })
+        .await
+        .unwrap();
+    folders
+        .insert(&NewFolder {
+            parent_id: None,
+            name: "Team-only".into(),
+            owner_id: owner.clone(),
+            workspace_id: team.clone(),
+        })
+        .await
+        .unwrap();
+
+    files
+        .insert(&NewFile {
+            id: ulid::Ulid::new().to_string(),
+            parent_id: None,
+            name: "personal.docx".into(),
+            size: 10,
+            content_type: None,
+            etag: None,
+            owner_id: owner.clone(),
+            workspace_id: personal.clone(),
+            thumbnail: None,
+        })
+        .await
+        .unwrap();
+    files
+        .insert(&NewFile {
+            id: ulid::Ulid::new().to_string(),
+            parent_id: None,
+            name: "team.docx".into(),
+            size: 25,
+            content_type: None,
+            etag: None,
+            owner_id: owner.clone(),
+            workspace_id: team.clone(),
+            thumbnail: None,
+        })
+        .await
+        .unwrap();
+
+    let p_folders = folders
+        .list_children_in_workspace(None, &personal)
+        .await
+        .unwrap();
+    let t_folders = folders
+        .list_children_in_workspace(None, &team)
+        .await
+        .unwrap();
+    assert_eq!(p_folders.len(), 1);
+    assert_eq!(p_folders[0].name, "Personal-only");
+    assert_eq!(t_folders.len(), 1);
+    assert_eq!(t_folders[0].name, "Team-only");
+
+    let p_files = files
+        .list_children_in_workspace(None, &personal)
+        .await
+        .unwrap();
+    let t_files = files.list_children_in_workspace(None, &team).await.unwrap();
+    assert_eq!(p_files.len(), 1);
+    assert_eq!(p_files[0].name, "personal.docx");
+    assert_eq!(t_files.len(), 1);
+    assert_eq!(t_files[0].name, "team.docx");
+
+    let p_search = files.search(&personal, "docx", 50).await.unwrap();
+    let t_search = files.search(&team, "docx", 50).await.unwrap();
+    assert_eq!(p_search.len(), 1);
+    assert_eq!(p_search[0].name, "personal.docx");
+    assert_eq!(t_search.len(), 1);
+    assert_eq!(t_search[0].name, "team.docx");
+
+    assert_eq!(files.workspace_used_bytes(&personal).await.unwrap(), 10);
+    assert_eq!(files.workspace_used_bytes(&team).await.unwrap(), 25);
 }

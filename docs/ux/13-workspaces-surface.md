@@ -2,7 +2,9 @@
 
 Companion to `02-surface-v2.md` + `03-settings-surface.md`. Closes pipeline §8 (multi-user / teams) **phase 1** — every user gets a Personal workspace plus zero-or-more Team workspaces, and Team workspace owners can transfer ownership.
 
-> **Phase 1 scope** (this session): model + sidebar switcher + Settings → Workspace card + ownership transfer between known users. Files stay `owner_id`-scoped in queries; full workspace-scoped permission checks + the `Personal/Team` filter on every list ship in Phase 2.
+> **Phase 1** (shipped): model + sidebar switcher + Settings → Workspace card + ownership transfer between known users.
+>
+> **Phase 2** (shipped — migration `0006`): `files.workspace_id` + `folders.workspace_id` columns, backfilled from the owner's Personal workspace. Every list/search/upload/create path now scopes by `workspace_id`. The sidebar switcher publishes through `WorkspaceContext` (React) so Files, search, and uploads re-fetch under the new scope in the same render. Membership is enforced via `WorkspaceMemberRepo::role_of`: callers can only operate inside workspaces where they hold an Owner or Member row. Cross-workspace isolation is covered by `files_and_folders_are_workspace_scoped` in `crates/drive-db/tests/repos.rs`.
 
 ## Tiers
 
@@ -103,10 +105,21 @@ Replaces the "Coming in v0.2" panel under Settings → Workspace. For the curren
 | `workspace.transfer_owner` | user | workspace (metadata: from_user_id, to_user_id) |
 | `workspace.delete` | user | workspace |
 
-## Out of scope (Phase 2 / v0.2)
+## Scope endpoints
 
-- File / folder rows scoped by `workspace_id` in queries (and the migration that backfills + adds the column).
+| Endpoint | How the workspace is chosen |
+|---|---|
+| `GET /api/folders/root/children` | `?workspace=<id>` query, defaults to caller's Personal |
+| `GET /api/search?q=…` | `?workspace=<id>` query, defaults to caller's Personal |
+| `POST /api/folders` | `workspace_id` body field, defaults to Personal |
+| `POST /api/files` | `workspace_id` multipart field, defaults to Personal |
+| `GET /api/folders/{id}` | derived from the folder row; membership of `folder.workspace_id` is enforced |
+
+A caller-supplied id is rejected with **403** if the caller is not a member of that workspace. Rows created before the 0006 migration (workspace_id NULL) fall back to the owner-scoped check so the upgrade can't 403 legacy folders.
+
+## Out of scope (v0.2+)
+
 - Invitations + magic-link onboarding for new members.
-- Admin / Editor / Viewer roles (v0.1.5 is just Owner / Member).
-- Personal-workspace quotas separate from team quotas.
+- Admin / Editor / Viewer role tiers (v0.1.5 is just Owner / Member; per-action gates beyond membership land with RBAC).
+- Per-workspace storage quotas separate from per-user caps.
 - Sharing files **across** workspaces (today share-links are token-scoped; that stays the cross-workspace primitive).

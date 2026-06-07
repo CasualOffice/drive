@@ -466,16 +466,30 @@ pub(crate) fn check_upload_extension(filename: &str) -> Result<(), FilesError> {
 
 // ─── Handlers ───────────────────────────────────────────────────────────
 
+#[derive(Deserialize)]
+struct WorkspaceQuery {
+    #[serde(default)]
+    workspace: Option<String>,
+}
+
 async fn list_root(
     State(s): State<HttpState>,
     session: AuthSession,
+    axum::extract::Query(q): axum::extract::Query<WorkspaceQuery>,
 ) -> Result<Json<ListResp>, FilesError> {
+    let ws = crate::workspaces::resolve_active_workspace(
+        &s.db,
+        &session.user_id,
+        q.workspace.as_deref(),
+    )
+    .await
+    .map_err(|e| FilesError::Internal(format!("workspace: {e:?}")))?;
     let folders = FolderRepo::new(&s.db)
-        .list_children(None, &session.user_id)
+        .list_children_in_workspace(None, &ws)
         .await
         .map_err(|e| FilesError::Internal(e.to_string()))?;
     let files = FileRepo::new(&s.db)
-        .list_children(None, &session.user_id)
+        .list_children_in_workspace(None, &ws)
         .await
         .map_err(|e| FilesError::Internal(e.to_string()))?;
     Ok(Json(ListResp {
@@ -499,16 +513,42 @@ async fn get_folder(
         .find_by_id(&id)
         .await
         .map_err(|_| FilesError::NotFound)?;
-    ensure_owner(&folder.owner_id, &session)?;
+    // Auth: workspace member, falling back to owner check for pre-0006 rows
+    // whose workspace_id is still NULL.
+    if let Some(ws) = folder.workspace_id.as_deref() {
+        let role = drive_db::WorkspaceMemberRepo::new(&s.db)
+            .role_of(ws, &session.user_id)
+            .await
+            .map_err(|e| FilesError::Internal(e.to_string()))?;
+        if role.is_none() {
+            return Err(FilesError::Forbidden);
+        }
+    } else {
+        ensure_owner(&folder.owner_id, &session)?;
+    }
 
-    let folders = FolderRepo::new(&s.db)
-        .list_children(Some(&folder.id), &session.user_id)
-        .await
-        .map_err(|e| FilesError::Internal(e.to_string()))?;
-    let files = FileRepo::new(&s.db)
-        .list_children(Some(&folder.id), &session.user_id)
-        .await
-        .map_err(|e| FilesError::Internal(e.to_string()))?;
+    let children_folders = if let Some(ws) = folder.workspace_id.as_deref() {
+        FolderRepo::new(&s.db)
+            .list_children_in_workspace(Some(&folder.id), ws)
+            .await
+    } else {
+        FolderRepo::new(&s.db)
+            .list_children(Some(&folder.id), &session.user_id)
+            .await
+    }
+    .map_err(|e| FilesError::Internal(e.to_string()))?;
+    let children_files = if let Some(ws) = folder.workspace_id.as_deref() {
+        FileRepo::new(&s.db)
+            .list_children_in_workspace(Some(&folder.id), ws)
+            .await
+    } else {
+        FileRepo::new(&s.db)
+            .list_children(Some(&folder.id), &session.user_id)
+            .await
+    }
+    .map_err(|e| FilesError::Internal(e.to_string()))?;
+    let folders = children_folders;
+    let files = children_files;
     Ok(Json(FolderDetail {
         folder: folder.into(),
         children: ListResp {
@@ -522,6 +562,8 @@ async fn get_folder(
 struct CreateFolderBody {
     parent_id: Option<String>,
     name: String,
+    #[serde(default)]
+    workspace_id: Option<String>,
 }
 
 async fn create_folder(
@@ -539,11 +581,20 @@ async fn create_folder(
         ensure_owner(&parent.owner_id, &session)?;
     }
 
+    let workspace_id = crate::workspaces::resolve_active_workspace(
+        &s.db,
+        &session.user_id,
+        body.workspace_id.as_deref(),
+    )
+    .await
+    .map_err(|e| FilesError::Internal(format!("workspace: {e:?}")))?;
+
     let f = FolderRepo::new(&s.db)
         .insert(&NewFolder {
             parent_id: body.parent_id,
             name,
             owner_id: session.user_id.clone(),
+            workspace_id,
         })
         .await
         .map_err(|e| FilesError::Internal(e.to_string()))?;
@@ -578,6 +629,7 @@ async fn upload_file(
     }
 
     let mut parent_id: Option<String> = None;
+    let mut workspace_id_field: Option<String> = None;
     let mut file_bytes: Option<Bytes> = None;
     let mut filename: Option<String> = None;
     let mut content_type: Option<String> = None;
@@ -596,6 +648,15 @@ async fn upload_file(
                     .map_err(|e| FilesError::Validation(e.to_string()))?;
                 if !text.is_empty() {
                     parent_id = Some(text);
+                }
+            }
+            Some("workspace_id") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| FilesError::Validation(e.to_string()))?;
+                if !text.is_empty() {
+                    workspace_id_field = Some(text);
                 }
             }
             Some("file") => {
@@ -668,6 +729,14 @@ async fn upload_file(
         .await
         .map_err(|e| FilesError::Internal(e.to_string()))?;
 
+    let workspace_id = crate::workspaces::resolve_active_workspace(
+        &s.db,
+        &session.user_id,
+        workspace_id_field.as_deref(),
+    )
+    .await
+    .map_err(|e| FilesError::Internal(format!("workspace: {e:?}")))?;
+
     let file = FileRepo::new(&s.db)
         .insert(&NewFile {
             id,
@@ -683,6 +752,7 @@ async fn upload_file(
                 .or(content_type),
             etag: meta.etag,
             owner_id: session.user_id.clone(),
+            workspace_id,
             thumbnail,
         })
         .await

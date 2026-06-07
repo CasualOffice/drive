@@ -5,6 +5,7 @@ import { Recipient } from "./pages/Recipient.tsx";
 import { Setup } from "./pages/Setup.tsx";
 import { SignIn } from "./pages/SignIn.tsx";
 import { Shell } from "./pages/Shell.tsx";
+import { WorkspaceProvider } from "./state/WorkspaceContext.tsx";
 
 /** Public share-link path: `/s/<token>` — never gated by AuthContext. */
 function shareToken(): string | null {
@@ -33,7 +34,9 @@ function Router() {
 export function App() {
   return (
     <AuthProvider>
-      <Router />
+      <WorkspaceProvider>
+        <Router />
+      </WorkspaceProvider>
       <Toaster
         position="bottom-center"
         toastOptions={{
@@ -50,6 +53,6 @@ export function App() {
           },
         }}
       />
-    </AuthProvider>
+      </AuthProvider>
   );
 }
