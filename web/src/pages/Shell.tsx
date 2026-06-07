@@ -11,6 +11,7 @@ import { TopBar, type ViewMode } from "../components/TopBar.tsx";
 import { Activity } from "./Activity.tsx";
 import { Admin } from "./Admin.tsx";
 import { Files } from "./Files.tsx";
+import { Notes } from "./Notes.tsx";
 import { Settings } from "./Settings.tsx";
 
 export function Shell() {
@@ -132,6 +133,7 @@ export function Shell() {
               />
             </CenteredPane>
           )}
+          {nav === "notes" && <Notes />}
           {nav === "activity" && <Activity />}
           {nav === "admin" && <Admin onNavigate={(t) => setNav(t)} />}
           {nav === "settings" && <Settings />}

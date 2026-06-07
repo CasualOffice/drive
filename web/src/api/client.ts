@@ -557,6 +557,100 @@ export async function removeWorkspaceStorage(id: string): Promise<void> {
   });
 }
 
+// ─── Notes / Wiki — pipeline §8.11 ─────────────────────────────────────
+
+export interface NoteNode {
+  id: string;
+  parent_id: string | null;
+  title: string;
+  order_key: string;
+}
+
+export interface NoteBacklink {
+  id: string;
+  title: string;
+}
+
+export interface Note {
+  id: string;
+  workspace_id: string;
+  parent_id: string | null;
+  title: string;
+  body: string;
+  order_key: string;
+  created_at: string;
+  modified_at: string;
+  backlinks: NoteBacklink[];
+}
+
+export interface NotesTreeResp {
+  workspace_id: string;
+  nodes: NoteNode[];
+  trashed: NoteNode[];
+}
+
+export async function notesTree(workspaceId?: string | null): Promise<NotesTreeResp> {
+  const qs = workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : "";
+  return request<NotesTreeResp>(`/api/notes/tree${qs}`);
+}
+
+export async function noteGet(id: string): Promise<Note> {
+  return request<Note>(`/api/notes/${encodeURIComponent(id)}`);
+}
+
+export async function noteCreate(
+  title: string,
+  parentId?: string | null,
+  workspaceId?: string | null,
+): Promise<Note> {
+  return request<Note>("/api/notes", {
+    method: "POST",
+    json: {
+      title,
+      parent_id: parentId ?? undefined,
+      workspace_id: workspaceId ?? undefined,
+    },
+  });
+}
+
+export async function notePatch(
+  id: string,
+  patch: {
+    title?: string;
+    body?: string;
+    /** `null` moves to root; omit to leave unchanged. */
+    parent_id?: string | null;
+    order_key?: string;
+  },
+): Promise<Note> {
+  return request<Note>(`/api/notes/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    json: patch,
+  });
+}
+
+export async function noteTrash(id: string): Promise<void> {
+  await request<void>(`/api/notes/${encodeURIComponent(id)}/trash`, { method: "POST" });
+}
+
+export async function noteRestore(id: string): Promise<void> {
+  await request<void>(`/api/notes/${encodeURIComponent(id)}/restore`, { method: "POST" });
+}
+
+export async function noteDelete(id: string): Promise<void> {
+  await request<void>(`/api/notes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function notesSearch(
+  q: string,
+  workspaceId?: string | null,
+  signal?: AbortSignal,
+): Promise<NoteNode[]> {
+  const params = new URLSearchParams({ q });
+  if (workspaceId) params.set("workspace", workspaceId);
+  return request<NoteNode[]>(`/api/notes/search?${params.toString()}`, { signal });
+}
+
 // ─── Global search ────────────────────────────────────────────────────
 
 export async function searchAll(

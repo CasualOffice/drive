@@ -5,6 +5,7 @@ import {
   FolderClosed,
   Gauge,
   Home,
+  NotebookPen,
   Plus,
   Settings,
   Share2,
@@ -20,6 +21,7 @@ import { WorkspaceSwitcher as RealWorkspaceSwitcher } from "./WorkspaceSwitcher.
 
 export type NavId =
   | "home"
+  | "notes"
   | "recent"
   | "starred"
   | "shared"
@@ -38,6 +40,7 @@ interface NavItem {
 
 const LIBRARY: NavItem[] = [
   { id: "home", label: "My Drive", icon: Home },
+  { id: "notes", label: "Notes", icon: NotebookPen },
   { id: "recent", label: "Recent", icon: Clock, comingSoon: true },
   { id: "starred", label: "Starred", icon: Star, comingSoon: true },
   { id: "shared", label: "Shared", icon: Share2, comingSoon: true },

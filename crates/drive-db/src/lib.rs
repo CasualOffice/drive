@@ -11,6 +11,7 @@ mod audit;
 mod error;
 mod files;
 mod folders;
+mod notes;
 mod pool;
 mod sessions;
 mod share_links;
@@ -22,6 +23,10 @@ pub use audit::{AuditEvent, AuditRepo, NewAuditEvent};
 pub use error::DbError;
 pub use files::{File, FileRepo, NewFile};
 pub use folders::{Folder, FolderRepo, NewFolder};
+pub use notes::{
+    order_key_between, parse_wiki_links, NewNote, Note, NoteBacklink, NoteLinksRepo, NoteNode,
+    NotesRepo,
+};
 pub use pool::{Db, DbBackend};
 pub use sessions::{NewSession, Session, SessionRepo};
 pub use share_links::{NewShareLink, ShareLink, ShareLinkRepo};

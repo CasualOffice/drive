@@ -31,8 +31,28 @@ interface DemoState {
   files: FileDto[];
   shares: DemoShare[];
   events: DemoEvent[];
+  notes?: DemoNote[];
+  noteLinks?: DemoNoteLink[];
   nextId: number;
   username?: string;
+}
+
+interface DemoNote {
+  id: string;
+  workspace_id: string;
+  parent_id: string | null;
+  title: string;
+  body: string;
+  order_key: string;
+  trashed_at: string | null;
+  created_at: string;
+  modified_at: string;
+}
+
+interface DemoNoteLink {
+  note_id: string;
+  target_title: string; // lowercased
+  target_id: string | null;
 }
 
 interface DemoEvent {
@@ -830,6 +850,211 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
       download_url: `/api/share/${token}/download`,
       permissions: share.permissions,
     } as unknown as T;
+  }
+
+  // ── Notes / Wiki — pipeline §8.11 ────────────────────────────────
+  // Minimal in-memory shim so the demo /notes surface works end-to-end
+  // without a server. State is namespaced under state.notes / noteLinks
+  // and persists with everything else via persist().
+  {
+    const notes = (state.notes ??= []);
+    const links = (state.noteLinks ??= []);
+    const activeWsCandidate =
+      (typeof window !== "undefined"
+        ? window.localStorage.getItem("cd-workspace-id-v1")
+        : null) || demoWorkspaces[0].id;
+
+    function indexLinks(noteId: string, body: string, workspaceId: string) {
+      const set = new Set<string>();
+      const re = /\[\[([^\]\n]+)\]\]/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(body)) !== null) {
+        const t = m[1].trim().toLowerCase();
+        if (t) set.add(t);
+      }
+      const filtered = links.filter((l) => l.note_id !== noteId);
+      links.length = 0;
+      links.push(...filtered);
+      const byTitle = new Map<string, string>();
+      for (const n of notes) {
+        if (n.workspace_id === workspaceId && !n.trashed_at) {
+          byTitle.set(n.title.toLowerCase(), n.id);
+        }
+      }
+      for (const t of set) {
+        links.push({ note_id: noteId, target_title: t, target_id: byTitle.get(t) ?? null });
+      }
+    }
+
+    function backlinksFor(noteId: string, title: string): { id: string; title: string }[] {
+      const titleLower = title.toLowerCase();
+      const ids = new Set<string>();
+      for (const l of links) {
+        if (l.note_id === noteId) continue;
+        if (l.target_id === noteId || l.target_title === titleLower) {
+          ids.add(l.note_id);
+        }
+      }
+      const out: { id: string; title: string }[] = [];
+      for (const id of ids) {
+        const n = notes.find((x) => x.id === id && !x.trashed_at);
+        if (n) out.push({ id: n.id, title: n.title });
+      }
+      return out.slice(0, 50);
+    }
+
+    function toDto(n: DemoNote): Record<string, unknown> {
+      return {
+        id: n.id,
+        workspace_id: n.workspace_id,
+        parent_id: n.parent_id,
+        title: n.title,
+        body: n.body,
+        order_key: n.order_key,
+        created_at: n.created_at,
+        modified_at: n.modified_at,
+        backlinks: backlinksFor(n.id, n.title),
+      };
+    }
+
+    function nodeDto(n: DemoNote) {
+      return { id: n.id, parent_id: n.parent_id, title: n.title, order_key: n.order_key };
+    }
+
+    if (p === "/api/notes/tree" && method === "GET") {
+      const ws = url.searchParams.get("workspace") ?? activeWsCandidate;
+      const live = notes
+        .filter((n) => n.workspace_id === ws && !n.trashed_at)
+        .sort((a, b) => a.order_key.localeCompare(b.order_key));
+      const trashed = notes
+        .filter((n) => n.workspace_id === ws && n.trashed_at)
+        .sort((a, b) => (b.trashed_at ?? "").localeCompare(a.trashed_at ?? ""));
+      return {
+        workspace_id: ws,
+        nodes: live.map(nodeDto),
+        trashed: trashed.map(nodeDto),
+      } as unknown as T;
+    }
+
+    if (p === "/api/notes/search" && method === "GET") {
+      const q = (url.searchParams.get("q") ?? "").toLowerCase();
+      if (!q) return [] as unknown as T;
+      const ws = url.searchParams.get("workspace") ?? activeWsCandidate;
+      const hits = notes
+        .filter(
+          (n) =>
+            n.workspace_id === ws &&
+            !n.trashed_at &&
+            (n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q)),
+        )
+        .slice(0, 50)
+        .map(nodeDto);
+      return hits as unknown as T;
+    }
+
+    if (p === "/api/notes" && method === "POST") {
+      const body = init.json as {
+        workspace_id?: string;
+        parent_id?: string | null;
+        title: string;
+      };
+      const ws = body.workspace_id ?? activeWsCandidate;
+      const title = (body.title ?? "").trim() || "Untitled";
+      const now = nowIso();
+      const note: DemoNote = {
+        id: `note_${++state.nextId}`,
+        workspace_id: ws,
+        parent_id: body.parent_id ?? null,
+        title,
+        body: "",
+        order_key: `m${state.nextId.toString(36)}`,
+        trashed_at: null,
+        created_at: now,
+        modified_at: now,
+      };
+      notes.push(note);
+      // Resolve any dangling links to the new title.
+      const titleLower = title.toLowerCase();
+      for (const l of links) {
+        if (l.target_id === null && l.target_title === titleLower) {
+          l.target_id = note.id;
+        }
+      }
+      emitDemo({
+        actor_id: null,
+        actor_username: state.username ?? "demo",
+        action: "notes.create",
+        target_kind: "note",
+        target_id: note.id,
+        target_name: note.title,
+        ip_address: null,
+        metadata: null,
+      });
+      persist();
+      return toDto(note) as unknown as T;
+    }
+
+    const noteMatch = /^\/api\/notes\/([^/]+)(?:\/(trash|restore))?$/.exec(p);
+    if (noteMatch) {
+      const id = noteMatch[1];
+      const action = noteMatch[2];
+      const n = notes.find((x) => x.id === id);
+      if (!n) throw makeError(404, "note not found");
+
+      if (!action && method === "GET") {
+        return toDto(n) as unknown as T;
+      }
+      if (!action && method === "PATCH") {
+        const body = init.json as {
+          title?: string;
+          body?: string;
+          parent_id?: string | null;
+          order_key?: string;
+        };
+        if (body.title !== undefined) n.title = body.title.trim() || n.title;
+        if (body.parent_id !== undefined) n.parent_id = body.parent_id ?? null;
+        if (body.order_key !== undefined) n.order_key = body.order_key;
+        if (body.body !== undefined) {
+          if (body.body.length > 1_048_576) throw makeError(413, "note body too large");
+          n.body = body.body;
+          indexLinks(n.id, n.body, n.workspace_id);
+        }
+        n.modified_at = nowIso();
+        emitDemo({
+          actor_id: null,
+          actor_username: state.username ?? "demo",
+          action: body.body !== undefined ? "notes.edit" : "notes.update",
+          target_kind: "note",
+          target_id: n.id,
+          target_name: n.title,
+          ip_address: null,
+          metadata: null,
+        });
+        persist();
+        return toDto(n) as unknown as T;
+      }
+      if (!action && method === "DELETE") {
+        const idx = notes.findIndex((x) => x.id === id);
+        if (idx !== -1) notes.splice(idx, 1);
+        for (let i = links.length - 1; i >= 0; i--) {
+          if (links[i].note_id === id) links.splice(i, 1);
+        }
+        persist();
+        return undefined as unknown as T;
+      }
+      if (action === "trash" && method === "POST") {
+        n.trashed_at = nowIso();
+        n.modified_at = n.trashed_at;
+        persist();
+        return undefined as unknown as T;
+      }
+      if (action === "restore" && method === "POST") {
+        n.trashed_at = null;
+        n.modified_at = nowIso();
+        persist();
+        return undefined as unknown as T;
+      }
+    }
   }
 
   throw makeError(501, `demo: route not implemented (${method} ${p})`);
