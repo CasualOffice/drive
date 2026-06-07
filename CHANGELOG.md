@@ -6,148 +6,280 @@ All notable changes to Casual Drive land here. Format follows
 
 ## [Unreleased]
 
-### Phase 1 — SPA (sign-in + shell + file list + upload)
-- New `web/` workspace (React 19 + Vite 7 + TypeScript 5 + Tailwind v4 +
-  Lucide on Inter Variable) — lifted the spike-05 scaffold + design
-  tokens, expanded into a runnable SPA.
-- `web/src/api/client.ts` — thin same-origin fetch wrapper with
-  `ApiError`, CSRF-token attach on non-safe methods, typed helpers for
-  every Phase-1 endpoint.
-- `web/src/auth/AuthContext.tsx` — bootstraps from `/api/me`, exposes
-  `signIn` / `signOut`, drives the `<Router>` choice between SignIn and
-  Shell.
-- SignIn card (surface §13): centred 360-px card, single password input,
-  primary button, Apple-style horizontal shake on wrong-password,
-  inline error, focus ring, reduced-motion respect.
-- App shell (surface §1, §2, §3): 240-px sidebar with active-stripe nav
-  rows (Home/Trash wired; Recent/Starred/Shared placeholders), 48-px
-  top bar with command-palette trigger (visual placeholder for Phase 2),
-  ThemeToggle (light/dark/system, persists), avatar menu with sign-out.
-- Files view (surface §5, flow §4 + §5 + §16): list view with
-  breadcrumbs, sort header, list-skeleton on load, FILE rows with
-  type-icon switch (folder / spreadsheet / document / image / generic),
-  tabular-numeral sizes, relative-time stamps. Upload button + drag-drop
-  drop-zone overlay; `U` keystroke opens the file picker. Ghost rows
-  while uploads stream.
-- `drive-http::spa` — embeds `web/dist/` at compile time via
-  `rust-embed`. App-origin fallback serves `index.html` for SPA routes;
-  hashed asset paths get `Cache-Control: public, max-age=31536000,
-  immutable`; missing asset paths honestly 404. SPA does NOT mount on
-  the user-content origin.
-- Verified end-to-end against the running binary: `/` 200+HTML,
-  `/sign-in` SPA-fallback 200+HTML, `/favicon.svg` 200 SVG,
-  `/assets/<missing>` honest 404, `/api/me` still returns JSON not the
-  SPA shell.
-- Build: 221 KB JS / 68 KB gzipped, 12 KB CSS / 4 KB gzipped — under
-  the < 150 KB shell-budget cited in spike #5.
+Phase 3 work — multi-tenant identity (OIDC), MS365 federation, real-time
+presence, sandboxed PDF/video thumbnail subprocess. Design briefs for all
+four landed under `docs/research/12-15`; implementation begins after v0.1
+is dogfooded at scale.
 
-### Phase 1 — file + folder REST API
-- `drive-db` grew `FolderRepo` + `FileRepo` with insert / find_by_id /
-  list_children / rename / move / trash / restore. `FileRepo` also has
-  `record_overwrite` for post-PutFile version bumps. 2 new repo tests
-  covering the create→rename→move→trash→restore cycle for both
-  folders and files (6 drive-db tests total).
-- `drive-http::files` new module: `GET /api/folders/root/children`,
-  `GET /api/folders/{id}`, `POST /api/folders`, `POST /api/files`
-  (multipart streaming upload via `axum::extract::Multipart`,
-  `DefaultBodyLimit` driven by `DRIVE_BODY_LIMIT_MB`), `PATCH
-  /api/files/{id}` + `PATCH /api/folders/{id}` (rename and/or move,
-  with `null` parent_id meaning "move to root"), `POST
-  /api/files/{id}/trash`, `POST /api/files/{id}/restore`, `GET
-  /api/files/{id}/download` (302 to the user-content `/raw/{token}`
-  for fs/memory backends, native presigned URL for S3/MinIO).
-- Every file/folder route requires `AuthSession`. Display-name
-  sanitisation rejects empty / control-char / path-separator / Windows-
-  reserved names per `docs/research/06-security.md` §2.
-- 7 integration tests in `crates/drive-http/tests/files.rs` covering
-  the happy and error paths: auth-required 401, empty root, folder
-  create + list, validation 400, multipart upload + list, full
-  rename → move → trash → restore round trip, download → 302 to the
-  signed user-content URL.
-- Workspace test count: **46 passing** (was 37). Clippy + fmt clean.
+## [0.1.0] — 2026-06-08
 
-### Phase 1 — DB + admin auth
-- `drive-db` new crate: sqlx `Any` pool with portable SQLite + Postgres
-  migrations. Initial schema covers users, sessions, folders, files,
-  `wopi_locks`, share_links. `UserRepo` + `SessionRepo` shipped with 4
-  integration tests against `sqlite::memory:`. Pool sized 1 for SQLite
-  (single-writer + per-connection in-memory caveat).
-- `drive-auth` filled in: Argon2id at OWASP minimum (`m=19 MiB, t=2, p=1`),
-  constant-time-ish sign-in that never leaks "no such user" vs "wrong
-  password", server-side session inserts with 256-bit IDs + CSRF tokens,
-  `AuthSession` axum extractor, sign-in/sign-out handlers on
-  `/api/auth/{sign-in,sign-out}`. Cookie: `__Host-cd_sid` in prod /
-  `cd_sid` in unencrypted dev, `HttpOnly`, `SameSite=Lax`, `Path=/`,
-  Max-Age from session TTL.
-- `drive-http` extended: `HttpState` now carries `db: Db` and
-  `auth: AuthState`; `FromRef<HttpState> for AuthState` wires the
-  extractor; auth router merged into the app-origin router. 3 new
-  integration tests for the sign-in success and failure paths.
-- `drive-bin` wires it all: connects the DB, runs migrations on boot,
-  seeds the admin user from env if missing, builds `AuthState` with
-  `cookie_secure` derived from `app_origin` scheme. Verified end-to-end:
-  /healthz 200, wrong-host 421, /api/me returns JSON, unknown-user and
-  wrong-password both 401 (no enumeration leak).
-- Workspace test count: **37 passing** across the six crates (was 28).
-- Clippy `--all-targets -- -Dwarnings` clean. Workspace lints tuned: kept
-  the substantive `clippy::pedantic` group, allowed the pure-style
-  subcategories (`struct_excessive_bools`, `match_same_arms`,
-  `needless_pass_by_value`, `manual_let_else`, `doc_markdown`, etc.).
+First feature-complete release. Single Rust binary; React 19 SPA embedded
+via `rust-embed`; SQLite by default, Postgres optional; four storage
+backends (fs / memory / S3 / MinIO) plus per-workspace BYO (S3 / MinIO /
+R2 / B2) with AES-256-GCM secret envelopes. Marketing site + live demo
+live at `drive.schnsrw.live`.
 
-### Added
-- Planning artefacts: `PLAN.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`,
-  `docs/research/00–06`, `docs/ux/01-flows.md`, `docs/ux/02-surface.md`.
-- Phase 0 spikes (all green):
-  - `spikes/01-storage` — `Storage` facade over OpenDAL with HMAC token
-    presign for filesystem/memory. 14/14 conformance tests.
-  - `spikes/02-wopi-host` — Axum WOPI host implementing 7 endpoints with
-    in-memory state. 8/8 integration tests covering the 409 + `X-WOPI-Lock`
-    contract, UnlockAndRelock dispatch, and access-token scoping.
-  - `spikes/04-two-origin` — Two-origin Axum binary with host-dispatch
-    middleware and `/raw/{token}` HMAC handler. 10/10 tests.
-  - `spikes/05-spa-shell` — React 19 + Vite 7 + Tailwind v4 + Lucide on Inter,
-    polish-principle tokens ported into CSS @theme, empty-state surface
-    rendering in light + dark with `prefers-color-scheme` + manual override.
-    Build + typecheck clean.
-  - Spike #3 (sheet/ WOPI client retrofit) deferred — it's a cross-repo
-    change that lands as a deliberate Sheet PR after Phase 1.
-- Repo chassis: Cargo workspace with `drive-core`, `drive-storage`,
-  `drive-wopi`, `drive-auth`, `drive-http`, `drive-bin` (stubs).
-- Apache-2.0 LICENSE + NOTICE.
-- CI: `cargo fmt`, `cargo clippy`, `cargo test --workspace`, spike tests,
-  `cargo audit`, `cargo deny`, Docker build.
-- Multi-stage `Dockerfile` (cargo-chef) producing a single static binary in
-  `debian:trixie-slim`.
-- `docker-compose.dev.yml` with MinIO sidecar.
+### Identity + sessions
 
-### Phase 1 — walking skeleton (in flight)
-- `drive-core` populated: `FileId`/`FolderId` (ULID, opaque), `DriveError`,
-  `Config` with strict env validation (refuse-prod-on-default-secrets,
-  origin-mismatch check, backend-specific required-field checks).
-- `drive-storage` lifted from spike #1: `Storage::from_config(&Config)`,
-  capability-gated `copy`/`rename` synthesis, `SignedUrl::Token`/`Native`
-  variants. 12 conformance tests across fs + memory.
-- `drive-wopi` lifted from spike #2: 7-endpoint router (CheckFileInfo,
-  GetFile, PutFile, Lock, Unlock, RefreshLock, UnlockAndRelock), file-id
-  scoped JWT access tokens, the asymmetric 409 + `X-WOPI-Lock` contract,
-  in-memory lock state (`WopiState`). 4 integration tests on the full
-  edit cycle.
-- `drive-http` lifted from spike #4: two-origin host-dispatch middleware
-  (421 on wrong origin), strict CSP on app origin, sandbox CSP +
-  `Cross-Origin-Resource-Policy` on user-content origin, streaming
-  `/raw/{token}` handler. 6 integration tests.
-- `drive-bin` runnable: loads `Config::from_env`, builds Storage +
-  `HttpState`, serves on configured bind. Tracing init. Verified end-to-end
-  against a memory backend (healthz 200, /api/me 200, wrong-host 421).
+- First-run admin-setup wizard (`/api/setup/{status,admin}`) — no env-only
+  bootstrap required; first sign-in creates the admin + their Personal
+  workspace.
+- Argon2id passwords (OWASP min `m=19 MiB, t=2, p=1`), constant-time-ish
+  sign-in (no enumeration leak), server-side sessions in `sessions` table,
+  `__Host-cd_sid` cookie in prod (`Secure HttpOnly SameSite=Lax`), CSRF
+  token on every non-safe method.
+- Caps-lock warning under the password input on the sign-in card.
+- Change-password from Settings → Account.
 
-### Logo + brand assets
-- `logo.svg` — wordmark + mark, monochrome crescent in a rounded square.
-- `assets/logo-mark.svg` — currentColor mark for chrome embedding.
-- `assets/favicon.svg` — favicon variant.
-- Wired into the SPA spike (`spikes/05-spa-shell/src/components/Logo.tsx`)
-  replacing the placeholder Lucide cloud glyph.
-- Wired into `README.md` header.
+### Workspaces (Phase 1 + Phase 2)
 
-### Notes
-- Phase 0 spike code stays under `spikes/` as documented PoCs; the Phase 1
-  crates are the runtime path going forward.
+- Every user gets a Personal workspace (auto-created, immutable,
+  untransferable). Team workspaces are explicit.
+- Owner + Member roles. Owner-only rename / delete / transfer; transfer
+  is an atomic SQL transaction.
+- Real `WorkspaceSwitcher` in the sidebar; selection persists in
+  `localStorage` and re-scopes Files / Notes / search / upload in lockstep
+  via the SPA's `WorkspaceContext`.
+- File + folder rows are workspace-scoped (`workspace_id` column,
+  migration 0006 backfills from the owner's Personal workspace).
+- Cross-workspace operations 403; cross-workspace `parent_id` on note
+  moves 422.
+
+### Files
+
+- Grid + list views, sort dropdown (persisted), folder navigation with
+  breadcrumbs + Backspace, drag-drop upload with ghost rows, multi-select
+  + selection bar (bulk download as zip + bulk trash), right-click +
+  kebab context menu (Share / Rename / Move / Trash / Download).
+- Trash + restore (per-file; per-folder ships in v0.2 with the recursive
+  trash worker).
+- Search across the active workspace via `GET /api/search?q=`.
+- Inline previews for **images** (signed-URL `<img>`), **PDFs**
+  (`<iframe>` browser-native viewer), **video** (`<video>`), **audio**
+  (`<audio>`), **text** (512 KB cap, `<pre>`), **markdown** (256 KB cap,
+  `marked` + DOMPurify).
+- Client-side thumbnails on upload: 192-px square for images
+  (`createImageBitmap` → canvas → WebP / JPEG / PNG fallback) and for
+  videos (offscreen `<video>` → seek 10% → canvas).
+- Concurrent upload cap: 4 lanes via `mapWithConcurrency`.
+
+### Notes / Wiki
+
+- Workspace-scoped pages (migration 0008: `notes` + `note_links` tables).
+  Personal workspaces = personal notes; team workspaces = team notes.
+- Markdown source + live preview side-by-side on desktop; tabbed on
+  mobile. `marked` + DOMPurify (no new deps); no Lexical.
+- `[[Wiki link]]` syntax. Server re-indexes outgoing links on every body
+  save; dangling links resolve when the target page is created later.
+  Backlinks rendered under the editor.
+- Drag-to-reorder tree (lexicographic `order_key` for O(1) inserts);
+  trash + restore; full-text search across title + body.
+- `Cmd-N` new page, `Cmd-S` flush save, `Tab`-to-indent in source, 600ms
+  debounced auto-save with a "Saved N s ago" microstate.
+
+### Editor handoff (WOPI)
+
+- 7-endpoint WOPI host (CheckFileInfo, GetFile, PutFile, Lock, Unlock,
+  RefreshLock, UnlockAndRelock) with the asymmetric 409 + `X-WOPI-Lock`
+  contract. File-id-scoped JWT access tokens (HMAC-SHA256), 10-minute TTL.
+- Click `.xlsx` → opens in Casual Sheet; click `.docx` → opens in Casual
+  Document. Popup-blocker fallback toasts a manual-open link.
+- Proof-key RSA hook is wired but stubbed for v0 (no MS365 federation
+  yet — design parked in `docs/research/13-ms365-federation.md`).
+
+### Sharing
+
+- `POST /api/files/{id}/share` mints a 128-bit token with optional
+  Argon2id-hashed password + expiry + view-only permissions.
+- `GET /s/{token}` recipient page with stripped chrome; password gate
+  + constant-time compare.
+- `DELETE /api/shares/{id}` revokes; existing share-links visible from
+  the ShareDialog.
+
+### Cmd-K command palette
+
+- `cmdk`-backed palette mounted at the Shell level. `⌘K` / `Ctrl-K`
+  toggles from anywhere outside an editable element.
+- Three result groups, populated in parallel: **Go to** (every left-rail
+  destination + keyboard-shortcuts modal), **Folders / Files** (against
+  `/api/search`, workspace-scoped), **Notes** (against
+  `/api/notes/search`). Selection routes via `cd:open-file` /
+  `cd:open-note` CustomEvents so the palette stays decoupled.
+
+### Bring-your-own storage per workspace
+
+- Migration 0007: `workspace_storage` table. AES-256-GCM secret envelope
+  (`drive-storage::secret_box`) — base64 of `nonce || ciphertext || tag`,
+  AAD binds each ciphertext to `<row.id>:<key_version>` so rotations
+  invalidate stale cache entries automatically.
+- SSRF guard refuses metadata IPs, RFC1918 / link-local / loopback
+  unless `DRIVE_ALLOW_INSECURE_BYO=true`, non-http(s) schemes, unknown
+  hostnames.
+- 5 owner-only endpoints: GET / PUT / DELETE / POST `/test` / PATCH
+  `/credentials`. Personal workspaces 409; non-Owner Members 403;
+  missing master key 503.
+- `StorageRegistry` caches per-workspace adapters keyed by
+  `(storage_id, key_version)`. Upload routing picks the workspace's BYO
+  adapter when present and pins `files.storage_id` so existing files
+  stay on their original bucket when the workspace later flips storage.
+- SPA `WorkspaceStorageCard` under Settings → Storage: provider picker
+  (S3 / MinIO / R2 / B2), test-then-save flow, replace credentials,
+  remove with confirm. Owner-only on Team workspaces.
+
+### Direct-to-storage upload
+
+- Migration 0009: `files.status` enum (uploading / ready / failed) +
+  `expected_size`. Quota math counts uploading rows so parallel presigns
+  can't both squeeze under the cap.
+- 3 endpoints: `POST /api/files/upload-url` (presign + create
+  `uploading` row), `POST /api/files/{id}/complete` (stat + flip to
+  `ready`), `POST /api/files/{id}/abort` (drop row + best-effort delete).
+- 15-minute PUT TTL. Adapters that can't presign (fs / memory) return
+  409 — the SPA falls back to the proxy multipart path transparently.
+- SPA activates the direct path at files ≥ 8 MiB when
+  `VITE_DIRECT_UPLOAD=1`.
+
+### Server-side thumbnails (image slice)
+
+- Migration 0010: `files.thumbs_state` enum (pending / ready /
+  unsupported / failed) + `thumbs_generated_at`.
+- `ImageOnlyWorker` in `drive-storage::thumbnails` decodes via the
+  `image` crate on a blocking thread. Three sizes (96 / 256 / 1024 px),
+  WebP / JPEG / PNG cascade, stored under `thumbs/{id}/{size}.png` in
+  the same bucket as the original.
+- Lazy generation kicked from `GET /api/files/{id}/thumb/{size}` — the
+  worker only runs when the SPA actually asks. `POST
+  /api/files/{id}/thumb/regenerate` (owner-only) forces a re-run.
+- `FileDto` exposes `thumbs_state` + `thumb_urls`; `FileThumb` prefers
+  server assets over the inline data URI when ready.
+- PDF + video decoders explicitly NOT in-process — design parked in
+  `docs/research/15-sandboxed-thumb-worker.md` for v0.2 subprocess.
+
+### Quotas + admin
+
+- Per-user `quota_bytes` (NULL = unlimited). Upload returns 413 on
+  exceed; quota math sums against `used_bytes` per workspace including
+  `uploading` rows.
+- `POST /api/me/quota/request` emits an audit event the admin sees on
+  Activity + Admin → Users.
+- Admin → Users surface: inline quota editing, add-user dialog (username
+  + password + admin toggle + initial quota), quota upgrade-request
+  panel with one-click approve.
+
+### Activity + audit
+
+- `audit_events` table populated on every state transition (auth,
+  upload, download, trash, share, workspace.*, workspace_storage.*,
+  notes.*, files.upload_*, etc.). 20+ action types.
+- `/api/activity` paginated feed; SPA renders a grouped-by-day timeline
+  with type-tagged badges.
+- Audit-emit is fire-and-forget (`tokio::spawn`) so handler latency
+  isn't gated on the insert.
+
+### Admin
+
+- `/admin` route shell, admin-only. System health card (version,
+  git_sha, built_at, license, storage backend, db backend, uptime,
+  active sessions, recent sign-ins). Storage adapter card. Users card.
+- Quota upgrade requests surface in the Activity feed AND on the Users
+  card with one-click approve.
+
+### Settings
+
+- Real surfaces: Account (change password), Storage (backend readout +
+  used / quota + workspace BYO card + signed-URL TTL row), About
+  (version / license / build / repo). Polished "Coming in v0.2 —" stubs
+  for Workspace / Members / Roles / Sharing / Notifications / API
+  tokens — every surface a real Drive has is visible.
+
+### Rate limit + safety
+
+- Per-user upload token bucket (30 uploads/min, 0.5/sec refill). Returns
+  429 + `Retry-After`.
+- Magic-byte content-type sniffing on upload via `infer` crate;
+  executables rejected; sniffed MIME overrides client-asserted.
+- `Content-Disposition: attachment` forced on non-previewable types
+  served from the user-content origin. Strict `nosniff`.
+
+### Two-origin model
+
+- App origin (`drive.<host>`): SPA + JSON API + WOPI. Cookies live here.
+  Strict CSP.
+- User-content origin (`usercontent-drive.<host>`): `/raw/{token}` only.
+  `CSP: sandbox; default-src 'none'`. No cookies.
+- Boot refuses to start in production when the two origins match.
+
+### Signed URLs
+
+- `/api/files/{id}/download` 302s to a signed URL. TTL is configurable
+  via `DRIVE_SIGNED_URL_TTL_SECS` (default 300s, floor 30s). Surfaced in
+  Settings → Storage. Share-link signed URLs use a tighter 120s on
+  purpose (third-party link → minimise exposure).
+- S3 / MinIO get native presign via OpenDAL; fs / memory get HMAC-
+  signed tokens validated by the user-content `/raw/{token}` handler.
+
+### Marketing site + GH Pages
+
+- New `marketing/` Astro 5 project at `https://drive.schnsrw.live`.
+  Multi-page docs site (landing + 4 docs MDX routes + screenshots + the
+  embedded demo). Static HTML by default → indexable on first request.
+- Per-page SEO: unique title / description, canonical, OG + Twitter,
+  JSON-LD `SoftwareApplication` on landing. Dynamic `robots.txt` +
+  `sitemap.xml` keyed to `ASTRO_SITE`.
+- Self-hosted Inter (fetched by CI), AVIF / WebP / PNG via Astro
+  `<Image>`. Pre-built OG card at `/og/default.png` (1200×630).
+- Lighthouse CI in the deploy workflow: Performance / Accessibility /
+  SEO ≥ 0.95 mobile profile (4× CPU slowdown) hard-fail.
+- 16 real screenshots in `marketing/public/screenshots/` (8 surfaces ×
+  2 themes, mobile light-only) captured by the Playwright harness at
+  `web/tests/e2e/marketing-screenshots.mjs`.
+- Embedded demo at `/demo` — the SPA built with `VITE_DEMO_MODE=1` +
+  `VITE_BASE=/demo-app/`, served behind a slim iframe-host page.
+
+### CI + deploy
+
+- Backend gates per PR: `cargo fmt --check`, `cargo clippy -- -Dwarnings`,
+  `cargo test --workspace`, `cargo audit --deny warnings`, `cargo deny check`.
+- Marketing deploy: GitHub Actions builds the SPA in demo mode, copies
+  into `marketing/public/demo-app/`, runs `astro build`, executes
+  Lighthouse CI, uploads to Pages.
+- Multi-stage `cargo-chef` Docker image on `debian:trixie-slim`.
+
+### Specs / docs
+
+- 12 research briefs (`docs/research/00–11`): synthesis, WOPI, auth,
+  storage, polish principles, Rust stack, security, marketing,
+  BYO storage, notes/wiki, direct upload, server thumbnails.
+- 17 surface specs (`docs/ux/01–17`): flows, every UI surface.
+- Architecture, contributing, install, configuration documented on the
+  marketing site.
+- README rewritten to reflect v0 reality.
+
+### Phase 3 design (not implemented; specs only)
+
+- `docs/research/12-oidc.md` — multi-tenant SSO via OIDC.
+- `docs/research/13-ms365-federation.md` — Office Online WOPI client
+  federation via proof-key RSA validation.
+- `docs/research/14-presence.md` — Drive-shell ambient presence (SSE,
+  one channel per workspace).
+- `docs/research/15-sandboxed-thumb-worker.md` — sandboxed subprocess
+  for PDF + video thumbnails (seccomp + rlimits + privilege drop).
+
+### Numbers
+
+- 29 backend test suites passing across `drive-{core,db,storage,wopi,auth,http,bin}`.
+- 34 storage unit tests (seal/open, SSRF block list, thumbnail decoder,
+  registry cache invariants).
+- 0 clippy warnings across `cargo clippy --workspace --tests`.
+- 16 research briefs + 17 surface specs.
+- 1 outstanding v0 item — the DNS flip for the marketing site (decision,
+  not code).
+
+---
+
+## Pre-0.1.0 history
+
+The Phase 0 spike work (storage facade conformance, WOPI host, two-origin
+binary, SPA shell) and the early Phase 1 walking-skeleton crates landed
+before this changelog format was adopted. See `git log` for that history
+and `docs/spikes/` for the spike write-ups.
