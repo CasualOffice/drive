@@ -369,6 +369,39 @@ fn validate_thumbnail_uri(s: &str) -> bool {
     s.starts_with("data:image/") && s.contains(";base64,")
 }
 
+/// Magic-byte sniff. Catches files lying about their extension by
+/// inspecting the first ~few bytes. Returns the detected MIME type (which
+/// the caller should store as authoritative content-type, not what the
+/// client claimed), or `None` when the bytes don't match any known type
+/// (plain text / unknown binary).
+///
+/// Returns `Err(FilesError::ForbiddenExtension)` when the detected type
+/// is an executable / runnable artefact — independent of filename.
+pub(crate) fn sniff_and_check_content_type(
+    bytes: &[u8],
+) -> Result<Option<&'static str>, FilesError> {
+    let Some(kind) = infer::get(bytes) else {
+        return Ok(None);
+    };
+    // The executable matcher set in `infer`'s `app` namespace covers PE
+    // (Windows .exe), Mach-O (macOS), ELF (Linux), Java .class, .wasm,
+    // installers (msi/dmg/pkg), and a few cousins. Reject all.
+    if infer::app::is_exe(bytes)
+        || infer::app::is_dll(bytes)
+        || infer::app::is_elf(bytes)
+        || infer::app::is_mach(bytes)
+        || infer::app::is_java(bytes)
+        || infer::app::is_dex(bytes)
+        || infer::app::is_dey(bytes)
+        || infer::app::is_wasm(bytes)
+        || infer::app::is_coff(bytes)
+        || infer::app::is_llvm(bytes)
+    {
+        return Err(FilesError::ForbiddenExtension(kind.extension().into()));
+    }
+    Ok(Some(kind.mime_type()))
+}
+
 /// Returns `Err(FilesError::ForbiddenExtension)` if the last dotted
 /// extension of `filename` is in the upload blocklist. Case-insensitive.
 pub(crate) fn check_upload_extension(filename: &str) -> Result<(), FilesError> {
@@ -544,6 +577,12 @@ async fn upload_file(
     let bytes = file_bytes.ok_or_else(|| FilesError::Validation("missing file bytes".into()))?;
     let name = sanitise_display_name(&filename)?;
     check_upload_extension(&name)?;
+    // Magic-byte sniff: rejects executables masquerading as .txt and
+    // overrides the client-asserted content_type with what the bytes
+    // actually are. `None` (e.g. plain text or unknown binary) keeps
+    // the client header — extension-based MIME guess from the browser
+    // is the next-best signal there.
+    let sniffed = sniff_and_check_content_type(&bytes)?;
 
     if let Some(pid) = &parent_id {
         let parent = FolderRepo::new(&s.db)
@@ -567,7 +606,13 @@ async fn upload_file(
             parent_id,
             name,
             size,
-            content_type: meta.content_type.or(content_type),
+            // Authoritative content-type precedence: sniffed bytes →
+            // storage adapter's reported type → client header. Sniffed
+            // wins because it's the only one the user can't fake.
+            content_type: sniffed
+                .map(str::to_string)
+                .or(meta.content_type)
+                .or(content_type),
             etag: meta.etag,
             owner_id: session.user_id.clone(),
             thumbnail,

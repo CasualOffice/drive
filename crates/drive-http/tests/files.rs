@@ -331,6 +331,82 @@ async fn upload_still_accepts_macro_enabled_office_files() {
 }
 
 #[tokio::test]
+async fn upload_rejects_executable_disguised_as_text() {
+    // First 4 bytes of a Windows PE file: "MZ\x90\x00". The .txt
+    // extension would otherwise pass the extension blocklist; magic-byte
+    // sniffing catches the lie.
+    let app = router(fixture().await);
+    let cookie = sign_in(&app).await;
+    let mut payload = Vec::with_capacity(128);
+    payload.extend_from_slice(b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00");
+    payload.extend_from_slice(&[0u8; 100]);
+
+    let boundary = "----testboundary-pe";
+    let body = build_multipart(
+        boundary,
+        &[MultipartField::File(
+            "file",
+            "notes.txt",
+            "text/plain",
+            &payload,
+        )],
+    );
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            "/api/files",
+            &cookie,
+            Some(&format!("multipart/form-data; boundary={boundary}")),
+            Body::from(body),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let body = json_body(r).await;
+    assert_eq!(body["error"], "file type not allowed");
+    // Sniffer reports the real extension regardless of the filename.
+    assert_eq!(body["extension"], "exe");
+}
+
+#[tokio::test]
+async fn upload_sniffs_real_content_type_and_stores_it() {
+    // 8-byte PNG magic header + minimal IHDR-ish bytes so infer picks
+    // it up. The client lies and says "application/octet-stream";
+    // server should override with the sniffed "image/png".
+    let app = router(fixture().await);
+    let cookie = sign_in(&app).await;
+    let mut payload = Vec::with_capacity(64);
+    payload.extend_from_slice(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    payload.extend_from_slice(&[0u8; 56]);
+
+    let boundary = "----testboundary-png";
+    let body = build_multipart(
+        boundary,
+        &[MultipartField::File(
+            "file",
+            "photo.bin",
+            "application/octet-stream",
+            &payload,
+        )],
+    );
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            "/api/files",
+            &cookie,
+            Some(&format!("multipart/form-data; boundary={boundary}")),
+            Body::from(body),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let dto = json_body(r).await;
+    assert_eq!(dto["content_type"], "image/png");
+}
+
+#[tokio::test]
 async fn upload_with_thumbnail_stores_and_returns_it() {
     let app = router(fixture().await);
     let cookie = sign_in(&app).await;

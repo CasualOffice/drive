@@ -62,7 +62,7 @@ Notes:
 
 - Office macro-enabled formats (`.docm`, `.xlsm`, `.pptm`) are **allowed** per `CLAUDE.md` — they're opaque blobs from Drive's perspective and never auto-open in the editor.
 - The check is purely on the **last** dotted extension of the supplied filename — `setup.tar.gz` → `gz` (allowed), `setup.tar.gz.exe` → `exe` (blocked).
-- Magic-byte sniffing (pipeline §6.2) is a separate, complementary defence; once it lands, a `.txt` that's actually a Mach-O binary also gets rejected. For v0, extension-based is the gate.
+- Magic-byte sniffing (pipeline §6.2) is the complementary second layer. Both run on every upload — the extension blocklist catches obviously-bad names; the byte sniffer rejects PE / Mach-O / ELF / Java / wasm / COFF payloads regardless of filename, and overrides the client-asserted `content_type` with the sniffed MIME so callers can trust what the row says.
 
 ### Server response
 

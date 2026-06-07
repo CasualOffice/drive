@@ -70,6 +70,10 @@ sqlx              = { version = "0.8", default-features = false, features = ["ru
 rust-embed        = { version = "8", features = ["mime-guess"] }
 mime_guess        = "2"
 
+# Content-type magic-byte sniffing (pipeline §6.2). Catches files lying
+# about their extension by inspecting the first few bytes of the payload.
+infer             = { version = "0.19", default-features = false }
+
 # Dev / test
 http-body-util    = "0.1"
 tempfile          = "3"
