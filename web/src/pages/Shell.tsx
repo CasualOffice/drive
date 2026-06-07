@@ -9,6 +9,7 @@ import { HelpModal } from "../components/HelpModal.tsx";
 import { Sidebar, type NavId } from "../components/Sidebar.tsx";
 import { TopBar, type ViewMode } from "../components/TopBar.tsx";
 import { Activity } from "./Activity.tsx";
+import { Admin } from "./Admin.tsx";
 import { Files } from "./Files.tsx";
 import { Settings } from "./Settings.tsx";
 
@@ -132,20 +133,7 @@ export function Shell() {
             </CenteredPane>
           )}
           {nav === "activity" && <Activity />}
-          {nav === "admin" && (
-            <CenteredPane>
-              <ComingSoon
-                title="Admin dashboard"
-                description="System health, storage backend status, active sessions, cache/indexing — at a glance for the instance operator."
-                bullets={[
-                  "Storage adapter status (fs / S3 / MinIO) + quota",
-                  "Active sessions, recent failed sign-ins",
-                  "OpenSearch + Redis dashboards when enabled",
-                  "One-click ClamAV toggle once the scanner ships",
-                ]}
-              />
-            </CenteredPane>
-          )}
+          {nav === "admin" && <Admin onNavigate={(t) => setNav(t)} />}
           {nav === "settings" && <Settings />}
         </main>
       </div>

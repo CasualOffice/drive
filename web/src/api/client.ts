@@ -338,3 +338,28 @@ export interface OpenResp {
 export async function openInEditor(fileId: string): Promise<OpenResp> {
   return request<OpenResp>(`/api/files/${encodeURIComponent(fileId)}/open`);
 }
+
+// ─── Admin ─────────────────────────────────────────────────────────────
+
+export interface AdminSystem {
+  version: string;
+  git_sha: string;
+  built_at: string;
+  license: string;
+  storage_backend: string;
+  storage_config: {
+    fs_root: string | null;
+    s3_bucket: string | null;
+    s3_endpoint: string | null;
+    s3_region: string | null;
+  };
+  db_backend: string;
+  uptime_seconds: number;
+  active_sessions: number;
+  healthy: boolean;
+  recent_sign_ins: { actor_username: string | null; ok: boolean; at: string }[];
+}
+
+export async function getAdminSystem(): Promise<AdminSystem> {
+  return request<AdminSystem>("/api/admin/system");
+}

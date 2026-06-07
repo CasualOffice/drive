@@ -389,6 +389,30 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     persist();
     return undefined as T;
   }
+  if (p === "/api/admin/system" && method === "GET") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const recent = state.events
+      .filter((e) => e.action === "auth.sign_in" || e.action === "auth.sign_in_failed")
+      .slice(0, 10)
+      .map((e) => ({
+        actor_username: e.actor_username ?? e.target_name,
+        ok: e.action === "auth.sign_in",
+        at: e.created_at,
+      }));
+    return {
+      version: "0.0.1 (demo)",
+      git_sha: "demo",
+      built_at: new Date().toISOString(),
+      license: "Apache-2.0",
+      storage_backend: "Browser (localStorage)",
+      storage_config: { fs_root: null, s3_bucket: null, s3_endpoint: null, s3_region: null },
+      db_backend: "Browser (localStorage)",
+      uptime_seconds: Math.floor(performance.now() / 1000),
+      active_sessions: state.signedIn ? 1 : 0,
+      healthy: true,
+      recent_sign_ins: recent,
+    } as unknown as T;
+  }
   if (p === "/api/activity" && method === "GET") {
     if (!state.signedIn) throw makeError(401, "not signed in");
     const before = url.searchParams.get("before");

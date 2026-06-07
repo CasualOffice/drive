@@ -101,6 +101,34 @@ impl<'a> AuditRepo<'a> {
         });
     }
 
+    /// Page latest-first, filtered to one or more action strings. Used by
+    /// the Admin → Recent sign-ins card. Empty `actions` returns nothing.
+    pub async fn list_filtered(
+        &self,
+        actions: &[&str],
+        limit: i64,
+    ) -> Result<Vec<AuditEvent>, DbError> {
+        if actions.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = vec!["?"; actions.len()].join(", ");
+        let sql = format!(
+            "SELECT id, created_at, actor_id, actor_username, action, \
+             target_kind, target_id, target_name, ip_address, metadata \
+             FROM audit_log WHERE action IN ({placeholders}) \
+             ORDER BY created_at DESC LIMIT ?",
+        );
+        let mut q = sqlx::query(&sql);
+        for a in actions {
+            q = q.bind(*a);
+        }
+        let rows = q
+            .bind(limit.clamp(1, 200))
+            .fetch_all(self.db.pool())
+            .await?;
+        rows.iter().map(row_to_event).collect()
+    }
+
     /// Page latest-first. `before` is an opaque cursor (the previous
     /// page's last `created_at`); omit for the first page.
     pub async fn list(&self, before: Option<&str>, limit: i64) -> Result<Vec<AuditEvent>, DbError> {

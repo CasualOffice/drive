@@ -100,6 +100,15 @@ impl<'a> SessionRepo<'a> {
         Ok(res.rows_affected())
     }
 
+    /// Count non-expired sessions. Drives the Admin → Sessions card.
+    pub async fn count_active(&self) -> Result<i64, DbError> {
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE expires_at >= ?")
+            .bind(ts(time::OffsetDateTime::now_utc()))
+            .fetch_one(self.db.pool())
+            .await?;
+        Ok(n)
+    }
+
     /// Drop every session for `user_id` *except* one — used on password
     /// change to invalidate other devices while keeping the caller signed in.
     pub async fn delete_for_user_except(
