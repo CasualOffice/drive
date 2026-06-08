@@ -40,7 +40,7 @@ pub struct StorageRegistry {
 
 impl std::fmt::Debug for StorageRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let len = self.cache.lock().map(|c| c.len()).unwrap_or(0);
+        let len = self.cache.lock().map_or(0, |c| c.len());
         f.debug_struct("StorageRegistry")
             .field("default", &self.default)
             .field("cached_byo_adapters", &len)

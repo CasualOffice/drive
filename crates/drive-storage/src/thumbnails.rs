@@ -230,12 +230,11 @@ impl SubprocessWorker {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map(|mut c| {
+            .is_ok_and(|mut c| {
                 // Don't leave the test child around — wait briefly.
                 let _ = c.wait();
                 true
             })
-            .unwrap_or(false)
     }
 
     async fn run_job(
