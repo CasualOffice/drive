@@ -10,6 +10,6 @@ pub mod config;
 pub mod error;
 pub mod id;
 
-pub use config::{Backend, Config, ConfigError};
+pub use config::{Backend, Config, ConfigError, OidcConfig, ThumbWorkerConfig};
 pub use error::DriveError;
 pub use id::{FileId, FolderId};

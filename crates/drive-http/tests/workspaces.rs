@@ -46,6 +46,9 @@ async fn fixture() -> HttpState {
         db_url: "sqlite::memory:".into(),
         body_limit_mb: 100,
         signed_url_ttl_secs: 300,
+        oidc: None,
+        allow_password_auth: true,
+        thumb_worker: drive_core::ThumbWorkerConfig::default(),
         session_secret: vec![0u8; 32],
         wopi_hmac_secret: [2u8; 32],
         signed_url_hmac_secret: [1u8; 32],
@@ -68,6 +71,7 @@ async fn fixture() -> HttpState {
         upload_limiter: HttpState::default_upload_limiter(),
         registry,
         storage_secret_key: None,
+        thumb_worker: std::sync::Arc::new(drive_storage::MultiKindWorker::image_only()),
     }
 }
 
@@ -307,6 +311,115 @@ async fn transfer_to_non_member_is_422() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn list_members_returns_username_and_admin_flag() {
+    // Create a team workspace with two members, fetch member list, assert
+    // the response carries the joined `username` + `is_admin` fields that
+    // the SPA Owner chip relies on.
+    let state = fixture().await;
+    let admin_id = UserRepo::new(&state.db)
+        .find_by_username("admin")
+        .await
+        .unwrap()
+        .id;
+    UserRepo::new(&state.db)
+        .insert(&NewUser {
+            username: "bob".into(),
+            password_hash: hash_password("hunter2hunter2").unwrap(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    let bob_id = UserRepo::new(&state.db)
+        .find_by_username("bob")
+        .await
+        .unwrap()
+        .id;
+    let team = WorkspaceRepo::new(&state.db)
+        .insert("Engineering", drive_db::WorkspaceKind::Team, &admin_id)
+        .await
+        .unwrap()
+        .id;
+    WorkspaceMemberRepo::new(&state.db)
+        .insert(&team, &bob_id, WorkspaceRole::Member)
+        .await
+        .unwrap();
+
+    let app = router(state);
+    let cookie = sign_in(&app).await;
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/workspaces/{team}/members"))
+                .header("host", APP)
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&r.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let members = body["members"].as_array().unwrap();
+    assert_eq!(members.len(), 2);
+    let names: Vec<&str> = members.iter().map(|m| m["username"].as_str().unwrap()).collect();
+    assert!(names.contains(&"admin"));
+    assert!(names.contains(&"bob"));
+    // is_admin is wired through.
+    let admin_entry = members.iter().find(|m| m["username"] == "admin").unwrap();
+    assert_eq!(admin_entry["is_admin"], true);
+    let bob_entry = members.iter().find(|m| m["username"] == "bob").unwrap();
+    assert_eq!(bob_entry["is_admin"], false);
+}
+
+#[tokio::test]
+async fn list_members_returns_403_for_non_member() {
+    let state = fixture().await;
+    let admin_id = UserRepo::new(&state.db)
+        .find_by_username("admin")
+        .await
+        .unwrap()
+        .id;
+    UserRepo::new(&state.db)
+        .insert(&NewUser {
+            username: "carol".into(),
+            password_hash: hash_password("hunter2hunter2").unwrap(),
+            is_admin: false,
+        })
+        .await
+        .unwrap();
+    let carol_id = UserRepo::new(&state.db)
+        .find_by_username("carol")
+        .await
+        .unwrap()
+        .id;
+    // Carol owns a workspace admin isn't a member of.
+    let carol_team = WorkspaceRepo::new(&state.db)
+        .insert("Design", drive_db::WorkspaceKind::Team, &carol_id)
+        .await
+        .unwrap()
+        .id;
+    let _ = admin_id;
+
+    let app = router(state);
+    let cookie = sign_in(&app).await;
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/workspaces/{carol_team}/members"))
+                .header("host", APP)
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

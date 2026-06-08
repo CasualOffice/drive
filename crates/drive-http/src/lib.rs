@@ -15,6 +15,7 @@ mod files;
 pub mod headers;
 mod host_dispatch;
 mod notes;
+mod oidc;
 mod rate_limit;
 mod raw;
 mod search;
@@ -104,6 +105,7 @@ fn app_origin_router(state: HttpState) -> Router {
     let share_router: Router = share::router(state.clone());
     let workspaces_router: Router = workspaces::router(state.clone());
     let workspace_storage_router: Router = workspace_storage::router(state.clone());
+    let oidc_router: Router = oidc::router(state.clone());
     let direct_upload_router: Router = direct_upload::router(state.clone());
     let thumbs_router: Router = thumbs::router(state.clone());
     let notes_router: Router = notes::router(state.clone());
@@ -123,6 +125,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .merge(share_router)
         .merge(workspaces_router)
         .merge(workspace_storage_router)
+        .merge(oidc_router)
         .merge(direct_upload_router)
         .merge(thumbs_router)
         .merge(notes_router)

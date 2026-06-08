@@ -36,7 +36,8 @@ async fn main() -> anyhow::Result<()> {
     let storage = Storage::from_config(&cfg)?;
 
     let cookie_secure = cfg.app_origin.scheme() == "https";
-    let auth = AuthState::new(db.clone(), cookie_secure, time::Duration::hours(24));
+    let auth = AuthState::new(db.clone(), cookie_secure, time::Duration::hours(24))
+        .with_password_auth(cfg.allow_password_auth);
 
     // BYO storage master key. Optional in v0 — workspaces with BYO can't be
     // configured without it, but the rest of the app runs fine. The /api
@@ -59,6 +60,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let registry = HttpState::default_registry(storage.clone(), cfg.signed_url_hmac_secret);
+    let thumb_worker = HttpState::build_thumb_worker(&cfg.thumb_worker);
 
     let state = HttpState {
         storage,
@@ -70,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
         upload_limiter: HttpState::default_upload_limiter(),
         registry,
         storage_secret_key,
+        thumb_worker,
     };
 
     let app = router(state).layer(tower_http::trace::TraceLayer::new_for_http());

@@ -12,7 +12,9 @@ mod error;
 mod files;
 mod folders;
 mod notes;
+mod oidc;
 mod pool;
+mod search;
 mod sessions;
 mod share_links;
 mod users;
@@ -27,7 +29,9 @@ pub use notes::{
     order_key_between, parse_wiki_links, NewNote, Note, NoteBacklink, NoteLinksRepo, NoteNode,
     NotesRepo,
 };
+pub use oidc::{NewOidcFlowState, OidcFlowState, OidcFlowStateRepo};
 pub use pool::{Db, DbBackend};
+pub use search::{SearchFilters, SearchPaging, SortBy, SortDir, TypeBucket};
 pub use sessions::{NewSession, Session, SessionRepo};
 pub use share_links::{NewShareLink, ShareLink, ShareLinkRepo};
 pub use users::{NewUser, User, UserRepo};

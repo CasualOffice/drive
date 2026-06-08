@@ -35,6 +35,13 @@ pub(crate) async fn sign_in(
     State(state): State<AuthState>,
     Json(body): Json<SignInBody>,
 ) -> Result<Response, AuthError> {
+    // Phase 3 §12 — password sign-in can be disabled deployment-wide
+    // once OIDC is the only sanctioned path. We return 404 (not 403) so
+    // scrapers can't tell the difference between a hidden route and a
+    // route that never existed.
+    if !state.allow_password_auth {
+        return Err(AuthError::PasswordAuthDisabled);
+    }
     // Constant-time-ish: do the hash compare regardless of whether the user
     // exists, so timing doesn't disclose existence. We do this by always
     // verifying against a known-bad hash if the user lookup fails.

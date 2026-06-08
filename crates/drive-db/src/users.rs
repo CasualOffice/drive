@@ -15,6 +15,13 @@ pub struct User {
     pub created_at: time::OffsetDateTime,
     /// Per-user storage cap in bytes. None = unlimited.
     pub quota_bytes: Option<u64>,
+    /// Phase 3 §12 — OIDC anchor fields. `oidc_subject` is `None` for
+    /// users created via the local-password / first-run-setup paths.
+    /// When set, the (`oidc_provider_id`, `oidc_subject`) tuple uniquely
+    /// identifies this user across sign-ins.
+    pub oidc_provider_id: Option<String>,
+    pub oidc_subject: Option<String>,
+    pub oidc_email_verified: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -69,82 +76,158 @@ impl<'a> UserRepo<'a> {
             is_admin: new.is_admin,
             created_at,
             quota_bytes: None,
+            oidc_provider_id: None,
+            oidc_subject: None,
+            oidc_email_verified: false,
         })
+    }
+
+    /// Phase 3 §12 — look up by `(provider_id, subject)`. Returns
+    /// `NotFound` if no row.
+    pub async fn find_by_oidc(
+        &self,
+        provider_id: &str,
+        subject: &str,
+    ) -> Result<User, DbError> {
+        let row = sqlx::query(
+            "SELECT id, username, password_hash, is_admin, created_at, quota_bytes, \
+                    oidc_provider_id, oidc_subject, oidc_email_verified \
+             FROM users \
+             WHERE oidc_provider_id = ? AND oidc_subject = ?",
+        )
+        .bind(provider_id)
+        .bind(subject)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(DbError::from_sqlx_no_rows)?;
+        row_to_user(&row)
+    }
+
+    /// Insert a user whose anchor is OIDC, not a password. Uses a sentinel
+    /// `oidc:` prefix for `password_hash` so the local sign-in path can
+    /// never accept it (Argon2id hashes start with `$argon2`).
+    pub async fn insert_oidc(
+        &self,
+        username: &str,
+        is_admin: bool,
+        provider_id: &str,
+        subject: &str,
+        email_verified: bool,
+    ) -> Result<User, DbError> {
+        let id = ulid::Ulid::new().to_string();
+        let created_at = time::OffsetDateTime::now_utc();
+        let created_at_str = ts(created_at);
+        let is_admin_i = i64::from(is_admin);
+        let email_verified_i = i64::from(email_verified);
+        let sentinel = "oidc:no-password";
+
+        sqlx::query(
+            "INSERT INTO users \
+             (id, username, password_hash, is_admin, created_at, \
+              oidc_provider_id, oidc_subject, oidc_email_verified) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(username)
+        .bind(sentinel)
+        .bind(is_admin_i)
+        .bind(&created_at_str)
+        .bind(provider_id)
+        .bind(subject)
+        .bind(email_verified_i)
+        .execute(self.db.pool())
+        .await
+        .map_err(map_unique_violation)?;
+
+        WorkspaceRepo::new(self.db)
+            .insert("Personal", WorkspaceKind::Personal, &id)
+            .await?;
+
+        Ok(User {
+            id,
+            username: username.to_string(),
+            password_hash: sentinel.to_string(),
+            is_admin,
+            created_at,
+            quota_bytes: None,
+            oidc_provider_id: Some(provider_id.to_string()),
+            oidc_subject: Some(subject.to_string()),
+            oidc_email_verified: email_verified,
+        })
+    }
+
+    /// Attach an OIDC anchor to an existing (local-password) user.
+    /// Idempotent — runs the same UPDATE either way.
+    pub async fn link_oidc(
+        &self,
+        id: &str,
+        provider_id: &str,
+        subject: &str,
+        email_verified: bool,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE users SET oidc_provider_id = ?, oidc_subject = ?, \
+                              oidc_email_verified = ? WHERE id = ?",
+        )
+        .bind(provider_id)
+        .bind(subject)
+        .bind(i64::from(email_verified))
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Toggle admin. Used by the admin elevation path when the OIDC
+    /// `admin_group` claim flips.
+    pub async fn set_admin(&self, id: &str, is_admin: bool) -> Result<(), DbError> {
+        sqlx::query("UPDATE users SET is_admin = ? WHERE id = ?")
+            .bind(i64::from(is_admin))
+            .bind(id)
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
     }
 
     /// Look up a user by username. Returns `NotFound` if no row.
     pub async fn find_by_username(&self, username: &str) -> Result<User, DbError> {
         let row = sqlx::query(
-            "SELECT id, username, password_hash, is_admin, created_at, quota_bytes \
+            "SELECT id, username, password_hash, is_admin, created_at, quota_bytes, \
+                    oidc_provider_id, oidc_subject, oidc_email_verified \
              FROM users WHERE username = ?",
         )
         .bind(username)
         .fetch_one(self.db.pool())
         .await
         .map_err(DbError::from_sqlx_no_rows)?;
-        Ok(User {
-            id: row.get("id"),
-            username: row.get("username"),
-            password_hash: row.get("password_hash"),
-            is_admin: row.get::<i64, _>("is_admin") != 0,
-            created_at: parse_ts(row.get::<String, _>("created_at"))?,
-            quota_bytes: row
-                .try_get::<Option<i64>, _>("quota_bytes")
-                .ok()
-                .flatten()
-                .and_then(|n| u64::try_from(n).ok()),
-        })
+        row_to_user(&row)
     }
 
     /// Look up a user by id. Returns `NotFound` if no row.
     pub async fn find_by_id(&self, id: &str) -> Result<User, DbError> {
         let row = sqlx::query(
-            "SELECT id, username, password_hash, is_admin, created_at, quota_bytes \
+            "SELECT id, username, password_hash, is_admin, created_at, quota_bytes, \
+                    oidc_provider_id, oidc_subject, oidc_email_verified \
              FROM users WHERE id = ?",
         )
         .bind(id)
         .fetch_one(self.db.pool())
         .await
         .map_err(DbError::from_sqlx_no_rows)?;
-        Ok(User {
-            id: row.get("id"),
-            username: row.get("username"),
-            password_hash: row.get("password_hash"),
-            is_admin: row.get::<i64, _>("is_admin") != 0,
-            created_at: parse_ts(row.get::<String, _>("created_at"))?,
-            quota_bytes: row
-                .try_get::<Option<i64>, _>("quota_bytes")
-                .ok()
-                .flatten()
-                .and_then(|n| u64::try_from(n).ok()),
-        })
+        row_to_user(&row)
     }
 
     /// All users in the table, newest first. Backs the Admin → Users
     /// card.
     pub async fn list_all(&self) -> Result<Vec<User>, DbError> {
         let rows = sqlx::query(
-            "SELECT id, username, password_hash, is_admin, created_at, quota_bytes \
+            "SELECT id, username, password_hash, is_admin, created_at, quota_bytes, \
+                    oidc_provider_id, oidc_subject, oidc_email_verified \
              FROM users ORDER BY created_at DESC",
         )
         .fetch_all(self.db.pool())
         .await?;
-        rows.iter()
-            .map(|row| {
-                Ok(User {
-                    id: row.get("id"),
-                    username: row.get("username"),
-                    password_hash: row.get("password_hash"),
-                    is_admin: row.get::<i64, _>("is_admin") != 0,
-                    created_at: parse_ts(row.get::<String, _>("created_at"))?,
-                    quota_bytes: row
-                        .try_get::<Option<i64>, _>("quota_bytes")
-                        .ok()
-                        .flatten()
-                        .and_then(|n| u64::try_from(n).ok()),
-                })
-            })
-            .collect()
+        rows.iter().map(row_to_user).collect()
     }
 
     /// Sum of non-trashed file sizes owned by `user_id`. Drives the
@@ -194,6 +277,34 @@ impl<'a> UserRepo<'a> {
         }
         Ok(())
     }
+}
+
+fn row_to_user(row: &sqlx::any::AnyRow) -> Result<User, DbError> {
+    Ok(User {
+        id: row.get("id"),
+        username: row.get("username"),
+        password_hash: row.get("password_hash"),
+        is_admin: row.get::<i64, _>("is_admin") != 0,
+        created_at: parse_ts(row.get::<String, _>("created_at"))?,
+        quota_bytes: row
+            .try_get::<Option<i64>, _>("quota_bytes")
+            .ok()
+            .flatten()
+            .and_then(|n| u64::try_from(n).ok()),
+        oidc_provider_id: row
+            .try_get::<Option<String>, _>("oidc_provider_id")
+            .ok()
+            .flatten(),
+        oidc_subject: row
+            .try_get::<Option<String>, _>("oidc_subject")
+            .ok()
+            .flatten(),
+        oidc_email_verified: row
+            .try_get::<Option<i64>, _>("oidc_email_verified")
+            .ok()
+            .flatten()
+            .is_some_and(|n| n != 0),
+    })
 }
 
 fn map_unique_violation(e: sqlx::Error) -> DbError {

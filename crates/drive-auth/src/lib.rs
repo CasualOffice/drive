@@ -15,6 +15,7 @@
 mod error;
 mod extractor;
 mod handlers;
+pub mod oidc;
 mod password;
 mod router;
 mod state;
@@ -22,6 +23,7 @@ mod token;
 
 pub use error::AuthError;
 pub use extractor::{AuthSession, OptionalAuthSession};
+pub use oidc::{OidcClaims, OidcError};
 pub use password::{hash_password, verify_password, OWASP_PARAMS};
 pub use router::router;
 pub use state::AuthState;

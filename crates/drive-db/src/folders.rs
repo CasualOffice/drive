@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
 use crate::{
+    search::{placeholders, BindValue, SearchFilters, SearchPaging, TypeBucket},
     users::{parse_ts, ts},
     Db, DbError,
 };
@@ -170,6 +171,141 @@ impl<'a> FolderRepo<'a> {
         .bind(limit.clamp(1, 200))
         .fetch_all(self.db.pool())
         .await?;
+        rows.iter().map(row_to_folder).collect()
+    }
+
+    /// Phase 3 search. Folders participate only when the type filter is
+    /// empty OR explicitly includes the Folder bucket. Folder-specific
+    /// filters (size, content_type, share-link) are no-ops here.
+    pub async fn search_with(
+        &self,
+        filters: &SearchFilters,
+        paging: &SearchPaging,
+    ) -> Result<Vec<Folder>, DbError> {
+        // Type-filter gate
+        if !filters.types.is_empty() && !filters.types.contains(&TypeBucket::Folder) {
+            return Ok(vec![]);
+        }
+        // Size + has_share_link don't apply to folders — if those were
+        // the only meaningful filters, the result is empty by design.
+        // (We still honour date / owner / workspace / q / trash.)
+        if filters.has_share_link.is_some() {
+            // Folders don't have share links in v0; presence-required → empty.
+            if filters.has_share_link == Some(true) {
+                return Ok(vec![]);
+            }
+            // Presence-absent → no extra constraint.
+        }
+
+        let mut sql = String::from(
+            "SELECT id, parent_id, name, owner_id, workspace_id, trashed_at, \
+                    original_parent_id, created_at, modified_at \
+             FROM folders WHERE ",
+        );
+        let mut binds: Vec<BindValue> = Vec::new();
+        let mut first = true;
+        let mut and = |sql: &mut String, frag: &str| {
+            if first {
+                first = false;
+            } else {
+                sql.push_str(" AND ");
+            }
+            sql.push_str(frag);
+        };
+
+        and(
+            &mut sql,
+            &format!("workspace_id IN ({})", placeholders(filters.workspace_ids.len())),
+        );
+        for w in &filters.workspace_ids {
+            binds.push(BindValue::Str(w.clone()));
+        }
+
+        if let Some(folder) = &filters.folder_id {
+            and(&mut sql, "parent_id = ?");
+            binds.push(BindValue::Str(folder.clone()));
+        }
+
+        match filters.in_trash {
+            None | Some(false) => and(&mut sql, "trashed_at IS NULL"),
+            Some(true) => and(&mut sql, "trashed_at IS NOT NULL"),
+        }
+
+        if !filters.q.is_empty() {
+            and(&mut sql, "LOWER(name) LIKE ?");
+            binds.push(BindValue::Str(format!("%{}%", filters.q.to_lowercase())));
+        }
+
+        if !filters.owner_ids.is_empty() {
+            and(
+                &mut sql,
+                &format!("owner_id IN ({})", placeholders(filters.owner_ids.len())),
+            );
+            for o in &filters.owner_ids {
+                binds.push(BindValue::Str(o.clone()));
+            }
+        }
+
+        if let Some(t) = filters.modified_after {
+            and(&mut sql, "modified_at >= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.modified_before {
+            and(&mut sql, "modified_at <= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.created_after {
+            and(&mut sql, "created_at >= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.created_before {
+            and(&mut sql, "created_at <= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+
+        if let Some((last_value, last_id)) = &paging.after {
+            let cmp = match paging.sort_dir {
+                crate::search::SortDir::Asc => ">",
+                crate::search::SortDir::Desc => "<",
+            };
+            // Folders don't have a `size` column; if sort_by is Size we
+            // fall back to modified for the column name.
+            let col = if paging.order_column() == "size" {
+                "modified_at"
+            } else {
+                paging.order_column()
+            };
+            and(
+                &mut sql,
+                &format!("({col} {cmp} ? OR ({col} = ? AND id > ?))"),
+            );
+            binds.push(BindValue::Str(last_value.clone()));
+            binds.push(BindValue::Str(last_value.clone()));
+            binds.push(BindValue::Str(last_id.clone()));
+        }
+
+        let col = if paging.order_column() == "size" {
+            "modified_at"
+        } else {
+            paging.order_column()
+        };
+        use std::fmt::Write;
+        let _ = write!(
+            sql,
+            " ORDER BY {col} {dir}, id ASC LIMIT ?",
+            dir = paging.order_sql(),
+        );
+        let fetch_limit = paging.limit.clamp(1, 200) + 1;
+        binds.push(BindValue::I64(fetch_limit));
+
+        let mut q = sqlx::query(&sql);
+        for b in &binds {
+            q = match b {
+                BindValue::Str(s) => q.bind(s.as_str()),
+                BindValue::I64(n) => q.bind(*n),
+            };
+        }
+        let rows = q.fetch_all(self.db.pool()).await?;
         rows.iter().map(row_to_folder).collect()
     }
 

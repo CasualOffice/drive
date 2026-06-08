@@ -301,6 +301,12 @@ struct MembersResp {
 #[derive(Serialize)]
 struct MemberDto {
     user_id: String,
+    /// Human-readable name for the Owner chip's autocomplete + the
+    /// avatar monogram in [`14-presence`] (Phase 3). Joined from `users`
+    /// on every call — workspaces typically have < 20 members so the
+    /// per-row lookup is fine without a batched query.
+    username: String,
+    is_admin: bool,
     role: WorkspaceRole,
     joined_at: String,
 }
@@ -320,16 +326,22 @@ async fn list_members(
         .list(&id)
         .await
         .map_err(|e| WsError::Internal(e.to_string()))?;
-    Ok(Json(MembersResp {
-        members: mems
-            .into_iter()
-            .map(|m| MemberDto {
-                user_id: m.user_id,
-                role: m.role,
-                joined_at: rfc3339(m.joined_at),
-            })
-            .collect(),
-    }))
+    let users = drive_db::UserRepo::new(&s.db);
+    let mut out: Vec<MemberDto> = Vec::with_capacity(mems.len());
+    for m in mems {
+        let u = users
+            .find_by_id(&m.user_id)
+            .await
+            .map_err(|e| WsError::Internal(e.to_string()))?;
+        out.push(MemberDto {
+            user_id: m.user_id,
+            username: u.username,
+            is_admin: u.is_admin,
+            role: m.role,
+            joined_at: rfc3339(m.joined_at),
+        });
+    }
+    Ok(Json(MembersResp { members: out }))
 }
 
 /// Resolves which workspace a write should target. `candidate` is the

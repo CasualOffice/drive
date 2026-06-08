@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
 use crate::{
+    search::{placeholders, BindValue, SearchFilters, SearchPaging, TypeBucket},
     users::{parse_ts, ts},
     Db, DbError,
 };
@@ -388,6 +389,189 @@ impl<'a> FileRepo<'a> {
         .bind(limit.clamp(1, 200))
         .fetch_all(self.db.pool())
         .await?;
+        rows.iter().map(row_to_file).collect()
+    }
+
+    /// Phase 3 search: filters + sort + cursor pagination.
+    /// Spec: `docs/ux/12-search-surface.md` + `docs/research/16-scale-infra.md`.
+    ///
+    /// Returns up to `paging.limit + 1` rows — the caller uses the +1 to
+    /// detect "is there another page" and trims it off before responding.
+    pub async fn search_with(
+        &self,
+        filters: &SearchFilters,
+        paging: &SearchPaging,
+    ) -> Result<Vec<File>, DbError> {
+        // Files participate only when the type filter is empty OR
+        // includes at least one bucket other than Folder/Note.
+        let file_buckets: Vec<TypeBucket> = filters
+            .types
+            .iter()
+            .copied()
+            .filter(|t| !matches!(t, TypeBucket::Folder | TypeBucket::Note))
+            .collect();
+        if !filters.types.is_empty() && file_buckets.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // SQL builder. We construct the WHERE / ORDER BY / LIMIT clause
+        // dynamically because the filter set is dynamic; bind values are
+        // collected in parallel so the order matches the `?` placeholders.
+        let mut sql = String::from(
+            "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
+                    workspace_id, storage_id, trashed_at, original_parent_id, created_at, \
+                    modified_at, thumbnail, status, expected_size, thumbs_state, \
+                    thumbs_generated_at \
+             FROM files WHERE ",
+        );
+        let mut binds: Vec<BindValue> = Vec::new();
+        let mut first = true;
+        let mut and = |sql: &mut String, frag: &str| {
+            if first {
+                first = false;
+            } else {
+                sql.push_str(" AND ");
+            }
+            sql.push_str(frag);
+        };
+
+        // Workspaces (required, always non-empty)
+        and(
+            &mut sql,
+            &format!("workspace_id IN ({})", placeholders(filters.workspace_ids.len())),
+        );
+        for w in &filters.workspace_ids {
+            binds.push(BindValue::Str(w.clone()));
+        }
+
+        // Optional folder scope
+        if let Some(folder) = &filters.folder_id {
+            and(&mut sql, "parent_id = ?");
+            binds.push(BindValue::Str(folder.clone()));
+        }
+
+        // Trash semantics
+        match filters.in_trash {
+            None | Some(false) => and(&mut sql, "trashed_at IS NULL"),
+            Some(true) => and(&mut sql, "trashed_at IS NOT NULL"),
+        }
+
+        // Query text (case-insensitive LIKE)
+        if !filters.q.is_empty() {
+            and(&mut sql, "LOWER(name) LIKE ?");
+            binds.push(BindValue::Str(format!("%{}%", filters.q.to_lowercase())));
+        }
+
+        // Type buckets
+        if !file_buckets.is_empty() {
+            let mut type_parts: Vec<String> = Vec::new();
+            for bucket in &file_buckets {
+                for pred in bucket.content_type_predicates() {
+                    if pred.ends_with('/') {
+                        // prefix match
+                        type_parts.push("content_type LIKE ?".into());
+                        binds.push(BindValue::Str(format!("{pred}%")));
+                    } else {
+                        type_parts.push("content_type = ?".into());
+                        binds.push(BindValue::Str((*pred).to_string()));
+                    }
+                }
+            }
+            if !type_parts.is_empty() {
+                and(&mut sql, &format!("({})", type_parts.join(" OR ")));
+            }
+        }
+
+        // Owner
+        if !filters.owner_ids.is_empty() {
+            and(
+                &mut sql,
+                &format!("owner_id IN ({})", placeholders(filters.owner_ids.len())),
+            );
+            for o in &filters.owner_ids {
+                binds.push(BindValue::Str(o.clone()));
+            }
+        }
+
+        // Date ranges
+        if let Some(t) = filters.modified_after {
+            and(&mut sql, "modified_at >= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.modified_before {
+            and(&mut sql, "modified_at <= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.created_after {
+            and(&mut sql, "created_at >= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.created_before {
+            and(&mut sql, "created_at <= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+
+        // Size
+        if let Some(min) = filters.size_min {
+            and(&mut sql, "size >= ?");
+            binds.push(BindValue::I64(min as i64));
+        }
+        if let Some(max) = filters.size_max {
+            and(&mut sql, "size <= ?");
+            binds.push(BindValue::I64(max as i64));
+        }
+
+        // Share-link presence (subquery on share_links table)
+        if let Some(want) = filters.has_share_link {
+            let frag = if want {
+                "EXISTS (SELECT 1 FROM share_links WHERE share_links.file_id = files.id)"
+            } else {
+                "NOT EXISTS (SELECT 1 FROM share_links WHERE share_links.file_id = files.id)"
+            };
+            and(&mut sql, frag);
+        }
+
+        // Cursor: skip past the previously-seen page.
+        // Predicate is `(sort_col, id) <after>` where the comparator is
+        // > or < depending on sort direction. Tie-broken by id ASC so
+        // pagination is deterministic.
+        if let Some((last_value, last_id)) = &paging.after {
+            let cmp = match paging.sort_dir {
+                crate::search::SortDir::Asc => ">",
+                crate::search::SortDir::Desc => "<",
+            };
+            and(
+                &mut sql,
+                &format!(
+                    "({col} {cmp} ? OR ({col} = ? AND id > ?))",
+                    col = paging.order_column(),
+                    cmp = cmp
+                ),
+            );
+            binds.push(BindValue::Str(last_value.clone()));
+            binds.push(BindValue::Str(last_value.clone()));
+            binds.push(BindValue::Str(last_id.clone()));
+        }
+
+        // Order + limit. +1 to detect has-more.
+        use std::fmt::Write;
+        let _ = write!(
+            sql,
+            " ORDER BY {col} {dir}, id ASC LIMIT ?",
+            col = paging.order_column(),
+            dir = paging.order_sql(),
+        );
+        let fetch_limit = paging.limit.clamp(1, 200) + 1;
+        binds.push(BindValue::I64(fetch_limit));
+
+        let mut q = sqlx::query(&sql);
+        for b in &binds {
+            q = match b {
+                BindValue::Str(s) => q.bind(s.as_str()),
+                BindValue::I64(n) => q.bind(*n),
+            };
+        }
+        let rows = q.fetch_all(self.db.pool()).await?;
         rows.iter().map(row_to_file).collect()
     }
 

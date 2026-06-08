@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
 use crate::{
+    search::{placeholders, BindValue, SearchFilters, SearchPaging, TypeBucket},
     users::{parse_ts, ts},
     Db, DbError,
 };
@@ -253,6 +254,140 @@ impl<'a> NotesRepo<'a> {
         .bind(limit.clamp(1, 200))
         .fetch_all(self.db.pool())
         .await?;
+        rows.iter()
+            .map(|r| {
+                Ok(NoteNode {
+                    id: r.get("id"),
+                    parent_id: r.get("parent_id"),
+                    title: r.get("title"),
+                    order_key: r.get("order_key"),
+                })
+            })
+            .collect()
+    }
+
+    /// Phase 3 search. Notes participate when the type filter is empty
+    /// OR explicitly includes Note. Note-irrelevant filters (size,
+    /// content_type, has_share_link) gate the result set to empty.
+    pub async fn search_with(
+        &self,
+        filters: &SearchFilters,
+        paging: &SearchPaging,
+    ) -> Result<Vec<NoteNode>, DbError> {
+        if !filters.types.is_empty() && !filters.types.contains(&TypeBucket::Note) {
+            return Ok(vec![]);
+        }
+        if filters.has_share_link == Some(true)
+            || filters.size_min.is_some()
+            || filters.size_max.is_some()
+        {
+            return Ok(vec![]);
+        }
+
+        let mut sql = String::from(
+            "SELECT id, parent_id, title, order_key, modified_at, created_at, owner_id \
+             FROM notes WHERE ",
+        );
+        let mut binds: Vec<BindValue> = Vec::new();
+        let mut first = true;
+        let mut and = |sql: &mut String, frag: &str| {
+            if first {
+                first = false;
+            } else {
+                sql.push_str(" AND ");
+            }
+            sql.push_str(frag);
+        };
+
+        and(
+            &mut sql,
+            &format!("workspace_id IN ({})", placeholders(filters.workspace_ids.len())),
+        );
+        for w in &filters.workspace_ids {
+            binds.push(BindValue::Str(w.clone()));
+        }
+
+        match filters.in_trash {
+            None | Some(false) => and(&mut sql, "trashed_at IS NULL"),
+            Some(true) => and(&mut sql, "trashed_at IS NOT NULL"),
+        }
+
+        if !filters.q.is_empty() {
+            and(&mut sql, "(LOWER(title) LIKE ? OR LOWER(body) LIKE ?)");
+            let pat = format!("%{}%", filters.q.to_lowercase());
+            binds.push(BindValue::Str(pat.clone()));
+            binds.push(BindValue::Str(pat));
+        }
+
+        if !filters.owner_ids.is_empty() {
+            and(
+                &mut sql,
+                &format!("owner_id IN ({})", placeholders(filters.owner_ids.len())),
+            );
+            for o in &filters.owner_ids {
+                binds.push(BindValue::Str(o.clone()));
+            }
+        }
+
+        if let Some(t) = filters.modified_after {
+            and(&mut sql, "modified_at >= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.modified_before {
+            and(&mut sql, "modified_at <= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.created_after {
+            and(&mut sql, "created_at >= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+        if let Some(t) = filters.created_before {
+            and(&mut sql, "created_at <= ?");
+            binds.push(BindValue::Str(ts(t)));
+        }
+
+        // Notes don't have a `name` or `size` column — `name` maps to
+        // `title`, `size` falls back to `modified_at`. Apply the remap
+        // BEFORE building the cursor predicate so it never references a
+        // non-existent column.
+        let col = match paging.order_column() {
+            "name" => "title",
+            "size" => "modified_at",
+            other => other,
+        };
+
+        if let Some((last_value, last_id)) = &paging.after {
+            let cmp = match paging.sort_dir {
+                crate::search::SortDir::Asc => ">",
+                crate::search::SortDir::Desc => "<",
+            };
+            and(
+                &mut sql,
+                &format!("({col} {cmp} ? OR ({col} = ? AND id > ?))"),
+            );
+            binds.push(BindValue::Str(last_value.clone()));
+            binds.push(BindValue::Str(last_value.clone()));
+            binds.push(BindValue::Str(last_id.clone()));
+        }
+
+        let order_col = col;
+        use std::fmt::Write;
+        let _ = write!(
+            sql,
+            " ORDER BY {order_col} {dir}, id ASC LIMIT ?",
+            dir = paging.order_sql(),
+        );
+        let fetch_limit = paging.limit.clamp(1, 200) + 1;
+        binds.push(BindValue::I64(fetch_limit));
+
+        let mut q = sqlx::query(&sql);
+        for b in &binds {
+            q = match b {
+                BindValue::Str(s) => q.bind(s.as_str()),
+                BindValue::I64(n) => q.bind(*n),
+            };
+        }
+        let rows = q.fetch_all(self.db.pool()).await?;
         rows.iter()
             .map(|r| {
                 Ok(NoteNode {

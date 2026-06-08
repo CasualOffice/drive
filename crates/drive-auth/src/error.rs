@@ -18,6 +18,12 @@ pub enum AuthError {
     PasswordPolicy(&'static str),
     #[error("setup already complete")]
     AlreadyInitialized,
+    /// Phase 3 §12 — `DRIVE_ALLOW_PASSWORD_AUTH=false` shut this path off.
+    /// Surfaces as 404 to keep parity with "endpoint doesn't exist" so
+    /// scrapers can't tell the difference between a hidden path and an
+    /// unsupported one.
+    #[error("password auth disabled on this Drive")]
+    PasswordAuthDisabled,
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -37,6 +43,7 @@ impl IntoResponse for AuthError {
             Self::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate limited"),
             Self::PasswordPolicy(reason) => (StatusCode::UNPROCESSABLE_ENTITY, reason),
             Self::AlreadyInitialized => (StatusCode::CONFLICT, "setup already complete"),
+            Self::PasswordAuthDisabled => (StatusCode::NOT_FOUND, "not found"),
             Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
         };
         (status, Json(ErrBody { error: msg })).into_response()

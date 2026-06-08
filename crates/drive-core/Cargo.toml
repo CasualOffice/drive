@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 time      = { workspace = true }
 ulid      = { workspace = true }
 url       = { workspace = true }
+sha2      = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

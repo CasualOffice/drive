@@ -55,6 +55,62 @@ pub struct Config {
     /// Casual Editor origin (e.g. `https://document.casualoffice.org`).
     /// Same opt-in semantics as `sheet_origin`.
     pub document_origin: Option<Url>,
+    /// Phase 3 §15 — sandboxed PDF / video thumbnail worker. Path can be
+    /// absolute or a name resolved against `PATH`. None means the
+    /// operator hasn't bundled the worker — Drive falls back to
+    /// image-only thumbnails (PDF/video files → `unsupported`).
+    pub thumb_worker: ThumbWorkerConfig,
+    /// Phase 3 §12 — OIDC sign-in. All four fields go together; either
+    /// the operator configures the whole set or none of it.
+    pub oidc: Option<OidcConfig>,
+    /// Phase 3 §12 — when false, the password sign-in form is hidden
+    /// server-side (the `/api/auth/sign-in` route returns 404). Default
+    /// true so existing deployments keep working through the OIDC roll-out.
+    pub allow_password_auth: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThumbWorkerConfig {
+    /// Resolved binary path. `None` → operator didn't enable the
+    /// worker; Drive serves image thumbnails only.
+    pub binary_path: Option<std::path::PathBuf>,
+    /// Wall-clock per-job kill. Default 60s; the worker also enforces
+    /// its own `RLIMIT_CPU=30s`, so this is just the outer backstop.
+    pub job_timeout_secs: u64,
+    /// Max concurrent subprocess jobs. Default 4 — the brief's number.
+    pub concurrency: usize,
+}
+
+impl Default for ThumbWorkerConfig {
+    fn default() -> Self {
+        Self {
+            binary_path: None,
+            job_timeout_secs: 60,
+            concurrency: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OidcConfig {
+    pub issuer: Url,
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_url: Url,
+    /// `openid email profile` by default.
+    pub scopes: Vec<String>,
+    /// When set, members of this group (per the IdP's `groups` claim)
+    /// are flagged `is_admin = true` on every sign-in.
+    pub admin_group: Option<String>,
+    /// When true, unknown OIDC subjects auto-provision a new user row.
+    /// When false, a sign-in by an unknown subject returns 403.
+    pub auto_create_users: bool,
+    /// Shown on the sign-in card next to the IdP button.
+    pub provider_label: String,
+    /// Stable identifier used in the `users.oidc_provider_id` column so
+    /// rotating issuers / multi-IdP futures don't lose users. Defaults
+    /// to a hash of the issuer URL if unset by the operator.
+    pub provider_id: String,
 }
 
 #[derive(Debug, Error)]
@@ -193,8 +249,11 @@ impl Config {
             admin_password_hash,
             recipient_footer,
             is_prod,
+            oidc: load_oidc_from_env()?,
+            allow_password_auth: env_bool("DRIVE_ALLOW_PASSWORD_AUTH").unwrap_or(true),
             sheet_origin,
             document_origin,
+            thumb_worker: load_thumb_worker_from_env()?,
         })
     }
 
@@ -250,6 +309,100 @@ fn env_secret_32(name: &'static str, is_prod: bool) -> Result<[u8; 32], ConfigEr
     // fixed-width HMAC keys.
     out.copy_from_slice(&bytes[..32]);
     Ok(out)
+}
+
+/// Load the optional OIDC block from env. All four required fields must
+/// be set together (issuer + client_id + client_secret + redirect_url),
+/// otherwise we return None and Drive runs without OIDC.
+fn load_oidc_from_env() -> Result<Option<OidcConfig>, ConfigError> {
+    let Ok(issuer_str) = std::env::var("DRIVE_OIDC_ISSUER") else {
+        return Ok(None);
+    };
+    if issuer_str.is_empty() {
+        return Ok(None);
+    }
+    let issuer =
+        Url::parse(&issuer_str).map_err(|e| ConfigError::Invalid("DRIVE_OIDC_ISSUER", e.to_string()))?;
+    let client_id = std::env::var("DRIVE_OIDC_CLIENT_ID")
+        .map_err(|_| ConfigError::Missing("DRIVE_OIDC_CLIENT_ID"))?;
+    let client_secret = std::env::var("DRIVE_OIDC_CLIENT_SECRET")
+        .map_err(|_| ConfigError::Missing("DRIVE_OIDC_CLIENT_SECRET"))?;
+    let redirect_url = std::env::var("DRIVE_OIDC_REDIRECT_URL")
+        .map_err(|_| ConfigError::Missing("DRIVE_OIDC_REDIRECT_URL"))
+        .and_then(|s| {
+            Url::parse(&s).map_err(|e| ConfigError::Invalid("DRIVE_OIDC_REDIRECT_URL", e.to_string()))
+        })?;
+    let scopes: Vec<String> = std::env::var("DRIVE_OIDC_SCOPES")
+        .unwrap_or_else(|_| "openid email profile".into())
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    let admin_group = std::env::var("DRIVE_OIDC_ADMIN_GROUP")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let auto_create_users = env_bool("DRIVE_OIDC_AUTO_CREATE_USERS").unwrap_or(true);
+    let provider_label =
+        std::env::var("DRIVE_OIDC_PROVIDER_LABEL").unwrap_or_else(|_| "your identity provider".into());
+    // Stable id; defaults to a short hash of the issuer URL so two
+    // deployments pointing at different IdPs don't collide on the
+    // `users.oidc_provider_id` unique index.
+    let provider_id = std::env::var("DRIVE_OIDC_PROVIDER_ID")
+        .unwrap_or_else(|_| stable_provider_id(issuer.as_str()));
+
+    Ok(Some(OidcConfig {
+        issuer,
+        client_id,
+        client_secret,
+        redirect_url,
+        scopes,
+        admin_group,
+        auto_create_users,
+        provider_label,
+        provider_id,
+    }))
+}
+
+/// Phase 3 §15 — resolve the thumbnail worker config from env.
+///
+/// `DRIVE_THUMB_WORKER_PATH` is the only field that turns the feature
+/// on. Absent → image-only mode (existing behaviour). Present but the
+/// binary isn't executable → `HttpState` logs a warning at boot and
+/// also runs in image-only mode.
+fn load_thumb_worker_from_env() -> Result<ThumbWorkerConfig, ConfigError> {
+    let raw = std::env::var("DRIVE_THUMB_WORKER_PATH").ok();
+    let binary_path = raw.and_then(|s| if s.is_empty() { None } else { Some(s.into()) });
+    let job_timeout_secs: u64 = std::env::var("DRIVE_THUMB_JOB_TIMEOUT_SECS")
+        .unwrap_or_else(|_| "60".into())
+        .parse()
+        .map_err(|e: std::num::ParseIntError| {
+            ConfigError::Invalid("DRIVE_THUMB_JOB_TIMEOUT_SECS", e.to_string())
+        })?;
+    let concurrency: usize = std::env::var("DRIVE_THUMB_CONCURRENCY")
+        .unwrap_or_else(|_| "4".into())
+        .parse()
+        .map_err(|e: std::num::ParseIntError| {
+            ConfigError::Invalid("DRIVE_THUMB_CONCURRENCY", e.to_string())
+        })?;
+    Ok(ThumbWorkerConfig {
+        binary_path,
+        job_timeout_secs: job_timeout_secs.max(5),
+        concurrency: concurrency.max(1),
+    })
+}
+
+/// 12-hex-char fingerprint of the issuer URL. Stable across restarts;
+/// changes only if the issuer URL itself changes (which would invalidate
+/// the existing `users.oidc_subject` linkage anyway).
+fn stable_provider_id(issuer: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let h = Sha256::digest(issuer.as_bytes());
+    h.iter()
+        .take(6)
+        .fold(String::with_capacity(12), |mut acc, b| {
+            use std::fmt::Write;
+            let _ = write!(&mut acc, "{b:02x}");
+            acc
+        })
 }
 
 fn is_dev_default(s: &str) -> bool {

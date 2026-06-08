@@ -6,7 +6,7 @@ use axum::extract::FromRef;
 use drive_auth::AuthState;
 use drive_core::Config;
 use drive_db::Db;
-use drive_storage::{Storage, StorageRegistry};
+use drive_storage::{MultiKindWorker, Storage, StorageRegistry, SubprocessWorker, ThumbnailWorker};
 use drive_wopi::WopiState;
 
 use crate::rate_limit::{RateLimitConfig, RateLimiter};
@@ -40,6 +40,11 @@ pub struct HttpState {
     /// `None` in tests + the dev path; required at boot in production
     /// when any workspace has BYO storage configured.
     pub storage_secret_key: Option<Arc<[u8; 32]>>,
+    /// Phase 3 §15 — multi-kind thumbnail worker. Images render
+    /// in-process; PDF + video fan out to the sandboxed subprocess (if
+    /// configured). Held as `Arc<dyn>` so handlers don't have to know
+    /// which lane handles their input.
+    pub thumb_worker: Arc<dyn ThumbnailWorker>,
 }
 
 impl HttpState {
@@ -65,6 +70,31 @@ impl HttpState {
     #[must_use]
     pub fn default_registry(storage: Storage, sign_key: [u8; 32]) -> Arc<StorageRegistry> {
         Arc::new(StorageRegistry::new(Arc::new(storage), sign_key))
+    }
+
+    /// Phase 3 §15 — resolve a thumbnail worker from the operator's
+    /// config. When `binary_path` is None or the binary isn't
+    /// executable, fall back to image-only (PDF/video files will
+    /// transition cleanly to `unsupported`).
+    #[must_use]
+    pub fn build_thumb_worker(cfg: &drive_core::ThumbWorkerConfig) -> Arc<dyn ThumbnailWorker> {
+        let Some(path) = cfg.binary_path.clone() else {
+            return Arc::new(MultiKindWorker::image_only());
+        };
+        let sub = SubprocessWorker::new(
+            path.clone(),
+            std::time::Duration::from_secs(cfg.job_timeout_secs),
+            cfg.concurrency,
+        );
+        if !sub.binary_available() {
+            tracing::warn!(
+                worker_path = %path.display(),
+                "DRIVE_THUMB_WORKER_PATH set but the binary isn't executable — \
+                 PDF + video thumbnails will transition to `unsupported`"
+            );
+            return Arc::new(MultiKindWorker::image_only());
+        }
+        Arc::new(MultiKindWorker::new(Some(sub)))
     }
 }
 

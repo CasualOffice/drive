@@ -1,12 +1,21 @@
-import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { KeyRound, Sparkles } from "lucide-react";
 
-import { ApiError, DEMO_MODE } from "../api/client.ts";
+import { ApiError, DEMO_MODE, oidcLoginUrl, oidcMetadata, type OidcMetadata } from "../api/client.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
 import { Logo } from "../components/Logo.tsx";
 
 const DEMO_USERNAME = "demo";
 const DEMO_PASSWORD = "demo";
+
+// Phase 3 §12 — query-param error codes the OIDC callback emits when it
+// has to bounce the user back here instead of completing the sign-in.
+const OIDC_ERROR_COPY: Record<string, string> = {
+  idp: "The identity provider rejected the sign-in.",
+  expired: "That sign-in attempt expired. Try again.",
+  token: "We couldn't verify the identity provider's response.",
+  unknown_subject: "Your account isn't linked yet. Ask the admin to invite you.",
+};
 
 export function SignIn() {
   const { signIn } = useAuth();
@@ -16,6 +25,26 @@ export function SignIn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(false);
+  const [oidc, setOidc] = useState<OidcMetadata | null>(null);
+
+  useEffect(() => {
+    // Surface ?oidc_error=... from the callback redirect, then strip it.
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("oidc_error");
+    if (code) {
+      setError(OIDC_ERROR_COPY[code] ?? "Sign-in failed. Try again.");
+      params.delete("oidc_error");
+      const qs = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash,
+      );
+    }
+    oidcMetadata()
+      .then(setOidc)
+      .catch(() => setOidc({ enabled: false, allow_password_auth: true }));
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +69,9 @@ export function SignIn() {
   }
 
   const submitDisabled = busy || !password || !username.trim();
+  const passwordEnabled = oidc?.allow_password_auth ?? true;
+  const oidcEnabled = oidc?.enabled ?? false;
+  const oidcLabel = oidc?.provider_label ?? "your identity provider";
 
   return (
     <div
@@ -84,11 +116,13 @@ export function SignIn() {
             Casual Drive
           </h1>
           <p style={{ margin: 0, fontSize: "var(--text-base)", color: "var(--muted)" }}>
-            {DEMO_MODE ? "Demo build · sign in with the pre-filled credentials." : "Sign in to continue."}
+            {DEMO_MODE && passwordEnabled
+              ? "Demo build · sign in with the pre-filled credentials."
+              : "Sign in to continue."}
           </p>
         </div>
 
-        {DEMO_MODE && (
+        {DEMO_MODE && passwordEnabled && (
           <div
             style={{
               display: "flex",
@@ -117,6 +151,57 @@ export function SignIn() {
           </div>
         )}
 
+        {oidcEnabled && (
+          <a
+            href={oidcLoginUrl()}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              width: "100%",
+              padding: "12px",
+              fontFamily: "var(--font-sans)",
+              fontSize: "var(--text-sm)",
+              fontWeight: 500,
+              color: "var(--paper)",
+              background: "var(--ink)",
+              border: "none",
+              borderRadius: 12,
+              textDecoration: "none",
+              cursor: "pointer",
+              transition: "background 200ms var(--ease), transform 200ms",
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.transform = "translateY(-1px)";
+            }}
+            onMouseOut={(e) => (e.currentTarget.style.transform = "")}
+          >
+            <KeyRound size={15} strokeWidth={1.8} />
+            Sign in with {oidcLabel}
+          </a>
+        )}
+
+        {oidcEnabled && passwordEnabled && (
+          <div
+            aria-hidden="true"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              fontSize: "var(--text-xs)",
+              color: "var(--muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
+            or
+            <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
+          </div>
+        )}
+
+        {passwordEnabled && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <Input
             type="text"
@@ -157,6 +242,7 @@ export function SignIn() {
             </div>
           )}
         </div>
+        )}
 
         {error && (
           <div
@@ -172,29 +258,49 @@ export function SignIn() {
           </div>
         )}
 
-        <button
-          type="submit"
-          disabled={submitDisabled}
-          style={{
-            width: "100%",
-            padding: "12px",
-            fontFamily: "var(--font-sans)",
-            fontSize: "var(--text-sm)",
-            fontWeight: 500,
-            color: "var(--paper)",
-            background: submitDisabled ? "rgba(26,26,30,.35)" : "var(--ink)",
-            border: "none",
-            borderRadius: 12,
-            cursor: submitDisabled ? "default" : "pointer",
-            transition: "background 200ms var(--ease), transform 200ms",
-          }}
-          onMouseOver={(e) => {
-            if (!submitDisabled) e.currentTarget.style.transform = "translateY(-1px)";
-          }}
-          onMouseOut={(e) => (e.currentTarget.style.transform = "")}
-        >
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
+        {passwordEnabled && (
+          <button
+            type="submit"
+            disabled={submitDisabled}
+            style={{
+              width: "100%",
+              padding: "12px",
+              fontFamily: "var(--font-sans)",
+              fontSize: "var(--text-sm)",
+              fontWeight: 500,
+              color: "var(--paper)",
+              background: submitDisabled ? "rgba(26,26,30,.35)" : "var(--ink)",
+              border: "none",
+              borderRadius: 12,
+              cursor: submitDisabled ? "default" : "pointer",
+              transition: "background 200ms var(--ease), transform 200ms",
+            }}
+            onMouseOver={(e) => {
+              if (!submitDisabled) e.currentTarget.style.transform = "translateY(-1px)";
+            }}
+            onMouseOut={(e) => (e.currentTarget.style.transform = "")}
+          >
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+        )}
+
+        {!passwordEnabled && !oidcEnabled && (
+          <div
+            role="alert"
+            style={{
+              padding: "11px 13px",
+              background: "var(--warning-muted, rgba(200,164,92,.12))",
+              border: "1px solid rgba(200, 164, 92, 0.32)",
+              borderRadius: 12,
+              fontSize: "var(--text-xs)",
+              color: "var(--ink-soft)",
+            }}
+          >
+            Sign-in is disabled. Ask the operator to set
+            {" "}<code style={kbdStyle()}>DRIVE_ALLOW_PASSWORD_AUTH=true</code>{" "}
+            or configure an OIDC provider.
+          </div>
+        )}
       </form>
 
       <style>

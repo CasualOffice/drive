@@ -6,9 +6,12 @@
 //!     requested size; triggers generation on first miss (lazy).
 //!   - `POST /api/files/{id}/thumb/regenerate` — owner-only force.
 //!
-//! Generation runs in-process via the `ImageOnlyWorker` (image kinds
-//! only in v0; PDF/video deferred to v0.2 — they need a sandboxed
-//! subprocess per the security brief).
+//! Generation runs through the `MultiKindWorker` held in `HttpState`:
+//! images render in-process (`ImageOnlyWorker`), PDF + video fan out
+//! to the sandboxed `drive-thumb-worker` subprocess (Phase 3 §15).
+//! When the subprocess binary isn't bundled, the multi-kind worker
+//! returns `Unsupported` for PDF/video → row flips to
+//! `thumbs_state = 'unsupported'` and stops being retried.
 
 use axum::{
     extract::{Path, State},
@@ -20,7 +23,7 @@ use axum::{
 use bytes::Bytes;
 use drive_auth::AuthSession;
 use drive_db::{FileRepo, ThumbsState};
-use drive_storage::{ImageOnlyWorker, ThumbSize, ThumbnailError, ThumbnailKind};
+use drive_storage::{ThumbSize, ThumbnailError, ThumbnailKind};
 use futures::TryStreamExt;
 use serde::Serialize;
 use std::time::Duration;
@@ -244,7 +247,11 @@ async fn run_generation(
         .map_err(|e| ThumbnailError::Decode(format!("stream: {e}")))?;
     let bytes = Bytes::from(body);
 
-    let worker = ImageOnlyWorker;
+    // Phase 3 §15 — go through the multi-kind worker held in state.
+    // For ThumbnailKind::Image this is still in-process; PDF/video go
+    // to the subprocess (when bundled) or return Unsupported here
+    // (when not), which the caller maps to thumbs_state = 'unsupported'.
+    let worker = state.thumb_worker.clone();
     for size in ThumbSize::all() {
         let png = worker
             .generate(kind, bytes.clone(), size.px(), size.fit_mode())

@@ -63,6 +63,9 @@ async fn fixture() -> HttpState {
         db_url: "sqlite::memory:".into(),
         body_limit_mb: 100,
         signed_url_ttl_secs: 300,
+        oidc: None,
+        allow_password_auth: true,
+        thumb_worker: drive_core::ThumbWorkerConfig::default(),
         session_secret: vec![0u8; 32],
         wopi_hmac_secret: [2u8; 32],
         signed_url_hmac_secret: [1u8; 32],
@@ -85,6 +88,7 @@ async fn fixture() -> HttpState {
         upload_limiter: HttpState::default_upload_limiter(),
         registry,
         storage_secret_key: None,
+        thumb_worker: std::sync::Arc::new(drive_storage::MultiKindWorker::image_only()),
     }
 }
 

@@ -19,7 +19,10 @@ pub use registry::StorageRegistry;
 pub use secret_box::{
     open as open_secret, parse_master_key_hex, seal as seal_secret, SecretBoxError,
 };
-pub use thumbnails::{FitMode, ImageOnlyWorker, ThumbSize, ThumbnailError, ThumbnailKind};
+pub use thumbnails::{
+    FitMode, ImageOnlyWorker, MultiKindWorker, SubprocessWorker, ThumbSize, ThumbnailError,
+    ThumbnailKind, ThumbnailWorker,
+};
 
 use std::{ops::Range, sync::Arc, time::Duration as StdDuration};
 

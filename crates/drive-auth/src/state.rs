@@ -9,6 +9,10 @@ pub struct AuthState {
     pub cookie_secure: bool,
     /// Session TTL.
     pub session_ttl: time::Duration,
+    /// Phase 3 §12 — when false, `/api/auth/sign-in` returns 404 so the
+    /// password path is hidden server-side, not just CSS'd away. Default
+    /// `true` so deployments without OIDC keep working.
+    pub allow_password_auth: bool,
 }
 
 impl AuthState {
@@ -18,6 +22,14 @@ impl AuthState {
             db,
             cookie_secure,
             session_ttl,
+            allow_password_auth: true,
         }
+    }
+
+    /// Builder helper for the production wiring in drive-bin.
+    #[must_use]
+    pub fn with_password_auth(mut self, allow: bool) -> Self {
+        self.allow_password_auth = allow;
+        self
     }
 }

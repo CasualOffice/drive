@@ -3,8 +3,22 @@ import { ChevronLeft, ChevronRight as ChevronRightSeparator, UploadCloud } from 
 import { toast } from "sonner";
 
 import * as api from "../api/client.ts";
-import { ApiError, downloadUrl, type FileDto, type FolderDto } from "../api/client.ts";
+import {
+  ApiError,
+  defaultFilters,
+  downloadUrl,
+  hasActiveFilters,
+  searchAdvanced,
+  type FileDto,
+  type FolderDto,
+  type SearchFilters,
+  type SearchResp,
+  type SortBy as SearchSortBy,
+  type SortDir as SearchSortDir,
+  type Workspace,
+} from "../api/client.ts";
 import { useActiveWorkspaceId } from "../state/WorkspaceContext.tsx";
+import { SearchToolbar } from "../components/SearchToolbar.tsx";
 import { generateThumbnail } from "../api/thumbnail.ts";
 import { forbiddenUploadExtension } from "../api/uploadPolicy.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
@@ -158,6 +172,39 @@ export function Files({
   // know if the user's `query` is "live" against the rendered set.
   const [searched, setSearched] = useState(false);
 
+  // Phase 3 search — chip-driven filters + cursor pagination.
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>(() => defaultFilters());
+  const [searchSort, setSearchSort] = useState<SearchSortBy>("relevance");
+  const [searchSortDir, setSearchSortDir] = useState<SearchSortDir>("desc");
+  const [searchMeta, setSearchMeta] = useState<{
+    total: { files: number; folders: number; notes: number; exact: boolean };
+    nextCursor: string | null;
+    sortApplied: SearchSortBy;
+  } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Workspaces list — needed for the SearchToolbar's Workspace chip
+  // (only when the user has more than one) and scope picker.
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await api.listWorkspaces();
+        if (alive) setWorkspaces(r.workspaces);
+      } catch {
+        /* ignored — toolbar degrades gracefully without the list */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Whether to show the search UI vs the folder listing. Driven by
+  // either a non-trivial query OR any active chip filter.
+  const inSearchMode = query.trim().length >= 2 || hasActiveFilters(searchFilters);
+
   const refresh = useCallback(async () => {
     setState({ kind: "loading" });
     setSearched(false);
@@ -224,25 +271,42 @@ export function Files({
     return () => window.removeEventListener("cd:open-file", onOpen);
   }, [state]);
 
-  // Switch to global search when the query gets long enough; otherwise
-  // fall back to the current folder listing. 200ms debounce + abort the
-  // in-flight request on the next keystroke so we don't flash stale data.
+  // Phase 3 search effect — drives /api/search with the chip filter
+  // set + sort + pagination. 200 ms debounce on every input change;
+  // AbortController cancels the in-flight request on each new keystroke
+  // or filter flip so stale responses never overwrite fresh ones.
   useEffect(() => {
-    const q = query.trim();
-    if (q.length < 2) {
-      // Returned to a too-short query and we were previously in search
-      // mode → re-list the current folder.
-      if (searched) void refresh();
+    if (!inSearchMode) {
+      // Returned to neutral (no query + no filters) → folder listing.
+      if (searched) {
+        setSearched(false);
+        setSearchMeta(null);
+        void refresh();
+      }
       return;
     }
     const controller = new AbortController();
     const handle = setTimeout(async () => {
       setState({ kind: "loading" });
       try {
-        const data = await api.searchAll(q, controller.signal, workspaceId);
-        setState({ kind: "ready", folders: data.folders, files: data.files });
+        const filters: SearchFilters = { ...searchFilters, q: query.trim() };
+        const data: SearchResp = await searchAdvanced(
+          filters,
+          { sort: searchSort, sort_dir: searchSortDir, limit: 30 },
+          controller.signal,
+        );
+        setState({
+          kind: "ready",
+          folders: data.folders,
+          files: data.files,
+        });
         setSearched(true);
-        onItemCount(data.folders.length + data.files.length);
+        setSearchMeta({
+          total: data.total,
+          nextCursor: data.next_cursor ?? null,
+          sortApplied: data.sort_applied,
+        });
+        onItemCount(data.folders.length + data.files.length + data.notes.length);
       } catch (err) {
         if (controller.signal.aborted) return;
         const msg =
@@ -258,11 +322,80 @@ export function Files({
       clearTimeout(handle);
       controller.abort();
     };
-    // refresh + searched are intentionally not in the dep set — they
-    // would re-fire the effect every render. Only the live query string
-    // and the active workspace should re-trigger search.
+    // refresh + searched + setters are intentionally not in the dep set
+    // — they would re-fire the effect every render. Only the live
+    // search inputs should re-trigger search.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, onItemCount, workspaceId]);
+  }, [
+    query,
+    inSearchMode,
+    searchFilters,
+    searchSort,
+    searchSortDir,
+    workspaceId,
+    onItemCount,
+  ]);
+
+  // Infinite scroll: when in search mode + a next_cursor exists,
+  // fetch and append the next page. Triggered by an IntersectionObserver
+  // attached to a sentinel ~2 viewports below the result list.
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!inSearchMode || !searchMeta?.nextCursor || loadingMore) return;
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0].isIntersecting) return;
+        if (loadingMore || !searchMeta?.nextCursor) return;
+        setLoadingMore(true);
+        void (async () => {
+          try {
+            const filters: SearchFilters = { ...searchFilters, q: query.trim() };
+            const data = await searchAdvanced(filters, {
+              sort: searchSort,
+              sort_dir: searchSortDir,
+              limit: 30,
+              after: searchMeta.nextCursor!,
+            });
+            setState((s) =>
+              s.kind === "ready"
+                ? {
+                    kind: "ready",
+                    folders: [...s.folders, ...data.folders],
+                    files: [...s.files, ...data.files],
+                  }
+                : s,
+            );
+            setSearchMeta((m) =>
+              m
+                ? {
+                    total: data.total,
+                    nextCursor: data.next_cursor ?? null,
+                    sortApplied: data.sort_applied,
+                  }
+                : m,
+            );
+          } catch {
+            /* swallowed — caller will retry by scrolling again */
+          } finally {
+            setLoadingMore(false);
+          }
+        })();
+      },
+      { rootMargin: "0px 0px 800px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    inSearchMode,
+    searchMeta?.nextCursor,
+    loadingMore,
+    searchFilters,
+    searchSort,
+    searchSortDir,
+    query,
+  ]);
 
   // Parent-triggered upload + new-folder. Both use a "tick" counter
   // that the parent increments on action. We track the last seen tick
@@ -607,14 +740,44 @@ export function Files({
     >
       <Header
         path={path}
-        searching={!!query}
+        searching={inSearchMode}
         count={total}
+        searchTotals={
+          inSearchMode && searchMeta
+            ? {
+                files: searchMeta.total.files,
+                folders: searchMeta.total.folders,
+                notes: searchMeta.total.notes,
+                exact: searchMeta.total.exact,
+              }
+            : undefined
+        }
         onBack={goBack}
         onJumpTo={jumpTo}
         sort={sort}
         onSortChange={changeSort}
-        showSort={state.kind === "ready" && total > 0}
+        showSort={!inSearchMode && state.kind === "ready" && total > 0}
       />
+
+      {inSearchMode && (
+        <SearchToolbar
+          filters={searchFilters}
+          sort={searchSort}
+          sortDir={searchSortDir}
+          workspaces={workspaces}
+          activeWorkspaceName={
+            workspaces.find((w) => w.id === workspaceId)?.name ?? "This workspace"
+          }
+          insideFolder={path.length > 1}
+          activeWorkspaceId={workspaceId}
+          onFiltersChange={setSearchFilters}
+          onSortChange={(s, d) => {
+            setSearchSort(s);
+            setSearchSortDir(d);
+          }}
+          onClearAll={() => setSearchFilters(defaultFilters(searchFilters.scope))}
+        />
+      )}
 
       <input
         ref={fileInputRef}
@@ -683,6 +846,47 @@ export function Files({
           <div style={{ marginTop: 40 }}>
             <EmptyState title="Couldn't load files." subtitle={state.message} />
           </div>
+        )}
+
+        {/* Infinite-scroll sentinel + end-of-results divider. */}
+        {inSearchMode && state.kind === "ready" && (
+          <>
+            {searchMeta?.nextCursor && (
+              <div
+                ref={loadMoreRef}
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  padding: "20px 0 30px",
+                  color: "var(--muted)",
+                  fontSize: "var(--text-xs)",
+                }}
+                aria-live="polite"
+              >
+                {loadingMore ? "Loading more…" : ""}
+              </div>
+            )}
+            {!searchMeta?.nextCursor && total > 0 && (
+              <div
+                role="status"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  padding: "20px 0 30px",
+                  color: "var(--muted)",
+                  fontSize: "var(--text-xs)",
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                }}
+              >
+                <span style={{ flex: 1, maxWidth: 60, height: 1, background: "var(--line)" }} />
+                End of results
+                <span style={{ flex: 1, maxWidth: 60, height: 1, background: "var(--line)" }} />
+              </div>
+            )}
+          </>
         )}
       </Stage>
 
@@ -785,6 +989,7 @@ function Header({
   path,
   searching,
   count,
+  searchTotals,
   onBack,
   onJumpTo,
   sort,
@@ -794,6 +999,9 @@ function Header({
   path: Crumb[];
   searching: boolean;
   count: number;
+  /** When present (search mode), drives the per-kind count chip
+   * ("142 files · 6 folders · 3 notes"). */
+  searchTotals?: { files: number; folders: number; notes: number; exact: boolean };
   onBack: () => void;
   onJumpTo: (idx: number) => void;
   sort: { key: SortKey; dir: SortDir };
@@ -872,10 +1080,19 @@ function Header({
           >
             {searching ? "Search results" : current.name}
           </h1>
-          {(count > 0 || searching) && (
-            <span style={{ fontSize: "var(--text-sm)", color: "var(--muted)", paddingBottom: 4 }}>
-              {count} {count === 1 ? "item" : "items"}
+          {searchTotals ? (
+            <span
+              aria-live="polite"
+              style={{ fontSize: "var(--text-sm)", color: "var(--muted)", paddingBottom: 4 }}
+            >
+              {formatSearchTotals(searchTotals)}
             </span>
+          ) : (
+            (count > 0 || searching) && (
+              <span style={{ fontSize: "var(--text-sm)", color: "var(--muted)", paddingBottom: 4 }}>
+                {count} {count === 1 ? "item" : "items"}
+              </span>
+            )
           )}
         </div>
       </div>
@@ -887,6 +1104,20 @@ function Header({
       )}
     </div>
   );
+}
+
+function formatSearchTotals(t: {
+  files: number;
+  folders: number;
+  notes: number;
+  exact: boolean;
+}): string {
+  const parts: string[] = [];
+  if (t.files > 0) parts.push(`${t.files} ${t.files === 1 ? "file" : "files"}`);
+  if (t.folders > 0) parts.push(`${t.folders} ${t.folders === 1 ? "folder" : "folders"}`);
+  if (t.notes > 0) parts.push(`${t.notes} ${t.notes === 1 ? "note" : "notes"}`);
+  const body = parts.length === 0 ? "No matches" : parts.join(" · ");
+  return t.exact || parts.length === 0 ? body : `${body} (more)`;
 }
 
 function CrumbButton({ label, onClick, sep }: { label: string; onClick: () => void; sep?: boolean }) {

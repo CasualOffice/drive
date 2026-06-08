@@ -32,5 +32,12 @@ ulid       = { workspace = true }
 image      = { workspace = true }
 tracing    = { workspace = true }
 
+# Phase 3 §15 — the SubprocessWorker pipes JSON to drive-thumb-worker.
+# We depend on the worker crate's *library* half for the shared Request
+# / Response types (zero footprint — no binary linked in).
+drive-thumb-worker = { path = "../drive-thumb-worker" }
+serde_json = { workspace = true }
+tempfile   = { workspace = true }
+
 [dev-dependencies]
 tempfile   = { workspace = true }

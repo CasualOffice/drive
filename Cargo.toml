@@ -7,6 +7,7 @@ members = [
     "crates/drive-wopi",
     "crates/drive-auth",
     "crates/drive-http",
+    "crates/drive-thumb-worker",
     "crates/drive-bin",
 ]
 # Spike crates are intentionally OUT of the production workspace.
@@ -64,6 +65,12 @@ subtle            = "2"
 base64            = "0.22"
 aes-gcm           = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 rand              = "0.9"
+
+# Phase 3 §12 — OIDC. `openidconnect` 5.x is the canonical Rust client;
+# does discovery + ID-token signature verification + PKCE for us.
+# Heavy (~50 transitive deps) but the alternative is hand-rolling
+# JWS verification, which is exactly where CVEs come from.
+openidconnect     = "4"
 
 # Database
 sqlx              = { version = "0.8", default-features = false, features = ["runtime-tokio", "macros", "any", "sqlite", "postgres", "time", "uuid", "migrate"] }

@@ -124,6 +124,27 @@ export async function getAbout(): Promise<About> {
   return request<About>("/api/about");
 }
 
+// ─── OIDC sign-in (Phase 3 §12) ──────────────────────────────────────
+
+export interface OidcMetadata {
+  enabled: boolean;
+  /** Human label for the IdP button. Present when `enabled`. */
+  provider_label?: string;
+  /** When false, the password sign-in form is hidden — the server also
+   * returns 404 on /api/auth/sign-in to make sure clients can't bypass. */
+  allow_password_auth: boolean;
+}
+
+export async function oidcMetadata(): Promise<OidcMetadata> {
+  return request<OidcMetadata>("/api/auth/oidc/metadata");
+}
+
+/** Browser-side helper — server is the source of truth for the URL,
+ * so this just navigates to the login route which 302s onward. */
+export function oidcLoginUrl(): string {
+  return "/api/auth/oidc/login";
+}
+
 // ─── First-run setup ─────────────────────────────────────────────────
 
 export interface SetupStatus {
@@ -549,6 +570,22 @@ export async function listWorkspaces(): Promise<WorkspaceListResp> {
   return request<WorkspaceListResp>("/api/workspaces");
 }
 
+export interface WorkspaceMember {
+  user_id: string;
+  username: string;
+  is_admin: boolean;
+  role: "owner" | "member";
+  joined_at: string;
+}
+
+export interface MembersResp {
+  members: WorkspaceMember[];
+}
+
+export async function listWorkspaceMembers(workspaceId: string): Promise<MembersResp> {
+  return request<MembersResp>(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`);
+}
+
 export async function createWorkspace(name: string): Promise<Workspace> {
   return request<Workspace>("/api/workspaces", {
     method: "POST",
@@ -758,6 +795,7 @@ export async function notesSearch(
 
 // ─── Global search ────────────────────────────────────────────────────
 
+/** Lightweight shape used by the Cmd-K palette + back-compat callers. */
 export async function searchAll(
   query: string,
   signal?: AbortSignal,
@@ -766,4 +804,134 @@ export async function searchAll(
   const params = new URLSearchParams({ q: query, limit: "50" });
   if (workspaceId) params.set("workspace", workspaceId);
   return request<ListResp>(`/api/search?${params.toString()}`, { signal });
+}
+
+// ─── Global search — Phase 3 wire shape ───────────────────────────────
+// Spec: docs/ux/12-search-surface.md + docs/research/16-scale-infra.md
+// §"Search backend wire contract".
+
+export type SortBy = "relevance" | "modified" | "created" | "name" | "size";
+export type SortDir = "asc" | "desc";
+export type SearchScope = "folder" | "workspace" | "all";
+
+/** Canonical content-type buckets the chip row offers. */
+export type TypeBucket =
+  | "folder"
+  | "document"
+  | "spreadsheet"
+  | "pdf"
+  | "image"
+  | "video"
+  | "audio"
+  | "markdown"
+  | "archive"
+  | "other"
+  | "note";
+
+export interface SearchFilters {
+  /** Empty string allowed when at least one other filter is set. */
+  q: string;
+  scope: SearchScope;
+  /** Only meaningful when scope == "folder". */
+  folder_id?: string;
+  /** When omitted, server defaults to the caller's active workspace. */
+  workspace_ids?: string[];
+  types: TypeBucket[];
+  owner_ids: string[];
+  modified_after?: string;  // RFC3339
+  modified_before?: string;
+  created_after?: string;
+  created_before?: string;
+  size_min?: number;
+  size_max?: number;
+  has_share_link?: boolean;
+  /** `true` ⇒ include trashed alongside non-trashed; default excludes. */
+  include_trashed?: boolean;
+}
+
+export interface SearchPaging {
+  sort: SortBy;
+  sort_dir: SortDir;
+  limit?: number;
+  /** Opaque cursor from the previous response's `next_cursor`. */
+  after?: string;
+}
+
+export interface NoteSearchHit {
+  id: string;
+  parent_id: string | null;
+  title: string;
+}
+
+export interface SearchTotals {
+  files: number;
+  folders: number;
+  notes: number;
+  exact: boolean;
+}
+
+export interface SearchResp {
+  files: FileDto[];
+  folders: FolderDto[];
+  notes: NoteSearchHit[];
+  total: SearchTotals;
+  next_cursor?: string | null;
+  /** What the backend actually sorted by — relevance falls back to
+   * "modified" on the sqlite path. The SPA greys out the Relevance
+   * option in the Sort popover when this doesn't match the requested. */
+  sort_applied: SortBy;
+}
+
+/** Phase 3 search call. Empty filters + non-empty `q` is the floor;
+ * filters + sort + pagination are layered on. */
+export async function searchAdvanced(
+  filters: SearchFilters,
+  paging: SearchPaging,
+  signal?: AbortSignal,
+): Promise<SearchResp> {
+  const p = new URLSearchParams();
+  if (filters.q) p.set("q", filters.q);
+  if (filters.scope) p.set("scope", filters.scope);
+  if (filters.folder_id) p.set("folder_id", filters.folder_id);
+  if (filters.workspace_ids?.length) p.set("workspace", filters.workspace_ids.join(","));
+  if (filters.types.length) p.set("type", filters.types.join(","));
+  if (filters.owner_ids.length) p.set("owner", filters.owner_ids.join(","));
+  if (filters.modified_after) p.set("modified_after", filters.modified_after);
+  if (filters.modified_before) p.set("modified_before", filters.modified_before);
+  if (filters.created_after) p.set("created_after", filters.created_after);
+  if (filters.created_before) p.set("created_before", filters.created_before);
+  if (filters.size_min !== undefined) p.set("size_min", String(filters.size_min));
+  if (filters.size_max !== undefined) p.set("size_max", String(filters.size_max));
+  if (filters.has_share_link !== undefined) p.set("has_share_link", String(filters.has_share_link));
+  if (filters.include_trashed) p.set("include_trashed", "true");
+  p.set("sort", paging.sort);
+  p.set("sort_dir", paging.sort_dir);
+  p.set("limit", String(paging.limit ?? 30));
+  if (paging.after) p.set("after", paging.after);
+  return request<SearchResp>(`/api/search?${p.toString()}`, { signal });
+}
+
+/** Build a default filter object — the SPA's "no filters set" state. */
+export function defaultFilters(scope: SearchScope = "workspace"): SearchFilters {
+  return {
+    q: "",
+    scope,
+    types: [],
+    owner_ids: [],
+  };
+}
+
+/** True when any user-visible filter is active (i.e. would render a
+ * chip in its active state). Excludes the query itself. */
+export function hasActiveFilters(f: SearchFilters): boolean {
+  return (
+    f.types.length > 0 ||
+    f.owner_ids.length > 0 ||
+    !!f.modified_after || !!f.modified_before ||
+    !!f.created_after || !!f.created_before ||
+    f.size_min !== undefined || f.size_max !== undefined ||
+    f.has_share_link !== undefined ||
+    !!f.include_trashed ||
+    (f.workspace_ids?.length ?? 0) > 0
+  );
 }
