@@ -134,6 +134,7 @@ The current Notes app is shaped for developers (markdown source pane + literal `
 | # | Item | Brief | Priority | Trigger |
 |---|---|---|---|---|
 | MK1 | Domain flip + final CNAME (`drive.schnsrw.live` → final apex) | [`07-marketing-site`](./docs/research/07-marketing-site.md) | P1 | Calendar / DNS decision; nothing technical blocks it |
+| MK-PERF-95 | **Restore marketing Lighthouse gate to ≥0.95** (currently 0.85 — temporarily relaxed). Phase 1 (AVIF/WebP screenshots) shipped 0.74 → 0.84; preload attempt regressed TBT to 2150ms (decode contention). Investigate: smaller mobile-only screenshot variant with `<source media>`, deferring inline scripts, code-splitting any remaining heavy CSS. Use the local mobile-profile Lighthouse with `cpuSlowdownMultiplier:4` + 3 runs to mirror CI's variance. | [`07-marketing-site`](./docs/research/07-marketing-site.md) | P1 | Pick up before the next marketing-facing release |
 | MK2 | Pagefind docs search | [`07-marketing-site`](./docs/research/07-marketing-site.md) | P2 | After the first user can't find a doc page on their own |
 | MK3 | i18n (start with the marketing site, then docs, then SPA) | — (needs brief) | P3 | First non-English contributor opens an issue |
 
