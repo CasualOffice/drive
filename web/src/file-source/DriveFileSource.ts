@@ -27,7 +27,8 @@
 
 import type { FileSource, FileEntry } from "@schnsrw/docx-js-editor";
 
-import { ApiError, getCsrfToken, type FileDto } from "../api/client.ts";
+import { ApiError, DEMO_MODE, getCsrfToken, type FileDto } from "../api/client.ts";
+import { demoRequest } from "../api/demo.ts";
 
 const NO_OP_UNSUBSCRIBE = () => {};
 
@@ -63,11 +64,15 @@ export class DriveFileSource implements FileSource {
         `DriveFileSource: open('${id}') doesn't match constructor file id '${this.file.id}'`,
       );
     }
-    const res = await fetch(`/api/files/${encodeURIComponent(id)}/content`, {
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-    });
+    const res = DEMO_MODE
+      ? await demoRequest<Response>(`/api/files/${encodeURIComponent(id)}/content`, {
+          method: "GET",
+        })
+      : await fetch(`/api/files/${encodeURIComponent(id)}/content`, {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+        });
     if (!res.ok) {
       const body = await res.text().catch(() => null);
       throw new ApiError(res.status, body, `GET /api/files/${id}/content failed`);
@@ -96,21 +101,30 @@ export class DriveFileSource implements FileSource {
       );
     }
     const csrf = getCsrfToken();
-    const res = await fetch(`/api/files/${encodeURIComponent(id)}/content`, {
-      method: "PUT",
-      credentials: "same-origin",
-      cache: "no-store",
-      headers: {
-        "Content-Type": this.file.content_type ?? "application/octet-stream",
-        ...(csrf ? { "X-CSRF-Token": csrf } : {}),
-      },
-      body: bytes,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => null);
-      throw new ApiError(res.status, body, `PUT /api/files/${id}/content failed`);
-    }
-    const updated = (await res.json()) as FileDto;
+    const headers = {
+      "Content-Type": this.file.content_type ?? "application/octet-stream",
+      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+    };
+    const updated: FileDto = DEMO_MODE
+      ? await demoRequest<FileDto>(`/api/files/${encodeURIComponent(id)}/content`, {
+          method: "PUT",
+          headers,
+          body: bytes,
+        })
+      : await (async () => {
+          const res = await fetch(`/api/files/${encodeURIComponent(id)}/content`, {
+            method: "PUT",
+            credentials: "same-origin",
+            cache: "no-store",
+            headers,
+            body: bytes,
+          });
+          if (!res.ok) {
+            const body = await res.text().catch(() => null);
+            throw new ApiError(res.status, body, `PUT /api/files/${id}/content failed`);
+          }
+          return (await res.json()) as FileDto;
+        })();
     this.file = updated;
     return { id: updated.id, etag: String(updated.version) };
   }

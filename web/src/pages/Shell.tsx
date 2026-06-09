@@ -27,6 +27,8 @@ export function Shell() {
   const [itemCount, setItemCount] = useState(0);
   const [uploadTick, setUploadTick] = useState(0);
   const [newFolderTick, setNewFolderTick] = useState(0);
+  const [newBlankTick, setNewBlankTick] = useState(0);
+  const [newBlankKind, setNewBlankKind] = useState<"docx" | "xlsx" | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -65,6 +67,14 @@ export function Shell() {
         itemCount={itemCount}
         onNewFolder={() => setNewFolderTick((t) => t + 1)}
         onUpload={() => setUploadTick((t) => t + 1)}
+        onNewDocument={() => {
+          setNewBlankKind("docx");
+          setNewBlankTick((t) => t + 1);
+        }}
+        onNewSpreadsheet={() => {
+          setNewBlankKind("xlsx");
+          setNewBlankTick((t) => t + 1);
+        }}
         username={username}
       />
       <div className="flex-1 flex flex-col" style={{ minWidth: 0 }}>
@@ -88,6 +98,9 @@ export function Shell() {
               onUploadHandled={() => {}}
               newFolderRequested={newFolderTick}
               onNewFolderHandled={() => {}}
+              newBlankRequested={newBlankTick}
+              newBlankKind={newBlankKind}
+              onNewBlankHandled={() => setNewBlankKind(null)}
               onItemCount={setItemCount}
             />
           )}

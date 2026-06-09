@@ -116,6 +116,9 @@ export function Files({
   onUploadHandled,
   newFolderRequested,
   onNewFolderHandled,
+  newBlankRequested,
+  newBlankKind,
+  onNewBlankHandled,
   onItemCount,
 }: {
   view: ViewMode;
@@ -124,6 +127,10 @@ export function Files({
   onUploadHandled: () => void;
   newFolderRequested: number;
   onNewFolderHandled: () => void;
+  /** Bump to request a blank file create. Kind picks the template. */
+  newBlankRequested: number;
+  newBlankKind: "docx" | "xlsx" | null;
+  onNewBlankHandled: () => void;
   onItemCount: (n: number) => void;
 }) {
   // Active workspace — switching it resets the breadcrumb and refetches.
@@ -423,6 +430,54 @@ export function Files({
     setNewFolderOpen(true);
     onNewFolderHandled();
   }, [newFolderRequested, onNewFolderHandled, refresh, current.id]);
+
+  // Blank-template creation (docx / xlsx). Sidebar bumps the tick + sets
+  // the kind; we fetch the bundled template, wrap it as a File with a
+  // unique name in the current folder, and route through the same
+  // upload path so progress / quota / thumbnails behave consistently.
+  const lastNewBlankTickRef = useRef(newBlankRequested);
+  useEffect(() => {
+    if (newBlankRequested === lastNewBlankTickRef.current) return;
+    lastNewBlankTickRef.current = newBlankRequested;
+    if (newBlankRequested === 0 || !newBlankKind) return;
+    void (async () => {
+      onNewBlankHandled();
+      try {
+        const ext = newBlankKind;
+        const mime =
+          ext === "docx"
+            ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        // Tiny timestamp suffix so back-to-back New clicks don't collide.
+        // Drive's PATCH /api/files/{id} rename is one click away if the
+        // user wants something nicer.
+        const base = ext === "docx" ? "Untitled" : "Untitled spreadsheet";
+        const stamp = new Date()
+          .toISOString()
+          .replace(/[-:T]/g, "")
+          .slice(2, 12); // YYMMDDhhmm
+        const name = `${base} ${stamp}.${ext}`;
+        const resp = await fetch(`/templates/blank.${ext}`);
+        if (!resp.ok) throw new Error(`template fetch failed: HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const file = new File([blob], name, { type: mime });
+        const thumb = await generateThumbnail(file).catch(() => null);
+        const created = await api.uploadFile(file, current.id, thumb, workspaceId);
+        toast.success(`Created ${created.name}`);
+        refresh();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to create file";
+        toast.error(msg);
+      }
+    })();
+  }, [
+    newBlankRequested,
+    newBlankKind,
+    onNewBlankHandled,
+    refresh,
+    current.id,
+    workspaceId,
+  ]);
 
   const uploadAll = useCallback(
     async (files: FileList | File[]) => {

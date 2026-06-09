@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Activity,
   Clock,
+  FileText,
   FolderClosed,
   Gauge,
   Home,
@@ -9,6 +10,7 @@ import {
   Plus,
   Settings,
   Share2,
+  Sheet,
   ShieldCheck,
   Star,
   Trash2,
@@ -62,6 +64,8 @@ export function Sidebar({
   itemCount,
   onNewFolder,
   onUpload,
+  onNewDocument,
+  onNewSpreadsheet,
   username,
   storage,
 }: {
@@ -70,6 +74,8 @@ export function Sidebar({
   itemCount: number;
   onNewFolder: () => void;
   onUpload: () => void;
+  onNewDocument: () => void;
+  onNewSpreadsheet: () => void;
   username: string;
   storage?: { usedBytes: number; quotaBytes?: number };
 }) {
@@ -141,6 +147,14 @@ export function Sidebar({
             onUpload={() => {
               setMenuOpen(false);
               onUpload();
+            }}
+            onNewDocument={() => {
+              setMenuOpen(false);
+              onNewDocument();
+            }}
+            onNewSpreadsheet={() => {
+              setMenuOpen(false);
+              onNewSpreadsheet();
             }}
           />
         )}
@@ -299,10 +313,14 @@ function NewMenu({
   onClose,
   onNewFolder,
   onUpload,
+  onNewDocument,
+  onNewSpreadsheet,
 }: {
   onClose: () => void;
   onNewFolder: () => void;
   onUpload: () => void;
+  onNewDocument: () => void;
+  onNewSpreadsheet: () => void;
 }) {
   return (
     <div
@@ -323,6 +341,8 @@ function NewMenu({
       }}
     >
       <MenuItem icon={<FolderClosed size={16} />} label="New folder" onClick={onNewFolder} />
+      <MenuItem icon={<FileText size={16} />} label="New document" onClick={onNewDocument} />
+      <MenuItem icon={<Sheet size={16} />} label="New spreadsheet" onClick={onNewSpreadsheet} />
       <MenuItem icon={<Upload size={16} />} label="Upload files" onClick={onUpload} />
       <style>{`
         @keyframes cd-menu-in {
