@@ -48,6 +48,14 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks(id) {
             if (!id.includes("node_modules")) return undefined;
+            // Group React + React-DOM + scheduler in one vendor chunk so
+            // no other chunk needs to reach across the boundary for a
+            // partial React export (which previously created a circular
+            // dep with vendor-docx-editor and crashed React's module
+            // init with "Cannot set properties of undefined (Activity)").
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
+              return "vendor-react";
+            }
             if (id.includes("@univerjs/")) return "vendor-univer";
             if (id.includes("@schnsrw/casual-sheets")) return "vendor-univer";
             if (id.includes("@schnsrw/docx-js-editor")) return "vendor-docx-editor";
@@ -55,7 +63,6 @@ export default defineConfig(({ mode }) => {
             if (id.includes("yjs") || id.includes("y-prosemirror") || id.includes("y-websocket")) {
               return "vendor-collab";
             }
-            if (id.includes("react") && !id.includes("react-")) return "vendor-react";
             return undefined;
           },
         },

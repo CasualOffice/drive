@@ -7,20 +7,25 @@
  * file's procedural thumbnail at large size. Phase-2 wires real PDF.js /
  * image / video / text rendering.
  */
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronLeft, ChevronRight, Download, Share2, Star, X } from "lucide-react";
 
 import { toast } from "sonner";
 
-import {
-  AutosaveStatus,
-  type UseFileSourceAutoSaveReturn,
-} from "@schnsrw/docx-js-editor";
+import type { UseFileSourceAutoSaveReturn } from "@schnsrw/docx-js-editor";
 
 import { ApiError, downloadUrl, openInEditor, type FileDto } from "../api/client.ts";
 import { FileThumb, inferKind } from "./FileThumb.tsx";
 import { PreviewStage } from "./preview/PreviewStage.tsx";
+
+// AutosaveStatus is lazy — the SDK's vendor bundle (which contains a
+// React.Activity assignment that crashes module-init on React 19) must
+// never load at app boot. Suspense fallback is null because the dot
+// is decorative chrome only shown when a .docx is open.
+const AutosaveStatus = lazy(() =>
+  import("@schnsrw/docx-js-editor").then((m) => ({ default: m.AutosaveStatus })),
+);
 
 export function PreviewModal({
   files,
@@ -133,7 +138,9 @@ export function PreviewModal({
                   backdropFilter: "blur(4px)",
                 }}
               >
-                <AutosaveStatus state={autosaveState} />
+                <Suspense fallback={null}>
+                  <AutosaveStatus state={autosaveState} />
+                </Suspense>
               </div>
             )}
 
