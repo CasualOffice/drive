@@ -16,13 +16,24 @@ use axum::{
     routing::post,
     Json, Router,
 };
+use bytes::BytesMut;
 use drive_auth::AuthSession;
 use drive_db::{AuditRepo, FileRepo, FileStatus, NewAuditEvent, NewFile};
 use drive_storage::SignedUrl;
+use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::{files::FileDto, HttpState};
+use crate::{
+    files::{sniff_and_check_content_type, storage_key, FileDto, FilesError},
+    HttpState,
+};
+
+/// Range fetched for the post-finalize magic-byte sniff (§13.6a). 4 KB
+/// is more than enough — `infer`'s longest signature peeks at the
+/// first ~262 bytes; the bigger window covers tar/zip headers that
+/// trail past the first sector.
+const SNIFF_BYTES: u64 = 4 * 1024;
 
 /// 15 minutes — long enough for a flaky mobile connection on a multi-GB
 /// PUT, short enough that a leaked URL stops working before the next
@@ -41,8 +52,15 @@ pub(crate) enum DirectError {
     NotFound,
     Validation(String),
     AdapterCannotPresign,
-    QuotaExceeded { used: u64, quota: u64 },
+    QuotaExceeded {
+        used: u64,
+        quota: u64,
+    },
     NotUploading,
+    /// §13.6a — first-bytes sniff at finalize rejected the upload.
+    /// Carries the detected extension/type so the SPA can surface
+    /// "we don't accept .exe" inline.
+    ForbiddenContent(String),
     Internal(String),
 }
 
@@ -85,6 +103,14 @@ impl IntoResponse for DirectError {
                 Json(Err {
                     error: "file is not in 'uploading' state",
                 }),
+            )
+                .into_response(),
+            Self::ForbiddenContent(kind) => (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                Json(serde_json::json!({
+                    "error": format!("file rejected by content sniff: {kind}"),
+                    "kind": kind,
+                })),
             )
                 .into_response(),
             Self::Internal(m) => {
@@ -273,20 +299,84 @@ pub(crate) async fn complete(
         .await
         .map_err(|e| DirectError::Internal(format!("storage: {e:?}")))?;
 
-    let meta = storage
-        .stat(&crate::files::storage_key(&row.id))
-        .await
-        .map_err(|e| match e {
-            drive_storage::StorageError::NotFound(_) => DirectError::NotFound,
-            other => DirectError::Internal(format!("stat: {other}")),
-        })?;
+    let key = storage_key(&row.id);
+    let meta = storage.stat(&key).await.map_err(|e| match e {
+        drive_storage::StorageError::NotFound(_) => DirectError::NotFound,
+        other => DirectError::Internal(format!("stat: {other}")),
+    })?;
+
+    // §13.6a — post-finalize magic-byte sniff. The bucket received
+    // the bytes directly from the client; the server never inspected
+    // them until now. Fetch the first 4 KB via the same adapter (one
+    // extra range-GET; sub-100 ms on S3 / fs / memory), run `infer`,
+    // and either reject (executables) or update the authoritative
+    // content_type when the sniff disagrees with what the client
+    // claimed at presign time.
+    let sniff_end = SNIFF_BYTES.min(meta.size.max(1));
+    let head_bytes = if meta.size == 0 {
+        Vec::new()
+    } else {
+        let (_, stream) = storage
+            .get(&key, Some(0..sniff_end))
+            .await
+            .map_err(|e| DirectError::Internal(format!("sniff get: {e}")))?;
+        let buf: BytesMut = stream
+            .try_fold(BytesMut::new(), |mut acc, chunk| async move {
+                acc.extend_from_slice(&chunk);
+                Ok(acc)
+            })
+            .await
+            .map_err(|e| DirectError::Internal(format!("sniff stream: {e}")))?;
+        buf.to_vec()
+    };
+
+    let sniffed = sniff_and_check_content_type(&head_bytes).map_err(|e| match e {
+        FilesError::ForbiddenExtension(ext) => {
+            // Roll back: object + row both go away so the caller sees
+            // a clean failure and the workspace isn't billed for the
+            // bytes still in the bucket.
+            let s2 = s.clone();
+            let key2 = key.clone();
+            let row_id = row.id.clone();
+            tokio::spawn(async move {
+                let _ = storage.delete(&key2).await;
+                let _ = FileRepo::new(&s2.db).delete_by_id(&row_id).await;
+            });
+            AuditRepo::emit(
+                &s.db,
+                NewAuditEvent {
+                    actor_id: Some(session.user_id.clone()),
+                    actor_username: Some(session.username.clone()),
+                    action: "files.upload_rejected".into(),
+                    target_kind: Some("file".into()),
+                    target_id: Some(row.id.clone()),
+                    target_name: Some(row.name.clone()),
+                    ip_address: None,
+                    metadata: Some(format!(
+                        r#"{{"reason":"forbidden_content","kind":"{ext}","direct":true}}"#
+                    )),
+                },
+            );
+            DirectError::ForbiddenContent(ext)
+        }
+        FilesError::Internal(m) => DirectError::Internal(m),
+        other => DirectError::Internal(format!("sniff: {other:?}")),
+    })?;
+
+    // Sniffed type wins over both the client's claim AND the storage
+    // adapter's response. (S3 mirrors back whatever the client sent
+    // as Content-Type at PUT; that's the same untrusted source.)
+    let authoritative_ct = sniffed
+        .map(str::to_string)
+        .or_else(|| meta.content_type.clone())
+        .or_else(|| row.content_type.clone());
 
     let finalized = repo
         .mark_uploaded(
             &row.id,
             meta.size,
             meta.etag.as_deref(),
-            meta.content_type.as_deref().or(row.content_type.as_deref()),
+            authoritative_ct.as_deref(),
         )
         .await
         .map_err(|e| DirectError::Internal(e.to_string()))?;
@@ -301,7 +391,11 @@ pub(crate) async fn complete(
             target_id: Some(finalized.id.clone()),
             target_name: Some(finalized.name.clone()),
             ip_address: None,
-            metadata: Some(format!(r#"{{"size":{},"direct":true}}"#, finalized.size)),
+            metadata: Some(format!(
+                r#"{{"size":{},"sniffed_mime":{},"direct":true}}"#,
+                finalized.size,
+                serde_json::to_string(sniffed.unwrap_or("")).unwrap_or_else(|_| "\"\"".into()),
+            )),
         },
     );
 

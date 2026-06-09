@@ -502,3 +502,130 @@ async fn quota_counts_uploading_rows() {
     assert_eq!(body["used_bytes"], 9_000);
     assert_eq!(body["quota_bytes"], 10_000);
 }
+
+#[tokio::test]
+async fn complete_rejects_executable_via_post_finalize_sniff() {
+    // §13.6a — drop an uploading row, PUT real ELF magic bytes into
+    // storage, hit /complete, expect 415 + the row gone + the object
+    // gone (rollback).
+    let state = fixture().await;
+    let ws = personal_ws(&state, "admin").await;
+    let user = UserRepo::new(&state.db)
+        .find_by_username("admin")
+        .await
+        .unwrap();
+
+    let id = ulid::Ulid::new().to_string();
+    FileRepo::new(&state.db)
+        .insert(&NewFile {
+            id: id.clone(),
+            parent_id: None,
+            // Pretend the user lied about the extension to slip past
+            // the extension blocklist at presign time.
+            name: "totally-a-doc.pdf".into(),
+            size: 0,
+            content_type: Some("application/pdf".into()),
+            etag: None,
+            owner_id: user.id.clone(),
+            workspace_id: ws,
+            storage_id: None,
+            thumbnail: None,
+            status: FileStatus::Uploading,
+            expected_size: Some(64),
+        })
+        .await
+        .unwrap();
+
+    // Real ELF magic header (0x7f E L F) + padding past 4 KB sniff
+    // window so the bytes are obviously not a PDF.
+    let mut elf = vec![0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00];
+    elf.extend(std::iter::repeat_n(0u8, 64));
+    let storage = state.registry.default_storage();
+    storage
+        .put(
+            &format!("files/{id}"),
+            bytes::Bytes::from(elf),
+            Some("application/pdf"),
+        )
+        .await
+        .unwrap();
+
+    let app = router(state.clone());
+    let cookie = sign_in(&app, "admin").await;
+
+    let (st, body) = json_send(
+        &app,
+        &cookie,
+        "POST",
+        &format!("/api/files/{id}/complete"),
+        json!({}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(body["kind"], "elf");
+
+    // Rollback is `tokio::spawn`'d; give it a beat to land.
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    assert!(
+        FileRepo::new(&state.db).find_by_id(&id).await.is_err(),
+        "row should be deleted on rejection"
+    );
+}
+
+#[tokio::test]
+async fn complete_uses_sniffed_content_type_over_client_claim() {
+    // PUT real PNG bytes into storage with the client-claimed mime as
+    // 'application/pdf' (lie). After /complete the row's stored
+    // content_type should be image/png, sniffed authoritatively.
+    let state = fixture().await;
+    let ws = personal_ws(&state, "admin").await;
+    let user = UserRepo::new(&state.db)
+        .find_by_username("admin")
+        .await
+        .unwrap();
+
+    let id = ulid::Ulid::new().to_string();
+    FileRepo::new(&state.db)
+        .insert(&NewFile {
+            id: id.clone(),
+            parent_id: None,
+            name: "definitely-not-an-image.pdf".into(),
+            size: 0,
+            content_type: Some("application/pdf".into()),
+            etag: None,
+            owner_id: user.id.clone(),
+            workspace_id: ws,
+            storage_id: None,
+            thumbnail: None,
+            status: FileStatus::Uploading,
+            expected_size: Some(8),
+        })
+        .await
+        .unwrap();
+
+    // PNG magic: 89 50 4E 47 0D 0A 1A 0A
+    let png = vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    let storage = state.registry.default_storage();
+    storage
+        .put(
+            &format!("files/{id}"),
+            bytes::Bytes::from(png),
+            Some("application/pdf"),
+        )
+        .await
+        .unwrap();
+
+    let app = router(state);
+    let cookie = sign_in(&app, "admin").await;
+    let (st, body) = json_send(
+        &app,
+        &cookie,
+        "POST",
+        &format!("/api/files/{id}/complete"),
+        json!({}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(body["status"], "ready");
+    assert_eq!(body["content_type"], "image/png");
+}
