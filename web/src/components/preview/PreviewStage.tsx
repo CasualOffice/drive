@@ -19,6 +19,8 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 
 import { downloadUrl, type FileDto } from "../../api/client.ts";
+import { CasualDocEditor } from "../editor/CasualDocEditor.tsx";
+import { CasualSheetWorkspace } from "../editor/CasualSheetWorkspace.tsx";
 import { FileThumb, inferKind, type FileKind } from "../FileThumb.tsx";
 
 const TEXT_CAP_BYTES = 512 * 1024; // 512 KB
@@ -38,6 +40,10 @@ export function PreviewStage({ file, kind }: { file: FileDto; kind: FileKind }) 
       return <TextStage file={file} cap={TEXT_CAP_BYTES} />;
     case "md":
       return <MarkdownStage file={file} />;
+    case "doc":
+      return <CasualDocEditor file={file} />;
+    case "sheet":
+      return <CasualSheetWorkspace file={file} />;
     default:
       return <PlaceholderStage file={file} kind={kind} />;
   }
