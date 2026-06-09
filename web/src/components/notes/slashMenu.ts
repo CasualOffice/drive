@@ -39,8 +39,11 @@ export const SLASH_ITEMS: SlashItem[] = [
     title: "Heading 1",
     description: "Large section title",
     keywords: ["heading", "h1", "title", "#"],
+    // `toggleHeading` is the Heading extension's native command and is
+    // more reliable than `setNode("heading", …)` because it handles
+    // the paragraph→heading transform + attribute set in one step.
     run: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setNode("heading", { level: 1 }).run(),
+      editor.chain().focus().deleteRange(range).toggleHeading({ level: 1 }).run(),
   },
   {
     id: "h2",
@@ -48,7 +51,7 @@ export const SLASH_ITEMS: SlashItem[] = [
     description: "Medium section title",
     keywords: ["heading", "h2", "subtitle", "##"],
     run: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setNode("heading", { level: 2 }).run(),
+      editor.chain().focus().deleteRange(range).toggleHeading({ level: 2 }).run(),
   },
   {
     id: "h3",
@@ -56,7 +59,7 @@ export const SLASH_ITEMS: SlashItem[] = [
     description: "Small section title",
     keywords: ["heading", "h3", "###"],
     run: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setNode("heading", { level: 3 }).run(),
+      editor.chain().focus().deleteRange(range).toggleHeading({ level: 3 }).run(),
   },
   {
     id: "ul",

@@ -529,28 +529,49 @@
 }
 
 /* ── Live-render editor (Phase 3 §17 — NT1 Phase 1) ──────────────── */
-/* Tiptap renders a contenteditable inside `.cd-note-editor > .ProseMirror`.
-   We style it to match the existing preview typography so the WYSIWYG
-   feels identical to what users saw in the right-hand pane before. */
+/* IMPORTANT: Tiptap sets `class="cd-note-editor"` directly on the
+   `contenteditable` element it also marks with its own `.ProseMirror`
+   class. They're the SAME element, not parent/child — so descendant
+   selectors `.cd-note-editor .ProseMirror` match NOTHING. Every rule
+   below targets `.cd-note-editor` directly OR uses the `& > *` child
+   combinator for nested elements. */
 
-.cd-note-editor .ProseMirror {
-  outline: none;
-  min-height: 480px;
+.cd-note-editor {
+  /* Visual breathing room — the editor isn't a card with borders, it
+     reads as the page's prose surface. The parent `.notes-editor`
+     already provides outer padding; this gives the contenteditable
+     itself a comfortable writing rect that fills the available space. */
+  min-height: calc(100vh - 240px);
+  padding: 8px 0;
+  font-family: var(--font-sans);
   font-size: var(--text-md, 1rem);
   line-height: 1.7;
-  color: var(--ink-soft);
+  color: var(--ink);
   white-space: pre-wrap;
   word-wrap: break-word;
+  /* Kill the browser focus ring + any Tailwind reset focus styles.
+     Headings and toolbars are how users see they're editing — no
+     "glowing border" needed. */
+  outline: none !important;
+  box-shadow: none !important;
+  border: 0;
+  background: transparent;
 }
 
-.cd-note-editor .ProseMirror:focus {
-  outline: none;
+.cd-note-editor:focus,
+.cd-note-editor:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
-/* Empty-document placeholder. ProseMirror adds
-   `.is-editor-empty.is-empty` to the first node when the doc is empty;
-   we paint the placeholder via a ::before only on that. */
-.cd-note-editor .ProseMirror p.is-editor-empty:first-child::before {
+/* Empty-document placeholder. ProseMirror marks the first node with
+   `.is-editor-empty` when the doc is empty; we paint the placeholder
+   via a ::before only on that node's first child paragraph. The
+   `data-placeholder` attribute is set on the editor element itself
+   from React props. */
+.cd-note-editor.is-editor-empty:first-child::before,
+.cd-note-editor p.is-editor-empty:first-child::before,
+.cd-note-editor[data-placeholder] > p:first-child:empty::before {
   content: attr(data-placeholder);
   color: var(--muted-2);
   pointer-events: none;
@@ -558,55 +579,49 @@
   float: left;
 }
 
-.cd-note-editor[data-placeholder] .ProseMirror.is-editor-empty p:first-child::before {
-  content: attr(data-placeholder);
-  color: var(--muted-2);
-  pointer-events: none;
-  height: 0;
-  float: left;
-}
-
-/* Block-level typography mirrors `.notes-pane-preview` so existing
-   notes look the same the second after the editor takes over. */
-.cd-note-editor .ProseMirror h1,
-.cd-note-editor .ProseMirror h2,
-.cd-note-editor .ProseMirror h3 {
+/* Block-level typography. Direct children of the editor element. */
+.cd-note-editor h1,
+.cd-note-editor h2,
+.cd-note-editor h3 {
   color: var(--ink);
   letter-spacing: -0.015em;
   font-family: var(--font-display, var(--font-sans));
   font-weight: 600;
 }
 
-.cd-note-editor .ProseMirror h1 {
-  font-size: 1.5rem;
+.cd-note-editor h1 {
+  font-size: 1.8rem;
+  line-height: 1.25;
+  margin: 22px 0 12px;
+}
+
+.cd-note-editor h2 {
+  font-size: 1.4rem;
+  line-height: 1.3;
   margin: 18px 0 10px;
 }
 
-.cd-note-editor .ProseMirror h2 {
-  font-size: 1.2rem;
-  margin: 16px 0 8px;
+.cd-note-editor h3 {
+  font-size: 1.15rem;
+  line-height: 1.35;
+  margin: 14px 0 8px;
 }
 
-.cd-note-editor .ProseMirror h3 {
-  font-size: 1.05rem;
-  margin: 12px 0 6px;
+.cd-note-editor p {
+  margin: 6px 0;
 }
 
-.cd-note-editor .ProseMirror p {
-  margin: 8px 0;
-}
-
-.cd-note-editor .ProseMirror ul,
-.cd-note-editor .ProseMirror ol {
+.cd-note-editor ul,
+.cd-note-editor ol {
   padding-left: 22px;
   margin: 8px 0;
 }
 
-.cd-note-editor .ProseMirror li > p {
+.cd-note-editor li > p {
   margin: 2px 0;
 }
 
-.cd-note-editor .ProseMirror code {
+.cd-note-editor code {
   font-family: var(--font-mono);
   font-size: 0.88em;
   padding: 0.1em 0.35em;
@@ -614,7 +629,7 @@
   border-radius: 4px;
 }
 
-.cd-note-editor .ProseMirror pre {
+.cd-note-editor pre {
   background: var(--bg-subtle);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -625,13 +640,13 @@
   white-space: pre;
 }
 
-.cd-note-editor .ProseMirror pre code {
+.cd-note-editor pre code {
   padding: 0;
   background: transparent;
   font-size: inherit;
 }
 
-.cd-note-editor .ProseMirror blockquote {
+.cd-note-editor blockquote {
   border-left: 3px solid var(--line-strong);
   margin: 10px 0;
   padding: 4px 12px;
@@ -640,20 +655,20 @@
   border-radius: 4px;
 }
 
-.cd-note-editor .ProseMirror a {
+.cd-note-editor a {
   color: var(--accent-strong);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.cd-note-editor .ProseMirror hr {
+.cd-note-editor hr {
   border: 0;
   border-top: 1px solid var(--line);
   margin: 18px 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cd-note-editor .ProseMirror * {
+  .cd-note-editor * {
     transition: none !important;
     animation: none !important;
   }
