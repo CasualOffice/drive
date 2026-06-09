@@ -97,7 +97,6 @@ The OIDC floor is in. Filling out the team-collaboration story:
 
 | # | Item | Brief | Priority | Trigger |
 |---|---|---|---|---|
-| UP1 | Post-finalize magic-byte sniff on direct uploads (§13.6a residual) | [`10-direct-upload`](./docs/research/10-direct-upload.md) §13.6 | P1 | Before the first multi-tenant prod deploy |
 | UP2 | Resumable uploads (tus.io protocol or S3 multipart with checkpoint) | — (needs brief; `10-direct-upload` lists as out-of-scope) | P2 | First operator hits the wall on a > 1 GB upload |
 | UP3 | EXIF / metadata strip on image uploads | — (needs brief) | P2 | Before the first public share-link feature with image embeds |
 | UP4 | Per-workspace upload quotas (today: per-user only) | — (needs brief) | P2 | After MU1 (workspace-scoped accounting matters once teams exist) |
