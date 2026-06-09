@@ -140,7 +140,6 @@ The current Notes app is shaped for developers (markdown source pane + literal `
 
 | # | Item | Brief | Priority | Trigger |
 |---|---|---|---|---|
-| OB1 | Structured access log (JSON, sampled, redacted) | — (extends `06-security`) | P1 | Before the first multi-tenant prod deploy |
 | OB2 | Prometheus metrics endpoint (`/metrics` on the app origin, mTLS or token-gated) | — (needs brief) | P2 | First operator asks for Grafana integration |
 | OB3 | OpenTelemetry traces for the request lifecycle | — (needs brief) | P3 | After OB2 |
 | OB4 | Audit-event export to S3 (rolling daily JSONL) | — (needs brief) | P2 | Compliance ask from an operator |
