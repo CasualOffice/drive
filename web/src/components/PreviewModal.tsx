@@ -7,11 +7,16 @@
  * file's procedural thumbnail at large size. Phase-2 wires real PDF.js /
  * image / video / text rendering.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronLeft, ChevronRight, Download, Share2, Star, X } from "lucide-react";
 
 import { toast } from "sonner";
+
+import {
+  AutosaveStatus,
+  type UseFileSourceAutoSaveReturn,
+} from "@schnsrw/docx-js-editor";
 
 import { ApiError, downloadUrl, openInEditor, type FileDto } from "../api/client.ts";
 import { FileThumb, inferKind } from "./FileThumb.tsx";
@@ -32,6 +37,18 @@ export function PreviewModal({
 }) {
   const file = files[index];
   const hasNav = files.length > 1;
+  // Autosave state bubbled up from CasualDocEditor when a .docx is in
+  // view. Stays null for every other stage; the indicator collapses to
+  // nothing in that case (AutosaveStatus already renders null on the
+  // idle/never-saved state).
+  const [autosaveState, setAutosaveState] = useState<UseFileSourceAutoSaveReturn | null>(
+    null,
+  );
+  // Reset when the focused file changes — peer files might not be docs,
+  // and stale state from the previous file would lie to the user.
+  useEffect(() => {
+    setAutosaveState(null);
+  }, [files[index]?.id]);
 
   // ←/→ keyboard nav while open
   useEffect(() => {
@@ -98,7 +115,27 @@ export function PreviewModal({
               background: "#E7E4DC",
             }}
           >
-            <PreviewStage file={file} kind={kind} />
+            <PreviewStage file={file} kind={kind} onAutosaveState={setAutosaveState} />
+
+            {autosaveState && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 10,
+                  right: 12,
+                  zIndex: 2,
+                  fontSize: "var(--text-xs)",
+                  color: "var(--ink-soft)",
+                  background: "rgba(255,255,255,0.85)",
+                  padding: "3px 9px",
+                  borderRadius: 8,
+                  pointerEvents: "none",
+                  backdropFilter: "blur(4px)",
+                }}
+              >
+                <AutosaveStatus state={autosaveState} />
+              </div>
+            )}
 
             {hasNav && (
               <>

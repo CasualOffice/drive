@@ -18,6 +18,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 
+import type { UseFileSourceAutoSaveReturn } from "@schnsrw/docx-js-editor";
+
 import { downloadUrl, type FileDto } from "../../api/client.ts";
 import { FileThumb, inferKind, type FileKind } from "../FileThumb.tsx";
 
@@ -37,7 +39,16 @@ const CasualSheetWorkspace = lazy(() =>
 const TEXT_CAP_BYTES = 512 * 1024; // 512 KB
 const MD_CAP_BYTES = 256 * 1024; // 256 KB
 
-export function PreviewStage({ file, kind }: { file: FileDto; kind: FileKind }) {
+export interface PreviewStageProps {
+  file: FileDto;
+  kind: FileKind;
+  /** Bubbled from CasualDocEditor → PreviewModal so the modal chrome
+   *  can render a "Saving… / Saved 2m ago" indicator alongside the
+   *  file title. Only the 'doc' case forwards; others ignore. */
+  onAutosaveState?: (state: UseFileSourceAutoSaveReturn) => void;
+}
+
+export function PreviewStage({ file, kind, onAutosaveState }: PreviewStageProps) {
   switch (kind) {
     case "img":
       return <ImageStage file={file} />;
@@ -54,7 +65,7 @@ export function PreviewStage({ file, kind }: { file: FileDto; kind: FileKind }) 
     case "doc":
       return (
         <Suspense fallback={<EditorLoading />}>
-          <CasualDocEditor file={file} />
+          <CasualDocEditor file={file} onAutosaveState={onAutosaveState} />
         </Suspense>
       );
     case "sheet":

@@ -30,7 +30,7 @@
 
 import { useMemo } from "react";
 
-import { CasualEditor } from "@schnsrw/docx-js-editor";
+import { CasualEditor, type UseFileSourceAutoSaveReturn } from "@schnsrw/docx-js-editor";
 
 import type { FileDto } from "../../api/client.ts";
 import { useAuth } from "../../auth/AuthContext.tsx";
@@ -61,11 +61,15 @@ export interface CasualDocEditorProps {
    *  the file name + version etag to the editor without an extra
    *  metadata round trip. */
   file: FileDto;
+  /** Optional autosave-state subscriber. PreviewModal uses this to
+   *  render a "Saving… / Saved 2 min ago" indicator in its top
+   *  chrome alongside the file title. */
+  onAutosaveState?: (state: UseFileSourceAutoSaveReturn) => void;
 }
 
 const COLLAB_BACKEND_URL = (import.meta.env.VITE_DRIVE_COLLAB_BACKEND_URL ?? "") as string;
 
-export function CasualDocEditor({ file }: CasualDocEditorProps) {
+export function CasualDocEditor({ file, onAutosaveState }: CasualDocEditorProps) {
   const auth = useAuth();
   const fileSource = useMemo(() => new DriveFileSource(file), [file.id]);
   const user = useMemo(() => {
@@ -84,6 +88,7 @@ export function CasualDocEditor({ file }: CasualDocEditorProps) {
         backendUrl={backendUrl}
         user={user}
         autosave
+        onAutosaveState={onAutosaveState}
       />
     </div>
   );
