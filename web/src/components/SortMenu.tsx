@@ -28,61 +28,112 @@ export function SortMenu({
 }) {
   const activeLabel = KEYS.find((k) => k.id === sortKey)?.label ?? "Name";
   const ArrowIcon = sortDir === "asc" ? ArrowUp : ArrowDown;
+  // SR14 — expose the live selection in the trigger label so screen
+  // readers don't just hear "Sort, button" with no state.
+  const triggerAriaLabel = `Sort by ${activeLabel}, ${
+    sortDir === "asc" ? "ascending" : "descending"
+  }`;
 
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button type="button" style={triggerStyle()} aria-label="Sort">
-          <ArrowUpDown size={13} strokeWidth={1.8} style={{ color: "var(--muted)" }} />
+        <button type="button" style={triggerStyle()} aria-label={triggerAriaLabel}>
+          <ArrowUpDown
+            size={13}
+            strokeWidth={1.8}
+            aria-hidden="true"
+            style={{ color: "var(--muted)" }}
+          />
           <span>{activeLabel}</span>
-          <ArrowIcon size={12} strokeWidth={2} style={{ color: "var(--muted)", marginLeft: 2 }} />
+          <ArrowIcon
+            size={12}
+            strokeWidth={2}
+            aria-hidden="true"
+            style={{ color: "var(--muted)", marginLeft: 2 }}
+          />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={6} style={menuStyle()}>
           <Label>Sort by</Label>
-          {KEYS.map((k) => (
-            <Item key={k.id} onSelect={() => onChange(k.id, sortDir)}>
-              {k.label}
-              {k.id === sortKey && <Tick />}
-            </Item>
-          ))}
+          {/* SR14 — radio semantics so screen readers announce
+              "checked" / "not checked" instead of just "menu item". */}
+          <DropdownMenu.RadioGroup
+            value={sortKey}
+            onValueChange={(v) => onChange(v as SortKey, sortDir)}
+          >
+            {KEYS.map((k) => (
+              <RadioItem key={k.id} value={k.id} active={k.id === sortKey}>
+                {k.label}
+              </RadioItem>
+            ))}
+          </DropdownMenu.RadioGroup>
           <Sep />
           <Label>Direction</Label>
-          <Item onSelect={() => onChange(sortKey, "asc")}>
-            <ArrowUp size={13} strokeWidth={1.8} style={{ color: "var(--muted)" }} />
-            Ascending
-            {sortDir === "asc" && <Tick />}
-          </Item>
-          <Item onSelect={() => onChange(sortKey, "desc")}>
-            <ArrowDown size={13} strokeWidth={1.8} style={{ color: "var(--muted)" }} />
-            Descending
-            {sortDir === "desc" && <Tick />}
-          </Item>
+          <DropdownMenu.RadioGroup
+            value={sortDir}
+            onValueChange={(v) => onChange(sortKey, v as SortDir)}
+          >
+            <RadioItem value="asc" active={sortDir === "asc"}>
+              <ArrowUp
+                size={13}
+                strokeWidth={1.8}
+                aria-hidden="true"
+                style={{ color: "var(--muted)" }}
+              />
+              Ascending
+            </RadioItem>
+            <RadioItem value="desc" active={sortDir === "desc"}>
+              <ArrowDown
+                size={13}
+                strokeWidth={1.8}
+                aria-hidden="true"
+                style={{ color: "var(--muted)" }}
+              />
+              Descending
+            </RadioItem>
+          </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
 }
 
-function Item({ children, onSelect }: { children: React.ReactNode; onSelect: () => void }) {
+/** Radix `RadioItem` already maps to `role="menuitemradio"` +
+ * `aria-checked`. Wrapping it here keeps the visual tick + hover
+ * styles consistent with the rest of the dropdown surface. */
+function RadioItem({
+  value,
+  active,
+  children,
+}: {
+  value: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <DropdownMenu.Item
-      onSelect={(e) => {
-        e.preventDefault();
-        onSelect();
-      }}
+    <DropdownMenu.RadioItem
+      value={value}
+      onSelect={(e) => e.preventDefault()}
       style={itemStyle()}
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       {children}
-    </DropdownMenu.Item>
+      {active && <Tick />}
+    </DropdownMenu.RadioItem>
   );
 }
 
 function Tick() {
-  return <Check size={13} strokeWidth={2.2} style={{ marginLeft: "auto", color: "var(--accent)" }} />;
+  return (
+    <Check
+      size={13}
+      strokeWidth={2.2}
+      aria-hidden="true"
+      style={{ marginLeft: "auto", color: "var(--accent)" }}
+    />
+  );
 }
 
 function Label({ children }: { children: React.ReactNode }) {
