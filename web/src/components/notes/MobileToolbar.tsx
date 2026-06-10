@@ -20,14 +20,18 @@ import {
   Italic as ItalicIcon,
   List,
   Heading as HeadingIcon,
+  Link as LinkIcon,
   Slash,
 } from "lucide-react";
 
 interface Props {
   editor: Editor | null;
+  /** Opens the link dialog (NT2 Phase 2). Same handler as the bubble
+   * toolbar — dialog state is hoisted into MarkdownEditor. */
+  onLinkClick: () => void;
 }
 
-export function MobileToolbar({ editor }: Props) {
+export function MobileToolbar({ editor, onLinkClick }: Props) {
   // Track focus so the toolbar shows only while the user is editing.
   // Tiptap exposes `editor.isFocused` plus `focus` / `blur` events.
   const [focused, setFocused] = useState(false);
@@ -127,9 +131,16 @@ export function MobileToolbar({ editor }: Props) {
           )}
         </span>
       </MobBtn>
-      {/* Link button deferred to NT2 Phase 2 — needs a proper
-          token-styled URL input dialog. Including it as a no-op stub
-          would lie to the user about what works. */}
+      <MobBtn
+        label={editor.isActive("link") ? "Edit link" : "Add link"}
+        active={editor.isActive("link")}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          onLinkClick();
+        }}
+      >
+        <LinkIcon size={17} strokeWidth={2} />
+      </MobBtn>
       <span className="cd-mobile-sep" aria-hidden="true" />
       <MobBtn
         label="Insert block (slash menu)"

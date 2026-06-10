@@ -22,7 +22,7 @@
  * `/ask AI`, summarise, translate would land. Path-only, not work,
  * per PIPELINE §"Path-only AI integration seams".
  */
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "tiptap-markdown";
@@ -31,6 +31,7 @@ import { listWorkspaceMembers, type NoteNode } from "../../api/client.ts";
 
 import { BlockHandle } from "./BlockHandle.tsx";
 import { FormattingToolbar } from "./FormattingToolbar.tsx";
+import { LinkDialog } from "./LinkDialog.tsx";
 import { MobileToolbar } from "./MobileToolbar.tsx";
 import { slashMenuExtension } from "./slashMenu.ts";
 import { SlashMenuPopover, type SlashPopoverHandle } from "./SlashMenuPopover.tsx";
@@ -84,6 +85,17 @@ export function MarkdownEditor({
   const slashPopoverRef = useRef<SlashPopoverHandle | null>(null);
   const mentionPopoverRef = useRef<MentionPopoverHandle | null>(null);
   const noteLinkPopoverRef = useRef<NoteLinkPopoverHandle | null>(null);
+  // NT2 Phase 2 — link dialog state. Hoisted here so both the bubble
+  // toolbar (desktop) and the mobile sticky toolbar share one dialog
+  // instance.
+  const [linkDialog, setLinkDialog] = useState<{
+    open: boolean;
+    initialUrl: string;
+    editing: boolean;
+  }>({ open: false, initialUrl: "", editing: false });
+  // Ref so the editor's keydown handler (frozen in useEditor's
+  // config) can open the dialog without capturing stale state.
+  const openLinkDialogRef = useRef<() => void>(() => {});
   // Live refs for the workspace + tree so the extensions see the
   // current values without forcing the editor to remount on every
   // tree refresh.
@@ -108,6 +120,23 @@ export function MarkdownEditor({
         // own HTML mode.
         codeBlock: { HTMLAttributes: { spellcheck: "false" } },
         heading: { levels: [1, 2, 3] },
+        // NT2 Phase 2 — Link mark. `openOnClick: false` so clicking a
+        // link inside the editor places the caret instead of navigating
+        // away mid-edit (the cursor + dialog flow handles editing).
+        // `autolink: true` keeps the auto-URL-detection from
+        // tiptap-markdown's linkify in sync.
+        // Protocols whitelist matches LinkDialog.normalizeUrl so the
+        // editor refuses to render a `javascript:` mark even if one
+        // slips in via paste.
+        link: {
+          openOnClick: false,
+          autolink: true,
+          protocols: ["http", "https", "mailto", "tel"],
+          HTMLAttributes: {
+            rel: "noopener noreferrer nofollow",
+            target: "_blank",
+          },
+        },
       }),
       // Markdown round-trip. `transformPastedText` lets users paste
       // raw markdown and have it format inline. `linkify` auto-detects
@@ -170,6 +199,23 @@ export function MarkdownEditor({
         ...(id ? { id } : {}),
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
       },
+      // NT2 Phase 2 — ⌘K / Ctrl-K opens the link dialog (matches
+      // Notion, Linear, GitHub). Handled here so the shortcut works
+      // anywhere in the editor, not just when the bubble toolbar is
+      // visible.
+      handleKeyDown(_view, event) {
+        const isLinkShortcut =
+          (event.metaKey || event.ctrlKey) &&
+          !event.shiftKey &&
+          !event.altKey &&
+          event.key.toLowerCase() === "k";
+        if (isLinkShortcut) {
+          event.preventDefault();
+          openLinkDialogRef.current();
+          return true;
+        }
+        return false;
+      },
     },
   });
 
@@ -189,15 +235,83 @@ export function MarkdownEditor({
     editor.setEditable(!readOnly);
   }, [editor, readOnly]);
 
+  // NT2 Phase 2 — open the link dialog. If the caret sits inside an
+  // existing link mark, prefill with that href + show the Remove
+  // button; otherwise open empty.
+  const openLinkDialog = useCallback(() => {
+    if (!editor) return;
+    const existing = editor.getAttributes("link") as { href?: string };
+    const href = typeof existing.href === "string" ? existing.href : "";
+    setLinkDialog({ open: true, initialUrl: href, editing: href.length > 0 });
+  }, [editor]);
+
+  // Keep the keydown handler's ref pointing at the latest callback.
+  useEffect(() => {
+    openLinkDialogRef.current = openLinkDialog;
+  }, [openLinkDialog]);
+
+  const closeLinkDialog = useCallback(() => {
+    setLinkDialog((s) => ({ ...s, open: false }));
+    // Refocus the editor so the user can keep typing without an
+    // explicit click. Tiptap's command chain is enough.
+    requestAnimationFrame(() => editor?.commands.focus());
+  }, [editor]);
+
+  const applyLink = useCallback(
+    (url: string) => {
+      if (!editor) return;
+      const { from, to, empty } = editor.state.selection;
+      if (empty) {
+        // No selection → insert the URL as the visible text so the
+        // user sees something meaningful, then mark it as a link.
+        // Mirrors Obsidian + Notion behaviour.
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: "text",
+            text: url,
+            marks: [{ type: "link", attrs: { href: url } }],
+          })
+          .run();
+        return;
+      }
+      // Selection present → wrap (or update) it with the link mark.
+      // `extendMarkRange` ensures we update the whole existing link
+      // instead of a partial range.
+      editor
+        .chain()
+        .focus()
+        .extendMarkRange("link")
+        .setLink({ href: url })
+        .setTextSelection({ from, to })
+        .run();
+    },
+    [editor],
+  );
+
+  const removeLink = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().extendMarkRange("link").unsetLink().run();
+  }, [editor]);
+
   return (
     <>
       <EditorContent editor={editor} />
-      <FormattingToolbar editor={editor} />
-      <MobileToolbar editor={editor} />
+      <FormattingToolbar editor={editor} onLinkClick={openLinkDialog} />
+      <MobileToolbar editor={editor} onLinkClick={openLinkDialog} />
       <BlockHandle editor={editor} editorRoot={editor?.view.dom.parentElement ?? null} />
       <SlashMenuPopover ref={slashPopoverRef} />
       <MentionPopover ref={mentionPopoverRef} />
       <NoteLinkPopover ref={noteLinkPopoverRef} onCreateNote={onCreateNote} />
+      <LinkDialog
+        open={linkDialog.open}
+        initialUrl={linkDialog.initialUrl}
+        editing={linkDialog.editing}
+        onApply={applyLink}
+        onRemove={removeLink}
+        onClose={closeLinkDialog}
+      />
     </>
   );
 }

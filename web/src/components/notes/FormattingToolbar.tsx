@@ -6,8 +6,7 @@
  * positions it via floating-ui; we render a token-styled row of icon
  * buttons inside.
  *
- * Phase 2 follow-ups (in PIPELINE):
- *   - Link dialog (paste URL inline; currently a no-op slot).
+ * Phase 2 follow-ups (still pending):
  *   - "Turn into → ..." sub-menu for converting between block types.
  */
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -17,6 +16,7 @@ import {
   Italic as ItalicIcon,
   Strikethrough,
   Code as CodeIcon,
+  Link as LinkIcon,
   Quote,
   List,
   ListOrdered,
@@ -27,9 +27,12 @@ import {
 
 interface Props {
   editor: Editor | null;
+  /** Opens the link dialog (NT2 Phase 2). Hoisted into the parent so
+   * the dialog state can be shared with the mobile toolbar. */
+  onLinkClick: () => void;
 }
 
-export function FormattingToolbar({ editor }: Props) {
+export function FormattingToolbar({ editor, onLinkClick }: Props) {
   if (!editor) return null;
   return (
     <BubbleMenu
@@ -76,6 +79,14 @@ export function FormattingToolbar({ editor }: Props) {
           onClick={() => editor.chain().focus().toggleCode().run()}
         >
           <CodeIcon size={14} strokeWidth={2} />
+        </Btn>
+        <Btn
+          label={editor.isActive("link") ? "Edit link" : "Add link"}
+          shortcut="⌘K"
+          active={editor.isActive("link")}
+          onClick={onLinkClick}
+        >
+          <LinkIcon size={14} strokeWidth={2} />
         </Btn>
         <Sep />
         <Btn
