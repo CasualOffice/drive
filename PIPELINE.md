@@ -35,7 +35,7 @@ Phase A + Owner chip landed (backend + chip toolbar + Owner autocomplete + infin
 
 | # | Item | Brief | Priority | Trigger |
 |---|---|---|---|---|
-| SR7 | Per-result actions verified inside search mode (kebab / right-click / multi-select / selection bar — already wired in Files.tsx, audit + bulk action testing in search context) | [`12-search-surface`](./docs/ux/12-search-surface.md) §"Per-result actions" + §"Bulk actions" | P1 | Audit pass after Phase A user feedback |
+| SR7 | Audit pass shipped — kebab / right-click / shift-+-cmd-click multi-select / SelectionBar / bulkTrash / bulkDownload all share the same code path in browse and search mode (filteredEntries is the source of truth in both); fixed the `refresh()` regression that snapped the user back to the folder listing after a rename / trash inside search. Remaining: per-result actions on Note search hits (currently open-only — rename / move / trash / copy-link still need a kebab on NoteResultsSection rows). | [`12-search-surface`](./docs/ux/12-search-surface.md) §"Per-result actions" + §"Bulk actions" | P2 | Note-result kebab when the Note actions surface lands |
 
 ### Search polish (layered, subsequent passes)
 

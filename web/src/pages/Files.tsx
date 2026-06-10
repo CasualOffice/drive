@@ -331,7 +331,22 @@ export function Files({
   // either a non-trivial query OR any active chip filter.
   const inSearchMode = query.trim().length >= 2 || hasActiveFilters(searchFilters);
 
+  // SR7 — re-run-after-action signal. When `refresh()` is called from
+  // inside search mode (after a rename / trash / share / bulk op) we
+  // must NOT swap the result pane back to a folder listing; the
+  // query is still in the input and that would be a confusing snap.
+  // Bumping this tick causes the search effect to re-fire with the
+  // current filter set.
+  const [searchRefreshTick, setSearchRefreshTick] = useState(0);
+
   const refresh = useCallback(async () => {
+    // SR7 — search-mode refresh re-runs the search instead of pulling
+    // a folder listing. The search effect picks up the tick and
+    // re-fetches `/api/search` with the current q + filters + sort.
+    if (inSearchMode) {
+      setSearchRefreshTick((t) => t + 1);
+      return;
+    }
     setState({ kind: "loading" });
     setSearched(false);
     try {
@@ -357,7 +372,7 @@ export function Files({
           : "Couldn't reach the server.";
       setState({ kind: "error", message: msg });
     }
-  }, [current, onItemCount, workspaceId]);
+  }, [current, inSearchMode, onItemCount, workspaceId]);
 
   useEffect(() => {
     void refresh();
@@ -461,6 +476,9 @@ export function Files({
     searchSortDir,
     workspaceId,
     onItemCount,
+    // SR7 — re-run the search when an in-place action (rename / trash
+    // / share / bulk op) calls `refresh()` while in search mode.
+    searchRefreshTick,
   ]);
 
   // Infinite scroll: when in search mode + a next_cursor exists,

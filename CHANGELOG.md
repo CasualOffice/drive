@@ -13,6 +13,10 @@ All notable changes to Casual Drive land here. Format follows
 - **Search URL state (SR6).** Query + filters + sort + scope serialize into URL search params (`?q=…&t=pdf,image&sort=name&dir=asc`). Bookmarkable, reload-safe, back / forward replays the search. Writes via `history.replaceState` so the back stack isn't polluted per keystroke; default state writes nothing so a clean Drive view stays on a clean URL. Files owns the write; Shell hydrates `q` on mount and listens for a `cd:search-query` event the popstate handler emits.
 - **Recent-searches dropdown (SR11).** Per-user `localStorage` under `cd-search-history-v1`, capped at 10 distinct (query + filter-fingerprint) pairs, newest-first. Pops under the search input on focus; click a row to re-apply the query AND the filter set the user had active when they ran it. Keyboard nav (↑/↓/Enter/Esc). Records on Enter or blur with a non-empty query. Clear-history button at the bottom. When SR10 ships, server suggestions slot into the same popover.
 
+### Fixed
+
+- **Refresh stayed in search mode (SR7).** A rename / trash / share / bulk-trash inside an active search used to swap the result pane back to the current folder listing while the query was still in the input — looked like the search had silently bailed. `refresh()` now bumps a tick the search effect listens for when called in search mode, re-running the search instead of clobbering it.
+
 ### Changed
 
 - **Search a11y polish (SR14, first pass).** Search input wired as `role="combobox" aria-autocomplete="list" aria-controls aria-expanded`; the recents popover gets a stable listbox id and per-row option ids, mirrored back to the input via `aria-activedescendant` so screen readers announce the highlighted entry as the user arrows. Search-region wrapper carries `role="search"`. Lucide search icon marked `aria-hidden`. Existing `aria-live="polite"` on the count chip + infinite-scroll loader stays. Remaining: focus-trap inside chip popovers (tracked in PIPELINE SR14).
