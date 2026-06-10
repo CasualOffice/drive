@@ -17,7 +17,21 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { GripVertical, Copy, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import {
+  GripVertical,
+  Copy,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+  Quote,
+  Code,
+  Pilcrow,
+} from "lucide-react";
 import { Popover } from "radix-ui";
 
 interface Props {
@@ -34,6 +48,8 @@ interface ActiveBlock {
   pos: number;
   rect: DOMRect;
 }
+
+type TurnIntoKind = "paragraph" | "h1" | "h2" | "h3" | "bullet" | "ordered" | "quote" | "code";
 
 export function BlockHandle({ editor, editorRoot }: Props) {
   const [active, setActive] = useState<ActiveBlock | null>(null);
@@ -227,6 +243,44 @@ export function BlockHandle({ editor, editorRoot }: Props) {
     setActive(null);
   }, [editor]);
 
+  // NT5 — "Turn into" conversions. Every conversion first sets the
+  // selection inside the active block, then chains `setParagraph()`
+  // to clear whatever node type the block currently has, then runs
+  // the target command. The setParagraph step is what makes
+  // heading→list (and other cross-family conversions) work — Tiptap's
+  // wrap-in-list / toggle-blockquote / setCodeBlock all assume a
+  // textblock starting point.
+  const turnInto = useCallback(
+    (kind: TurnIntoKind) => {
+      if (!editor || !active) return;
+      const chain = editor.chain().focus().setTextSelection(active.pos + 1).setParagraph();
+      switch (kind) {
+        case "paragraph":
+          chain.run();
+          break;
+        case "h1":
+        case "h2":
+        case "h3":
+          chain.setHeading({ level: kind === "h1" ? 1 : kind === "h2" ? 2 : 3 }).run();
+          break;
+        case "bullet":
+          chain.toggleBulletList().run();
+          break;
+        case "ordered":
+          chain.toggleOrderedList().run();
+          break;
+        case "quote":
+          chain.toggleBlockquote().run();
+          break;
+        case "code":
+          chain.toggleCodeBlock().run();
+          break;
+      }
+      setMenuOpen(false);
+    },
+    [editor, active],
+  );
+
   const deleteBlock = useCallback(() => {
     if (!editor || !active) return;
     const doc = editor.view.state.doc;
@@ -287,6 +341,48 @@ export function BlockHandle({ editor, editorRoot }: Props) {
           <BlockMenuItem icon={<ArrowUp size={13} strokeWidth={1.8} />} label="Move up" onClick={() => moveBlock("up")} />
           <BlockMenuItem icon={<ArrowDown size={13} strokeWidth={1.8} />} label="Move down" onClick={() => moveBlock("down")} />
           <div className="cd-block-menu-sep" role="separator" />
+          <BlockMenuHeader label="Turn into" />
+          <BlockMenuItem
+            icon={<Pilcrow size={13} strokeWidth={1.8} />}
+            label="Paragraph"
+            onClick={() => turnInto("paragraph")}
+          />
+          <BlockMenuItem
+            icon={<Heading1 size={13} strokeWidth={1.8} />}
+            label="Heading 1"
+            onClick={() => turnInto("h1")}
+          />
+          <BlockMenuItem
+            icon={<Heading2 size={13} strokeWidth={1.8} />}
+            label="Heading 2"
+            onClick={() => turnInto("h2")}
+          />
+          <BlockMenuItem
+            icon={<Heading3 size={13} strokeWidth={1.8} />}
+            label="Heading 3"
+            onClick={() => turnInto("h3")}
+          />
+          <BlockMenuItem
+            icon={<List size={13} strokeWidth={1.8} />}
+            label="Bullet list"
+            onClick={() => turnInto("bullet")}
+          />
+          <BlockMenuItem
+            icon={<ListOrdered size={13} strokeWidth={1.8} />}
+            label="Numbered list"
+            onClick={() => turnInto("ordered")}
+          />
+          <BlockMenuItem
+            icon={<Quote size={13} strokeWidth={1.8} />}
+            label="Quote"
+            onClick={() => turnInto("quote")}
+          />
+          <BlockMenuItem
+            icon={<Code size={13} strokeWidth={1.8} />}
+            label="Code block"
+            onClick={() => turnInto("code")}
+          />
+          <div className="cd-block-menu-sep" role="separator" />
           <BlockMenuItem
             icon={<Trash2 size={13} strokeWidth={1.8} />}
             label="Delete"
@@ -296,6 +392,25 @@ export function BlockHandle({ editor, editorRoot }: Props) {
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+function BlockMenuHeader({ label }: { label: string }) {
+  return (
+    <div
+      className="cd-block-menu-header"
+      role="presentation"
+      style={{
+        padding: "5px 10px 3px",
+        fontSize: 10,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: "var(--muted-2)",
+        fontWeight: 600,
+      }}
+    >
+      {label}
+    </div>
   );
 }
 
