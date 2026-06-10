@@ -20,6 +20,7 @@ All notable changes to Casual Drive land here. Format follows
 
 - **Refresh stayed in search mode (SR7).** A rename / trash / share / bulk-trash inside an active search used to swap the result pane back to the current folder listing while the query was still in the input — looked like the search had silently bailed. `refresh()` now bumps a tick the search effect listens for when called in search mode, re-running the search instead of clobbering it.
 
+- **Marketing site — mobile-sized screenshot variants (MK-PERF-95).** `optimize-screenshots.mjs` now also emits an `@800w.avif` + `@800w.webp` for every PNG. The `<picture>` in `ScreenshotShowcase.astro` carries two extra `<source>` entries gated on `media="(max-width: 768px)"` so phones serve the small variant before the desktop one's even considered. On the LCP screenshot (`files-list`) that's 38 KB AVIF → 10 KB AVIF (3.8× smaller). Desktop is unchanged.
 - **Search latency instrumentation (SR15, first pass).** New `lib/searchMetrics.ts` opens a `performance.mark` window on the first keystroke after a paint, closes it in a double-rAF after the search effect's `setState({ ready })` so the timestamp lines up with a composited frame. PerformanceObserver folds each `performance.measure` into a rolling 100-sample buffer; `window.__cd_search_perf()` returns `{ count, p50_ms, p95_ms, max_ms }` for Playwright + manual DevTools probes. CI assertion against the spec's p95 < 200 ms budget follows in a later pass once we've seen a few runs of baseline numbers.
 
 ### Changed
