@@ -7,7 +7,7 @@ use std::sync::Arc;
 use drive_auth::AuthState;
 use drive_core::Config;
 use drive_db::{Db, DbError, NewUser, UserRepo};
-use drive_http::{access_log, router, HttpState};
+use drive_http::{access_log, presence::PresenceHub, router, HttpState};
 use drive_storage::{parse_master_key_hex, Storage};
 use drive_wopi::WopiState;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -61,6 +61,12 @@ async fn main() -> anyhow::Result<()> {
 
     let registry = HttpState::default_registry(storage.clone(), cfg.signed_url_hmac_secret);
     let thumb_worker = HttpState::build_thumb_worker(&cfg.thumb_worker);
+    // RT1 — start the presence hub + its expiration sweep task. The
+    // hub is shared across handlers via `HttpState::presence`; the
+    // background task ticks every 5 s and drops entries idle for
+    // longer than 60 s. SSE stream + audit broadcast follow in 1b.
+    let presence = PresenceHub::new();
+    let _presence_sweep = presence.spawn_sweep();
 
     let state = HttpState {
         storage,
@@ -73,6 +79,7 @@ async fn main() -> anyhow::Result<()> {
         registry,
         storage_secret_key,
         thumb_worker,
+        presence,
     };
 
     // OB1 — structured access log per request. Replaces tower-http's

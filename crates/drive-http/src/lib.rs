@@ -17,6 +17,7 @@ pub mod headers;
 mod host_dispatch;
 mod notes;
 mod oidc;
+pub mod presence;
 mod rate_limit;
 mod raw;
 mod search;
@@ -112,6 +113,7 @@ fn app_origin_router(state: HttpState) -> Router {
     let thumbs_router: Router = thumbs::router(state.clone());
     let notes_router: Router = notes::router(state.clone());
     let admin_users_router: Router = admin::admin_router(state.clone());
+    let presence_router: Router = presence::router().with_state(state.clone());
 
     Router::new()
         .route("/healthz", get(healthz))
@@ -132,6 +134,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .merge(thumbs_router)
         .merge(notes_router)
         .merge(admin_users_router)
+        .merge(presence_router)
         // SPA fallback — `/`, `/sign-in`, `/files/...`, hashed asset paths
         // — anything not matched above is served from the embedded `web/dist/`.
         .fallback(spa::serve)

@@ -95,6 +95,7 @@ async fn fixture(with_master_key: bool) -> HttpState {
         registry,
         storage_secret_key,
         thumb_worker: std::sync::Arc::new(drive_storage::MultiKindWorker::image_only()),
+        presence: drive_http::presence::PresenceHub::new(),
     }
 }
 

@@ -9,6 +9,7 @@ use drive_db::Db;
 use drive_storage::{MultiKindWorker, Storage, StorageRegistry, SubprocessWorker, ThumbnailWorker};
 use drive_wopi::WopiState;
 
+use crate::presence::PresenceHub;
 use crate::rate_limit::{RateLimitConfig, RateLimiter};
 
 /// Process start instant, captured at first state construction. Drives the
@@ -45,6 +46,10 @@ pub struct HttpState {
     /// configured). Held as `Arc<dyn>` so handlers don't have to know
     /// which lane handles their input.
     pub thumb_worker: Arc<dyn ThumbnailWorker>,
+    /// RT1 — in-process presence hub. Per-workspace HashMap of
+    /// currently-active users, expired by a background sweep task
+    /// after 60 s of no heartbeat. See [`crate::presence`].
+    pub presence: Arc<PresenceHub>,
 }
 
 impl HttpState {

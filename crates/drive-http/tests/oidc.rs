@@ -79,6 +79,7 @@ async fn fixture(oidc: Option<OidcConfig>, allow_password_auth: bool) -> HttpSta
         registry,
         storage_secret_key: None,
         thumb_worker: std::sync::Arc::new(drive_storage::MultiKindWorker::image_only()),
+        presence: drive_http::presence::PresenceHub::new(),
     }
 }
 

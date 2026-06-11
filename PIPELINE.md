@@ -53,7 +53,7 @@ Phase A + Owner chip landed (backend + chip toolbar + Owner autocomplete + infin
 
 | # | Item | Brief | Priority | Trigger |
 |---|---|---|---|---|
-| RT1 | `PresenceHub` (in-process), SSE endpoint, heartbeat, leave | [`14-presence`](./docs/research/14-presence.md) | P1 | Multi-user OIDC sign-in is the floor; presence is the next visible team feature |
+| RT1 | `PresenceHub` (in-process), SSE endpoint, heartbeat, leave. **Phase 1a shipped** — `crates/drive-http/src/presence.rs` carries the in-process HashMap-of-HashMap state, deterministic per-user tint, the 60 s TTL sweep task (5 s tick), membership-gated `POST /api/presence/{ws}/beat` and `…/leave` endpoints, wired into `HttpState` + a `spawn_sweep()` started at boot. 6/6 unit tests cover beat / leave / snapshot / sweep / isolation / tint. **Remaining**: 1b — SSE stream `GET /api/presence/{ws}` (sends initial `present` burst + push events for incoming beats / leaves); 1c — audit-emit middleware extension publishes `action` events to the relevant workspace channel. | [`14-presence`](./docs/research/14-presence.md) | P1 | 1b unblocks RT2 / RT3 (SPA wiring); 1c rides on the existing audit-emit path |
 | RT2 | Avatar stack in workspace switcher row | [`14-presence`](./docs/research/14-presence.md) §"SPA surface" | P1 | Ships with RT1 |
 | RT3 | File-row "someone else is viewing" dot | [`14-presence`](./docs/research/14-presence.md) §"SPA surface" | P1 | Ships with RT1 |
 | RT4 | Quiet action toast (rename / trash / move) for files in viewport | [`14-presence`](./docs/research/14-presence.md) §"SPA surface" | P2 | Ships with RT1 |
