@@ -7,6 +7,7 @@ import { Recipient } from "./pages/Recipient.tsx";
 import { Setup } from "./pages/Setup.tsx";
 import { SignIn } from "./pages/SignIn.tsx";
 import { Shell } from "./pages/Shell.tsx";
+import { PresenceProvider } from "./state/PresenceContext.tsx";
 import { WorkspaceProvider } from "./state/WorkspaceContext.tsx";
 
 /** Public share-link path: `/s/<token>` — never gated by AuthContext. */
@@ -61,7 +62,14 @@ export function App() {
   return (
     <AuthProvider>
       <WorkspaceProvider>
-        <Router />
+        {/* RT2 — PresenceContext subscribes to the active workspace's
+            SSE stream + beats every 25s. Sits inside WorkspaceProvider
+            because workspaceId is the route key; outside Router so the
+            same connection survives navigation between Files / Notes /
+            Activity / etc. */}
+        <PresenceProvider>
+          <Router />
+        </PresenceProvider>
       </WorkspaceProvider>
       <Toaster
         position="bottom-center"

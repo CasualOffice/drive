@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { Logo, Wordmark } from "./Logo.tsx";
+import { AvatarStack } from "./AvatarStack.tsx";
 import { WorkspaceSwitcher as RealWorkspaceSwitcher } from "./WorkspaceSwitcher.tsx";
 
 export type NavId =
@@ -103,6 +104,7 @@ export function Sidebar({
       </div>
 
       <RealWorkspaceSwitcher />
+      <AvatarStack />
 
       <div style={{ position: "relative", marginTop: 12, marginBottom: 14 }}>
         <button
