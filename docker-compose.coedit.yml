@@ -1,0 +1,67 @@
+# Co-edit overlay — adds the document editor's collab gateway alongside
+# drive so .docx files in /file/<id> sync edits between peers via Yjs
+# over WebSocket. Composes ON TOP of docker-compose.dev.yml:
+#
+#   docker compose -f docker-compose.dev.yml \
+#                  -f docker-compose.coedit.yml \
+#                  up -d --build
+#
+# The `drive` service is rebuilt with VITE_DRIVE_COLLAB_BACKEND_URL
+# baked into the SPA bundle — without that, the SDK runs in standalone
+# mode and the gateway here is unused.
+#
+# Two browsers hitting http://localhost:8080, signing in (demo
+# credentials), and opening the SAME `.docx` file via Preview → "Open
+# in editor" should see each other's edits in real time.
+#
+# WHAT THIS DOES NOT COVER (yet):
+# - Sheet (.xlsx) co-edit. @schnsrw/casual-sheets@0.4.0 doesn't yet
+#   expose a `backendUrl` prop on `<CasualSheets>` — sheet co-edit
+#   waits on the sheet SDK shipping its collab API. Until then,
+#   only the .docx editor binds to this gateway.
+# - Production / TLS. Self-signed certs + reverse proxy live outside
+#   this dev overlay; see docs/deployment for the prod path when it
+#   lands.
+#
+# Image source: `casual-editor:local` is built from the
+# schnsrw/docx repo (sibling `document/` tree in the workspace) via
+# `cd ../document && docker compose build gateway`. The gateway is
+# stateless; persistence is delegated to its host backend (default:
+# in-memory, fine for dev).
+
+services:
+  drive:
+    build:
+      args:
+        # Drive's SPA reaches the gateway at ws://localhost:8082 from
+        # the browser. Host networking is preserved by the port
+        # mapping below — 8082 (host) → 8080 (container).
+        VITE_DRIVE_COLLAB_BACKEND_URL: "ws://localhost:8082"
+    depends_on:
+      doc-gateway:
+        condition: service_healthy
+
+  doc-gateway:
+    # Built locally from ../document; tag must match the document
+    # repo's compose. To pin to a published image instead, swap the
+    # image line and drop the build directive once the gateway gets
+    # a Docker Hub release.
+    image: casual-editor:local
+    container_name: casual-drive-doc-gateway
+    restart: unless-stopped
+    # Host port 8082 keeps :8080 free for drive's own SPA / API.
+    ports:
+      - "8082:8080"
+    environment:
+      # Inline host = in-memory share-link mode (no persistence
+      # beyond room lifetime). Fine for dev — peers exchange edits
+      # via the live Y.Doc, drive's content endpoint owns the
+      # snapshot they fetched at /file/<id> mount.
+      GATEWAY_HOST: "inline"
+      LOG_FORMAT: "json"
+      ACCESS_LOG: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

@@ -9,6 +9,14 @@
 # ─── Web: build the SPA bundle (needed by drive-http rust-embed) ─────────
 FROM node:22-bookworm-slim AS web-build
 WORKDIR /web
+# Optional build arg — bakes the doc-editor's collab gateway WS URL
+# into the SPA bundle. When unset, the SPA ships in single-container
+# mode (no co-edit). Set via `docker build --build-arg
+# VITE_DRIVE_COLLAB_BACKEND_URL=ws://localhost:8082` or via the
+# corresponding compose `build.args.VITE_DRIVE_COLLAB_BACKEND_URL`
+# in docker-compose.coedit.yml.
+ARG VITE_DRIVE_COLLAB_BACKEND_URL=""
+ENV VITE_DRIVE_COLLAB_BACKEND_URL=${VITE_DRIVE_COLLAB_BACKEND_URL}
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
