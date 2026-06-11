@@ -17,7 +17,7 @@
     "@fontsource-variable/hanken-grotesk": "^5.2.8",
     "@formkit/auto-animate": "^0.9.0",
     "@radix-ui/react-dialog": "^1.1.16",
-    "@schnsrw/casual-sheets": "^0.3.0",
+    "@schnsrw/casual-sheets": "^0.4.0",
     "@schnsrw/docx-js-editor": "^1.0.1",
     "@tiptap/core": "^3.26.0",
     "@tiptap/extension-bubble-menu": "^3.26.0",

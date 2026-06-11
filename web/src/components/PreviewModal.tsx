@@ -11,11 +11,9 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronLeft, ChevronRight, Download, Share2, Star, X } from "lucide-react";
 
-import { toast } from "sonner";
-
 import type { UseFileSourceAutoSaveReturn } from "@schnsrw/docx-js-editor";
 
-import { ApiError, downloadUrl, openInEditor, type FileDto } from "../api/client.ts";
+import { downloadUrl, type FileDto } from "../api/client.ts";
 import { FileThumb, inferKind } from "./FileThumb.tsx";
 import { PreviewStage } from "./preview/PreviewStage.tsx";
 
@@ -42,6 +40,18 @@ export function PreviewModal({
 }) {
   const file = files[index];
   const hasNav = files.length > 1;
+
+  /** Navigate to `/file/<id>` for the in-Drive fullscreen editor.
+   *  ED1 gap (a). Pushes the FileDto into `history.state` so
+   *  FileFullscreen can mount without an extra metadata round trip
+   *  (Drive has no `GET /api/files/{id}` endpoint yet). Closes the
+   *  modal first so the back-stack reads cleanly. */
+  const openInFullscreen = (target: FileDto) => {
+    onClose();
+    const url = `/file/${encodeURIComponent(target.id)}`;
+    window.history.pushState({ file: target }, "", url);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
   // Autosave state bubbled up from CasualDocEditor when a .docx is in
   // view. Stays null for every other stage; the indicator collapses to
   // nothing in that case (AutosaveStatus already renders null on the
@@ -73,7 +83,7 @@ export function PreviewModal({
 
   const kind = inferKind(file.name, file.content_type);
   const typeLabel = labelForKind(kind);
-  const primary = primaryAction(kind, file);
+  const primary = primaryAction(kind, file, openInFullscreen);
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
@@ -379,19 +389,29 @@ function Detail({ k, v }: { k: string; v: string }) {
   );
 }
 
-function primaryAction(kind: ReturnType<typeof inferKind>, file: FileDto) {
+function primaryAction(
+  kind: ReturnType<typeof inferKind>,
+  file: FileDto,
+  openInFullscreen: (file: FileDto) => void,
+) {
   switch (kind) {
     case "sheet":
+      // ED1 gap (a) — primary "open" now lands on Drive's in-app
+      // `/file/<id>` route with the full Casual Sheets chrome
+      // (toolbar / header / footer). The previous WOPI new-tab
+      // handoff (`handoffToEditor`) survives as a fallback when an
+      // operator wants the third-party path — kept in this file
+      // for that wiring; not surfaced by default.
       return {
-        label: "Open in Casual Sheets",
+        label: "Open in editor",
         Icon: Download,
-        onClick: () => handoffToEditor(file.id, "Casual Sheets"),
+        onClick: () => openInFullscreen(file),
       };
     case "doc":
       return {
-        label: "Open in Casual Editor",
+        label: "Open in editor",
         Icon: Download,
-        onClick: () => handoffToEditor(file.id, "Casual Editor"),
+        onClick: () => openInFullscreen(file),
       };
     default:
       return {
@@ -402,47 +422,11 @@ function primaryAction(kind: ReturnType<typeof inferKind>, file: FileDto) {
   }
 }
 
-/**
- * Synchronously grab a popup handle inside the click handler — browsers
- * only allow window.open in direct response to a user gesture — then await
- * the mint and redirect the popup. On popup-block, fall back to a toast
- * with a clickable link that re-attempts in a fresh gesture.
- */
-function handoffToEditor(fileId: string, editorName: string) {
-  const popup = window.open("about:blank", "_blank");
-  void (async () => {
-    try {
-      const open = await openInEditor(fileId);
-      if (popup) {
-        popup.location.href = open.entry_url;
-      } else {
-        toast.info(`${editorName} is opening in a new tab`, {
-          description: "Pop-up was blocked — click below to open it manually.",
-          action: { label: "Open", onClick: () => window.open(open.entry_url, "_blank") },
-          duration: 10_000,
-        });
-      }
-    } catch (err) {
-      if (popup) popup.close();
-      const e = err as ApiError;
-      if (e.status === 503) {
-        toast.warning(`${editorName} isn't configured on this instance.`, {
-          description:
-            "Set DRIVE_SHEET_ORIGIN or DRIVE_DOCUMENT_ORIGIN in the backend, then restart Drive.",
-          action: {
-            label: "Download instead",
-            onClick: () => window.location.assign(downloadUrl(fileId)),
-          },
-          duration: 8_000,
-        });
-      } else if (e.status === 415) {
-        toast.error("This file type doesn't have an editor in v0.");
-      } else {
-        toast.error(`Couldn't open ${editorName}.`);
-      }
-    }
-  })();
-}
+// `handoffToEditor` (WOPI new-tab path via `openInEditor`) used to be
+// the primary action for `.docx` / `.xlsx`. Replaced by the in-Drive
+// fullscreen route in ED1 gap (a) — `openInFullscreen` above. The
+// WOPI path stays in `crates/drive-wopi` for third-party / cross-
+// origin clients; Drive's own SPA no longer reaches for it.
 
 function labelForKind(k: ReturnType<typeof inferKind>): string {
   switch (k) {

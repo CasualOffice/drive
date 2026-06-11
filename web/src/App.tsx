@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { Toaster } from "sonner";
 
 import { AuthProvider, useAuth } from "./auth/AuthContext.tsx";
+import { FileFullscreen } from "./pages/FileFullscreen.tsx";
 import { Recipient } from "./pages/Recipient.tsx";
 import { Setup } from "./pages/Setup.tsx";
 import { SignIn } from "./pages/SignIn.tsx";
@@ -14,7 +16,27 @@ function shareToken(): string | null {
   return match ? match[1] : null;
 }
 
+/** `/file/<id>` fullscreen editor route (ED1 gap a). Auth-gated like
+ *  the main Shell; the in-editor page handles its own back-to-Drive
+ *  navigation. */
+function fileRouteId(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/file\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function Router() {
+  // Re-read the pathname on browser back/forward so popstate-driven
+  // nav updates which route renders. The `pageKey` state is a cheap
+  // way to force re-evaluation without smearing path parsing across
+  // every consumer.
+  const [, setPageKey] = useState(0);
+  useEffect(() => {
+    const onPop = () => setPageKey((k) => k + 1);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const token = shareToken();
   if (token) return <Recipient token={token} />;
 
@@ -28,7 +50,11 @@ function Router() {
     );
   }
   if (status.kind === "needs-setup") return <Setup />;
-  return status.kind === "authed" ? <Shell /> : <SignIn />;
+  if (status.kind !== "authed") return <SignIn />;
+  // Authed paths.
+  const fileId = fileRouteId();
+  if (fileId) return <FileFullscreen fileId={fileId} />;
+  return <Shell />;
 }
 
 export function App() {
