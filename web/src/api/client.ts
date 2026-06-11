@@ -607,6 +607,94 @@ export async function renameWorkspace(id: string, name: string): Promise<void> {
   });
 }
 
+// ── MU1 workspace invitations ──────────────────────────────────────
+
+/** Response from `POST /api/workspaces/{id}/invitations`. The token
+ * is in plaintext on this one response only — list returns a DTO
+ * without it. */
+export interface InvitationCreated {
+  id: string;
+  token: string;
+  role: string;
+  expires_at: string | null;
+  max_uses: number;
+}
+
+/** Row shape for the list endpoint. */
+export interface InvitationListEntry {
+  id: string;
+  role: string;
+  created_at: string;
+  created_by: string;
+  expires_at: string | null;
+  max_uses: number;
+  used_count: number;
+  revoked: boolean;
+}
+
+/** Anonymous-safe peek payload — what the `/invite/<token>` page
+ * renders before the user signs in. */
+export interface InvitationPeek {
+  workspace_name: string;
+  inviter_username: string;
+  role: string;
+  expires_at: string | null;
+  remaining_uses: number;
+}
+
+export interface InvitationAcceptResp {
+  workspace_id: string;
+  already_member: boolean;
+}
+
+export interface CreateInvitationBody {
+  /** Defaults to "member"; Admin role is reserved for MU2. */
+  role?: string;
+  /** Hours from now until the link stops admitting acceptors. `null`
+   * (or omitted) means "never expires". */
+  expires_in_hours?: number | null;
+  /** Defaults to 1 (single-use). */
+  max_uses?: number;
+}
+
+export async function createInvitation(
+  workspaceId: string,
+  body: CreateInvitationBody = {},
+): Promise<InvitationCreated> {
+  return request<InvitationCreated>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/invitations`,
+    { method: "POST", json: body },
+  );
+}
+
+export async function listInvitations(workspaceId: string): Promise<InvitationListEntry[]> {
+  return request<InvitationListEntry[]>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/invitations`,
+  );
+}
+
+export async function revokeInvitation(workspaceId: string, invitationId: string): Promise<void> {
+  await request<void>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/invitations/${encodeURIComponent(invitationId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** Anonymous-safe — the SPA calls this on the `/invite/<token>`
+ * page before the visitor has signed in. */
+export async function peekInvitation(token: string): Promise<InvitationPeek> {
+  return request<InvitationPeek>(`/api/invitations/${encodeURIComponent(token)}`);
+}
+
+/** Signed-in accept. Anonymous visitors get 401 and the SPA's
+ * accept page bounces them to sign-in with a return URL. */
+export async function acceptInvitation(token: string): Promise<InvitationAcceptResp> {
+  return request<InvitationAcceptResp>(
+    `/api/invitations/${encodeURIComponent(token)}/accept`,
+    { method: "POST" },
+  );
+}
+
 export async function deleteWorkspace(id: string): Promise<void> {
   await request<void>(`/api/workspaces/${encodeURIComponent(id)}`, {
     method: "DELETE",

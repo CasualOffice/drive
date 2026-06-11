@@ -11,17 +11,19 @@
  * and folder-create requests in lock-step.
  */
 import { useEffect, useRef, useState } from "react";
-import { Building2, Check, ChevronDown, Plus } from "lucide-react";
+import { Building2, Check, ChevronDown, Plus, UserPlus } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { toast } from "sonner";
 
 import {
   ApiError,
   createWorkspace,
+  DEMO_MODE,
   listWorkspaces,
   type Workspace,
 } from "../api/client.ts";
 import { useActiveWorkspaceId, useWorkspaceMutator } from "../state/WorkspaceContext.tsx";
+import { InviteDialog } from "./InviteDialog.tsx";
 
 export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => void }) {
   const [list, setList] = useState<Workspace[] | null>(null);
@@ -31,6 +33,10 @@ export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => v
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const newRef = useRef<HTMLInputElement | null>(null);
+  // MU1 Phase 1b — invite dialog state. Triggered by the footer
+  // "Invite to <Workspace>" item. Personal workspaces don't get the
+  // invite affordance (they're 1:1 with a user).
+  const [inviting, setInviting] = useState<Workspace | null>(null);
 
   useEffect(() => {
     void refresh(true);
@@ -181,8 +187,32 @@ export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => v
               Create team workspace
             </DropdownMenu.Item>
           )}
+
+          {/* MU1 Phase 1b — invite-to-workspace footer entry. Hidden
+              in DEMO_MODE (no backend) and on personal workspaces
+              (1-to-1 with a user — invitations don't make sense). */}
+          {!DEMO_MODE && current && current.kind === "team" && (
+            <DropdownMenu.Item
+              onSelect={(e) => {
+                e.preventDefault();
+                setInviting(current);
+                setOpen(false);
+              }}
+              style={createItemStyle()}
+              onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--bg-hover)")}
+              onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+            >
+              <UserPlus size={14} strokeWidth={1.8} style={{ color: "var(--muted)" }} />
+              Invite to {current.name}
+            </DropdownMenu.Item>
+          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
+      <InviteDialog
+        workspace={inviting}
+        open={inviting !== null}
+        onClose={() => setInviting(null)}
+      />
     </DropdownMenu.Root>
   );
 }

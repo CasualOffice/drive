@@ -3,6 +3,7 @@ import { Toaster } from "sonner";
 
 import { AuthProvider, useAuth } from "./auth/AuthContext.tsx";
 import { FileFullscreen } from "./pages/FileFullscreen.tsx";
+import { InviteAccept } from "./pages/InviteAccept.tsx";
 import { Recipient } from "./pages/Recipient.tsx";
 import { Setup } from "./pages/Setup.tsx";
 import { SignIn } from "./pages/SignIn.tsx";
@@ -26,6 +27,15 @@ function fileRouteId(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** `/invite/<token>` MU1 accept page. Public-safe — the page itself
+ *  decides whether to show "Sign in to join" or "Join workspace"
+ *  based on current auth status. */
+function inviteToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/invite\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function Router() {
   // Re-read the pathname on browser back/forward so popstate-driven
   // nav updates which route renders. The `pageKey` state is a cheap
@@ -40,6 +50,12 @@ function Router() {
 
   const token = shareToken();
   if (token) return <Recipient token={token} />;
+
+  // MU1 — `/invite/<token>` renders BEFORE the auth gate so the
+  // peek payload (anonymous-safe) can show before sign-in. The
+  // page itself bounces anonymous visitors to sign-in.
+  const inviteTok = inviteToken();
+  if (inviteTok) return <InviteAccept token={inviteTok} />;
 
   const { status } = useAuth();
   if (status.kind === "loading") {
