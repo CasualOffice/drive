@@ -207,8 +207,8 @@ function CreateStep({ onCreated }: { onCreated: (username: string) => void }) {
           aria-live="polite"
           style={{
             padding: "10px 12px",
-            background: "rgba(176,69,69,.06)",
-            border: "1px solid rgba(176,69,69,.25)",
+            background: "rgba(220, 38, 38,.06)",
+            border: "1px solid rgba(220, 38, 38,.25)",
             borderRadius: 10,
             fontSize: "var(--text-sm)",
             color: "var(--danger)",
@@ -296,7 +296,7 @@ function PrimaryButton({
         fontSize: "var(--text-sm)",
         fontWeight: 500,
         color: "var(--paper)",
-        background: disabled ? "rgba(26,26,30,.35)" : "var(--ink)",
+        background: disabled ? "rgba(15, 23, 42,.35)" : "var(--ink)",
         border: "none",
         borderRadius: 12,
         cursor: disabled ? "default" : "pointer",
@@ -371,7 +371,7 @@ function Field({
         }}
         onFocus={(e) => {
           e.currentTarget.style.borderColor = error ? "var(--danger)" : "var(--ink)";
-          e.currentTarget.style.boxShadow = "0 0 0 3px rgba(26,26,30,.08)";
+          e.currentTarget.style.boxShadow = "0 0 0 3px rgba(15, 23, 42,.08)";
         }}
         onBlur={(e) => {
           e.currentTarget.style.borderColor = error ? "var(--danger)" : "var(--line)";

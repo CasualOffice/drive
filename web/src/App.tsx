@@ -99,7 +99,7 @@ export function App() {
             fontSize: "var(--text-sm)",
             fontWeight: 500,
             padding: "12px 18px",
-            boxShadow: "0 10px 30px rgba(26,26,30,.3)",
+            boxShadow: "0 10px 30px rgba(15, 23, 42,.3)",
           },
         }}
       />

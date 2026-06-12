@@ -97,7 +97,7 @@ function ImageStage({ file }: { file: FileDto }) {
           maxHeight: "100%",
           objectFit: "contain",
           borderRadius: 10,
-          boxShadow: "0 8px 28px rgba(26,26,30,.15)",
+          boxShadow: "0 8px 28px rgba(15, 23, 42,.15)",
           background: "var(--paper)",
         }}
       />
@@ -135,7 +135,7 @@ function VideoStage({ file }: { file: FileDto }) {
           maxWidth: "100%",
           maxHeight: "100%",
           borderRadius: 10,
-          boxShadow: "0 8px 28px rgba(26,26,30,.15)",
+          boxShadow: "0 8px 28px rgba(15, 23, 42,.15)",
           background: "black",
         }}
       />
@@ -322,7 +322,7 @@ function PlaceholderStage({ file, kind }: { file: FileDto; kind: FileKind }) {
           aspectRatio: kind === "fold" ? "1 / 1" : "1 / 1.3",
           borderRadius: 10,
           overflow: "hidden",
-          boxShadow: "0 10px 40px rgba(26,26,30,.2)",
+          boxShadow: "0 10px 40px rgba(15, 23, 42,.2)",
         }}
       >
         <FileThumb name={file.name} kind={kind} size="big" thumbnail={file.thumbnail} />
@@ -341,7 +341,7 @@ function mediaWrap(): React.CSSProperties {
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
-    background: "#E7E4DC",
+    background: "var(--bg-subtle)",
   };
 }
 
@@ -392,7 +392,7 @@ function FailureFallback({ file }: { file: FileDto }) {
           aspectRatio: "1 / 1.3",
           borderRadius: 10,
           overflow: "hidden",
-          boxShadow: "0 8px 28px rgba(26,26,30,.15)",
+          boxShadow: "0 8px 28px rgba(15, 23, 42,.15)",
         }}
       >
         <FileThumb name={file.name} kind={k} size="big" />

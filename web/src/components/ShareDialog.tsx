@@ -481,8 +481,8 @@ function inlineErr(): React.CSSProperties {
   return {
     marginTop: 10,
     padding: "8px 10px",
-    background: "rgba(176,69,69,.06)",
-    border: "1px solid rgba(176,69,69,.25)",
+    background: "rgba(220, 38, 38,.06)",
+    border: "1px solid rgba(220, 38, 38,.25)",
     borderRadius: 9,
     fontSize: "var(--text-xs)",
     color: "var(--danger)",

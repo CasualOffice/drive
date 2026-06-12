@@ -196,7 +196,7 @@ function MenuItem({ item, variant }: { item: ItemDef; variant: "ctx" | "dd" }) {
       }}
       style={itemStyle(!!item.danger)}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = item.danger ? "rgba(176, 69, 69, .08)" : "var(--bg-hover)";
+        e.currentTarget.style.background = item.danger ? "rgba(220, 38, 38, .08)" : "var(--bg-hover)";
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = "transparent";

@@ -251,7 +251,7 @@ export function CommandPalette({
                     }}
                     style={itemStyle()}
                   >
-                    <span style={iconBoxStyle("rgba(26,26,30,0.06)")}>
+                    <span style={iconBoxStyle("rgba(15, 23, 42,0.06)")}>
                       <FileText size={14} strokeWidth={1.6} />
                     </span>
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -351,7 +351,7 @@ function panelStyle(): React.CSSProperties {
     background: "var(--card)",
     border: "1px solid var(--line)",
     borderRadius: 14,
-    boxShadow: "0 22px 60px rgba(26,26,30,.28)",
+    boxShadow: "0 22px 60px rgba(15, 23, 42,.28)",
     overflow: "hidden",
     fontFamily: "var(--font-sans)",
     color: "var(--ink)",

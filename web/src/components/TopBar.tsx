@@ -116,7 +116,7 @@ export function TopBar({
           }}
           onFocus={(e) => {
             e.currentTarget.style.borderColor = "var(--line-strong)";
-            e.currentTarget.style.boxShadow = "0 0 0 4px rgba(26,26,30,.04)";
+            e.currentTarget.style.boxShadow = "0 0 0 4px rgba(15, 23, 42,.04)";
             setInputFocused(true);
             setRecents(getRecent());
           }}

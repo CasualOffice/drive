@@ -186,12 +186,14 @@ function Meta({ event }: { event: ActivityEvent }) {
 }
 
 function Pill({ tone, children }: { tone: "ink" | "blue" | "gold" | "muted" | "danger"; children: React.ReactNode }) {
+  // Slate Console palette — "gold" stays as a tone name for back-compat
+  // with existing callers but renders as the cyan-accent variant.
   const palette = {
-    ink: { bg: "rgba(26,26,30,.08)", fg: "var(--ink)" },
-    blue: { bg: "rgba(67,107,177,.10)", fg: "#365A9C" },
-    gold: { bg: "var(--accent-muted)", fg: "#8A6B2A" },
+    ink: { bg: "rgba(15, 23, 42, 0.08)", fg: "var(--ink)" },
+    blue: { bg: "rgba(37, 99, 235, 0.10)", fg: "var(--info)" },
+    gold: { bg: "var(--accent-muted)", fg: "var(--accent-hover)" },
     muted: { bg: "var(--bg-subtle)", fg: "var(--muted)" },
-    danger: { bg: "rgba(176,69,69,.10)", fg: "var(--danger)" },
+    danger: { bg: "rgba(220, 38, 38, 0.10)", fg: "var(--danger)" },
   }[tone];
   return (
     <span
@@ -302,8 +304,8 @@ function errBox(): React.CSSProperties {
   return {
     marginBottom: 16,
     padding: "10px 12px",
-    background: "rgba(176,69,69,.06)",
-    border: "1px solid rgba(176,69,69,.25)",
+    background: "rgba(220, 38, 38,.06)",
+    border: "1px solid rgba(220, 38, 38,.25)",
     borderRadius: 10,
     fontSize: "var(--text-sm)",
     color: "var(--danger)",

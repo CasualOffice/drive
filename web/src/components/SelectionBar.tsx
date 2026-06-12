@@ -61,7 +61,7 @@ export function SelectionBar({
         background: "var(--ink)",
         color: "var(--paper)",
         borderRadius: 14,
-        boxShadow: "0 12px 30px rgba(26,26,30,.30)",
+        boxShadow: "0 12px 30px rgba(15, 23, 42, 0.30)",
         zIndex: 50,
         animation: "cd-selbar-in 220ms var(--ease)",
         fontFamily: "var(--font-sans)",
@@ -78,7 +78,7 @@ export function SelectionBar({
         onClick={onClear}
         aria-label="Clear selection"
         style={iconBtn()}
-        onMouseOver={(e) => (e.currentTarget.style.background = "rgba(242,240,234,.10)")}
+        onMouseOver={(e) => (e.currentTarget.style.background = "rgba(232, 237, 242,.10)")}
         onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
         title="Clear selection (Esc)"
       >
@@ -127,7 +127,7 @@ export function SelectionBar({
 }
 
 function Sep() {
-  return <span style={{ width: 1, height: 20, background: "rgba(242,240,234,.18)", margin: "0 4px" }} />;
+  return <span style={{ width: 1, height: 20, background: "rgba(232, 237, 242,.18)", margin: "0 4px" }} />;
 }
 
 function ActionBtn({
@@ -152,7 +152,7 @@ function ActionBtn({
         gap: 6,
         padding: "7px 12px",
         borderRadius: 9,
-        background: danger ? "rgba(176,69,69,.20)" : "rgba(242,240,234,.06)",
+        background: danger ? "rgba(220, 38, 38,.20)" : "rgba(232, 237, 242,.06)",
         color: danger ? "#FFB3B3" : "var(--paper)",
         border: "none",
         cursor: disabled ? "not-allowed" : "pointer",
@@ -164,12 +164,12 @@ function ActionBtn({
       }}
       onMouseOver={(e) => {
         if (!disabled) {
-          e.currentTarget.style.background = danger ? "rgba(176,69,69,.32)" : "rgba(242,240,234,.12)";
+          e.currentTarget.style.background = danger ? "rgba(220, 38, 38,.32)" : "rgba(232, 237, 242,.12)";
           e.currentTarget.style.transform = "translateY(-1px)";
         }
       }}
       onMouseOut={(e) => {
-        e.currentTarget.style.background = danger ? "rgba(176,69,69,.20)" : "rgba(242,240,234,.06)";
+        e.currentTarget.style.background = danger ? "rgba(220, 38, 38,.20)" : "rgba(232, 237, 242,.06)";
         e.currentTarget.style.transform = "";
       }}
     >

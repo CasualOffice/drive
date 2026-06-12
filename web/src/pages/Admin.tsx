@@ -496,8 +496,8 @@ function linkBtn(): React.CSSProperties {
 function errBox(): React.CSSProperties {
   return {
     padding: "10px 12px",
-    background: "rgba(176,69,69,.06)",
-    border: "1px solid rgba(176,69,69,.25)",
+    background: "rgba(220, 38, 38,.06)",
+    border: "1px solid rgba(220, 38, 38,.25)",
     borderRadius: 10,
     fontSize: "var(--text-sm)",
     color: "var(--danger)",

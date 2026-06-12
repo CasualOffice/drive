@@ -141,7 +141,7 @@ function ReadyCard({ resolved, token }: { resolved: ResolvedShare; token: string
       <div
         style={{
           height: 200,
-          background: "#E7E4DC",
+          background: "var(--bg-subtle)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -154,7 +154,7 @@ function ReadyCard({ resolved, token }: { resolved: ResolvedShare; token: string
             aspectRatio: kind === "img" || kind === "vid" ? "16/10" : "1 / 1.3",
             borderRadius: 10,
             overflow: "hidden",
-            boxShadow: "0 8px 28px rgba(26,26,30,.15)",
+            boxShadow: "0 8px 28px rgba(15, 23, 42,.15)",
           }}
         >
           <FileThumb name={resolved.file.name} kind={kind} size="big" />
@@ -293,7 +293,7 @@ function PasswordGate({
           fontSize: "var(--text-sm)",
           fontWeight: 500,
           color: "var(--paper)",
-          background: !password.trim() || submitting ? "rgba(26,26,30,.35)" : "var(--ink)",
+          background: !password.trim() || submitting ? "rgba(15, 23, 42,.35)" : "var(--ink)",
           border: "none",
           borderRadius: 12,
           cursor: !password.trim() || submitting ? "default" : "pointer",

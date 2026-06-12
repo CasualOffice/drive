@@ -20,13 +20,16 @@ const TEXT_EXTS = new Set([
   "diff", "patch", "env", "lock",
 ]);
 
+// Slate Console palette — image / video procedural thumbnails get
+// soft cyan-leaning diagonal gradients (per the 2026-06-12 design
+// system spec) instead of the prior warm-paper rainbow.
 const GRADIENTS = [
-  "linear-gradient(135deg,#f6d365,#fda085)",
-  "linear-gradient(135deg,#a1c4fd,#c2e9fb)",
-  "linear-gradient(135deg,#84fab0,#8fd3f4)",
-  "linear-gradient(160deg,#30cfd0,#330867)",
-  "linear-gradient(135deg,#667eea,#764ba2)",
-  "linear-gradient(135deg,#ffecd2,#fcb69f)",
+  "linear-gradient(135deg, #67E8F9, #06B6D4)",  // cyan → cyan-strong
+  "linear-gradient(135deg, #A5F3FC, #0E7490)",  // pale-cyan → cyan-deep
+  "linear-gradient(135deg, #CFFAFE, #2563EB)",  // ice → blue
+  "linear-gradient(160deg, #06B6D4, #1E3A8A)",  // cyan → navy
+  "linear-gradient(135deg, #E0F2FE, #0891B2)",  // very-pale → cyan
+  "linear-gradient(135deg, #BAE6FD, #0E7490)",  // sky → cyan-deep
 ];
 
 function gradient(seed: string) {
@@ -127,7 +130,7 @@ export function FileThumb({
             boxShadow: "0 3px 12px rgba(0,0,0,.3)",
           }}
         >
-          <svg width={13} height={13} viewBox="0 0 24 24" fill="#1A1A1E" style={{ marginLeft: 2 }}>
+          <svg width={13} height={13} viewBox="0 0 24 24" fill="var(--ink)" style={{ marginLeft: 2 }}>
             <path d="M8 5v14l11-7z" />
           </svg>
         </div>
@@ -181,8 +184,8 @@ function Page({ kind }: { kind: FileKind }) {
       <div
         style={{
           background: "#fff",
-          boxShadow: "0 1px 6px rgba(26,26,30,.10)",
-          border: "1px solid rgba(26,26,30,.06)",
+          boxShadow: "0 1px 6px rgba(15, 23, 42,.10)",
+          border: "1px solid rgba(15, 23, 42,.06)",
           borderRadius: 3,
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
@@ -211,8 +214,8 @@ function Page({ kind }: { kind: FileKind }) {
     <div
       style={{
         background: "#fff",
-        boxShadow: "0 1px 6px rgba(26,26,30,.10)",
-        border: "1px solid rgba(26,26,30,.06)",
+        boxShadow: "0 1px 6px rgba(15, 23, 42,.10)",
+        border: "1px solid rgba(15, 23, 42,.06)",
         borderRadius: 3,
         padding: "11% 13%",
         display: "flex",
@@ -226,12 +229,12 @@ function Page({ kind }: { kind: FileKind }) {
       {isPdf ? (
         <div style={{ height: "11%", borderRadius: 2, background: "rgba(200,76,76,.85)", width: "40%" }} />
       ) : (
-        <div style={{ height: "11%", width: "55%", borderRadius: 2, background: "rgba(26,26,30,.32)" }} />
+        <div style={{ height: "11%", width: "55%", borderRadius: 2, background: "rgba(15, 23, 42,.32)" }} />
       )}
-      <div style={{ height: "6.5%", borderRadius: 2, background: "rgba(26,26,30,.10)" }} />
-      <div style={{ height: "6.5%", width: "78%", borderRadius: 2, background: "rgba(26,26,30,.10)" }} />
-      <div style={{ height: "6.5%", borderRadius: 2, background: "rgba(26,26,30,.10)" }} />
-      <div style={{ height: "6.5%", width: "62%", borderRadius: 2, background: "rgba(26,26,30,.10)" }} />
+      <div style={{ height: "6.5%", borderRadius: 2, background: "rgba(15, 23, 42,.10)" }} />
+      <div style={{ height: "6.5%", width: "78%", borderRadius: 2, background: "rgba(15, 23, 42,.10)" }} />
+      <div style={{ height: "6.5%", borderRadius: 2, background: "rgba(15, 23, 42,.10)" }} />
+      <div style={{ height: "6.5%", width: "62%", borderRadius: 2, background: "rgba(15, 23, 42,.10)" }} />
     </div>
   );
 }

@@ -304,7 +304,7 @@
 .notes-tabs button.active {
   background: var(--card);
   color: var(--ink);
-  box-shadow: 0 1px 3px rgba(26, 26, 30, 0.08);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 
 .notes-editor-actions {

@@ -269,7 +269,7 @@ export function SignIn() {
               fontSize: "var(--text-sm)",
               fontWeight: 500,
               color: "var(--paper)",
-              background: submitDisabled ? "rgba(26,26,30,.35)" : "var(--ink)",
+              background: submitDisabled ? "rgba(15, 23, 42,.35)" : "var(--ink)",
               border: "none",
               borderRadius: 12,
               cursor: submitDisabled ? "default" : "pointer",
@@ -384,7 +384,7 @@ function Input({
       }}
       onFocus={(e) => {
         e.currentTarget.style.borderColor = invalid ? "var(--danger)" : "var(--line-strong)";
-        e.currentTarget.style.boxShadow = "0 0 0 4px rgba(26,26,30,.04)";
+        e.currentTarget.style.boxShadow = "0 0 0 4px rgba(15, 23, 42,.04)";
       }}
       onBlur={(e) => {
         e.currentTarget.style.borderColor = invalid ? "var(--danger)" : "var(--line)";

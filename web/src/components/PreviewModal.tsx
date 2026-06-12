@@ -140,7 +140,7 @@ export function PreviewModal({
             style={{
               position: "relative",
               overflow: "hidden",
-              background: "#E7E4DC",
+              background: "var(--bg-subtle)",
             }}
           >
             <PreviewStage file={file} kind={kind} onAutosaveState={setAutosaveState} />

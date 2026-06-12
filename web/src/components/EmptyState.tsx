@@ -27,7 +27,7 @@ export function EmptyState({
           width: 96,
           height: 96,
           borderRadius: 24,
-          background: "rgba(26,26,30,.035)",
+          background: "rgba(15, 23, 42,.035)",
           border: "1px solid var(--line)",
           display: "flex",
           alignItems: "center",

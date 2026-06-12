@@ -142,7 +142,7 @@ export function RenameDialog({
             }}
             onFocus={(e) => {
               e.currentTarget.style.borderColor = "var(--ink)";
-              e.currentTarget.style.boxShadow = "0 0 0 3px rgba(26,26,30,.08)";
+              e.currentTarget.style.boxShadow = "0 0 0 3px rgba(15, 23, 42,.08)";
             }}
             onBlur={(e) => {
               e.currentTarget.style.borderColor = error ? "var(--danger)" : "var(--line-strong)";

@@ -1191,7 +1191,7 @@ export function Files({
           style={{
             position: "absolute",
             inset: 0,
-            background: "rgba(242,240,234,.85)",
+            background: "rgba(232, 237, 242,.85)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -2198,7 +2198,7 @@ function GridSkeleton({ view }: { view: ViewMode }) {
             height: 48,
             borderBottom: i === 5 ? "none" : "1px solid var(--line)",
             animation: "cd-shimmer 1.4s ease-in-out infinite alternate",
-            background: "rgba(26,26,30,.02)",
+            background: "rgba(15, 23, 42,.02)",
           }}
         />
       ))}

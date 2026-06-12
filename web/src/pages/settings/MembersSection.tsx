@@ -288,7 +288,7 @@ function MemberRow({
           width: 28,
           height: 28,
           borderRadius: "50%",
-          background: "linear-gradient(135deg, #2b2b32, #55555f)",
+          background: "linear-gradient(135deg, var(--accent), var(--accent-bright))",
           color: "var(--paper)",
           display: "inline-flex",
           alignItems: "center",
