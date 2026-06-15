@@ -34,9 +34,9 @@ test("preview .xlsx → primary action navigates to /file/<id> with editor chrom
   // For the empty seeded Blob the loader may resolve to an error or
   // a near-empty workbook — either way the host wrapper renders one
   // of its known testids (loading / ready / error).
-  const stage = page.getByTestId("sheet-workspace").or(
-    page.getByTestId("sheet-workspace-loading").or(
-      page.getByTestId("sheet-workspace-error"),
+  const stage = page.getByTestId("casual-sheet-workspace").or(
+    page.getByTestId("casual-sheet-workspace-loading").or(
+      page.getByTestId("casual-sheet-workspace-error"),
     ),
   );
   await expect(stage).toBeVisible({ timeout: 15_000 });
@@ -53,9 +53,9 @@ test("preview .xlsx → primary action navigates to /file/<id> with editor chrom
   // seeded empty Blob can't parse, so 'error' is the expected
   // terminal state; the parser worker hops through 'loading' first.
   const fullscreenStage = page
-    .getByTestId("sheet-workspace")
-    .or(page.getByTestId("sheet-workspace-loading"))
-    .or(page.getByTestId("sheet-workspace-error"));
+    .getByTestId("casual-sheet-workspace")
+    .or(page.getByTestId("casual-sheet-workspace-loading"))
+    .or(page.getByTestId("casual-sheet-workspace-error"));
   await expect(fullscreenStage).toBeVisible({ timeout: 15_000 });
 });
 

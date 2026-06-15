@@ -13,11 +13,11 @@
     "screenshots": "node tests/e2e/marketing-screenshots.mjs"
   },
   "dependencies": {
-    "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource-variable/ibm-plex-sans": "^5.2.8",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
     "@formkit/auto-animate": "^0.9.0",
     "@radix-ui/react-dialog": "^1.1.16",
-    "@schnsrw/casual-sheets": "^0.5.1",
+    "@schnsrw/casual-sheets": "^0.5.6",
     "@schnsrw/docx-js-editor": "^1.1.1",
     "@tiptap/core": "^3.26.0",
     "@tiptap/extension-bubble-menu": "^3.26.0",

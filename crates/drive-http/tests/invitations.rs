@@ -499,7 +499,9 @@ async fn anonymous_accept_mints_user_session_and_membership() {
         serde_json::from_slice(&r.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["workspace_id"], ws);
     assert_eq!(body["already_member"], false);
-    let created = body["created_user"].as_object().expect("created_user payload");
+    let created = body["created_user"]
+        .as_object()
+        .expect("created_user payload");
     assert!(created["user_id"].as_str().unwrap().len() > 0);
     let new_username = created["username"].as_str().unwrap();
     assert!(
