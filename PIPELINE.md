@@ -119,6 +119,18 @@ The current Notes app is shaped for developers (markdown source pane + literal `
 | NT9 | Real-time collab on notes (Tiptap + Yjs) | — (needs brief; out-of-scope for [`17-notes-general-user-ux`](./docs/research/17-notes-general-user-ux.md)) | P3 | After NT1 + ED2 — Tiptap pivot makes Yjs achievable |
 | NT10 | AI block actions (`/ask AI`, summarise, translate) | — **path-only, not work** | P3 | Integration seam: NT3 slash menu's command list. No brief, no provider pick, no implementation until explicitly prioritised. See [Path-only AI](#path-only-ai-integration-seams) below |
 
+## Theme: Bugs / regressions (user-reported, 2026-06-15)
+
+User flagged five post-reskin regressions in rapid succession. Capture verbatim, fix after the current in-flight task (MK-PERF-95) finishes.
+
+| # | Item | Brief | Priority | Trigger |
+|---|---|---|---|---|
+| BUG-IFRAME-CSS | Drive CSS bleeds inside the .docx / .xlsx iframe — the whole point of the iframe was to stop this; still happening. Verify the iframe is a true cross-document mount (not srcdoc / not a portal); check if any `<link>` in `embed.html` or any postMessage handler injects parent stylesheets; check if the SDK adopts parent `adoptedStyleSheets`. | — (needs note in `project_unified_editor_lifecycle`) | P0 | Reproduced; fix before next push touching the editor |
+| BUG-KEBAB-INVISIBLE | Post-reskin: file-card context kebab is invisible — user sees a yellow box (likely default focus outline on an `opacity:0` button). Check `EntryMenu.tsx:263 kebabStyle()`. | — | P0 | Reproduced post-reskin |
+| BUG-RIGHT-CLICK | Right-click context menu does not open. `onContextMenu` handler may have been broken by the reskin's surface refactor; check `EntryMenu.tsx` + `FileCard` / `FileRow`. | — | P0 | Reproduced post-reskin |
+| BUG-CONSISTENCY | "no consistency" — post-reskin the surface lost the visual rhythm. Diagnose: sweep all surfaces (Sidebar, header, file cards, modals, settings, notes) and tighten spacing / type / color back to the design system. | [[design-reskin-slate-console]] | P0 | Walk every flow with the user |
+| BUG-EDITOR-DIALOG-DEFAULT | `.docx` / `.xlsx` open in the preview modal by default; user has repeatedly asked for these to route directly to `/file/<id>` (the editor route) instead. Editor-eligible files should bypass the modal entirely and land on the fullscreen editor. | [[project_unified_editor_lifecycle]] | P0 | User has reminded multiple times — this overrides the current modal-first default |
+
 ## Theme: Marketing site / docs
 
 | # | Item | Brief | Priority | Trigger |
