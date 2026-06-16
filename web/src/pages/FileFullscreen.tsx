@@ -35,6 +35,8 @@ import { toast } from "sonner";
 import { downloadUrl, getFile, renameFile, trashFile, type FileDto } from "../api/client.ts";
 import { EntryKebab } from "../components/EntryMenu.tsx";
 import { inferKind } from "../components/FileThumb.tsx";
+import { SaveStatusPill } from "../components/editor/SaveStatusPill.tsx";
+import type { SaveStatus } from "../components/editor/save-status.ts";
 import { ShareDialog } from "../components/ShareDialog.tsx";
 import { useReportViewing } from "../state/PresenceContext.tsx";
 
@@ -181,6 +183,11 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
     })();
   };
 
+  // Live save state piped up from the editor wrappers — flips to
+  // saving / saved / failed as the SDK's autosave (or a host Ctrl+S)
+  // round-trips. The pill collapses to nothing in the idle state.
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: "idle" });
+
   return (
     <div
       data-testid="file-fullscreen"
@@ -195,6 +202,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
     >
       <FullscreenHeader
         state={state}
+        saveStatus={saveStatus}
         onBack={goBack}
         onRename={onRename}
         onTrash={() => {
@@ -215,7 +223,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
         }}
       />
       <main style={{ flex: 1, minHeight: 0, position: "relative" }}>
-        <FullscreenBody state={state} />
+        <FullscreenBody state={state} onSaveStatus={setSaveStatus} />
       </main>
     </div>
   );
@@ -223,12 +231,14 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
 
 function FullscreenHeader({
   state,
+  saveStatus,
   onBack,
   onRename,
   onTrash,
   onDownload,
 }: {
   state: LoadState;
+  saveStatus: SaveStatus;
   onBack: () => void;
   onRename: (name: string) => void;
   onTrash: () => void;
@@ -267,6 +277,7 @@ function FullscreenHeader({
         <ArrowLeft size={16} />
       </button>
       <FilenameField name={file?.name ?? "Loading…"} editable={!!file} onCommit={onRename} />
+      <SaveStatusPill status={saveStatus} />
       <div style={{ flex: 1 }} />
       {file && (
         <>
@@ -407,7 +418,13 @@ function FilenameField({
   );
 }
 
-function FullscreenBody({ state }: { state: LoadState }) {
+function FullscreenBody({
+  state,
+  onSaveStatus,
+}: {
+  state: LoadState;
+  onSaveStatus: (s: SaveStatus) => void;
+}) {
   if (state.kind === "loading") {
     return (
       <div
@@ -459,14 +476,14 @@ function FullscreenBody({ state }: { state: LoadState }) {
   if (kind === "doc") {
     return (
       <Suspense fallback={<LoadingFallback />}>
-        <CasualDocEditor file={file} mode="editor" />
+        <CasualDocEditor file={file} mode="editor" onSaveStatus={onSaveStatus} />
       </Suspense>
     );
   }
   if (kind === "sheet") {
     return (
       <Suspense fallback={<LoadingFallback />}>
-        <CasualSheetWorkspace file={file} mode="editor" />
+        <CasualSheetWorkspace file={file} mode="editor" onSaveStatus={onSaveStatus} />
       </Suspense>
     );
   }

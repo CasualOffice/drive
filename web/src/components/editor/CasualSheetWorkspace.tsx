@@ -17,32 +17,48 @@
  * `scripts/copy-embed.mjs` at prebuild time.
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import { CasualSheetsIframe, type HostFileBridge } from "@schnsrw/casual-sheets/sheets";
 
 import { type FileDto } from "../../api/client.ts";
 import { DriveFileSource } from "../../file-source/DriveFileSource.ts";
+import { withSaveStatus, type OnSaveStatus } from "./save-status.ts";
 
 export interface CasualSheetWorkspaceProps {
   file: FileDto;
   /** `preview` = no toolbar, just canvas (modal mount). `editor` =
    *  full Office chrome (fullscreen route). */
   mode?: "preview" | "editor";
+  /** Optional callback that fires on every save attempt. Drives the
+   *  "Saving… / Saved / Failed" pill in `<FileFullscreen>`. */
+  onSaveStatus?: OnSaveStatus;
 }
 
-export function CasualSheetWorkspace({ file, mode = "preview" }: CasualSheetWorkspaceProps) {
+export function CasualSheetWorkspace({
+  file,
+  mode = "preview",
+  onSaveStatus,
+}: CasualSheetWorkspaceProps) {
+  // Latch the callback so the bridge memo doesn't churn when the
+  // host re-renders for an unrelated reason. The host can swap the
+  // function freely — the bridge always invokes the current one.
+  const onSaveStatusRef = useRef(onSaveStatus);
+  onSaveStatusRef.current = onSaveStatus;
+
   // `CasualSheetsIframe` wants the smaller `HostFileBridge` shape, not
   // the full FileSource interface. Adapt our DriveFileSource here.
   const bridge = useMemo<HostFileBridge>(() => {
     const fs = new DriveFileSource(file);
+    const rawSave = async (docId: string, bytes: ArrayBuffer, opts?: { etag?: string }) => {
+      const result = await fs.save(docId, bytes, opts);
+      return { etag: result.etag };
+    };
     return {
       open: (docId) => fs.open(docId),
-      save: async (docId, bytes, opts) => {
-        const result = await fs.save(docId, bytes, opts);
-        return { etag: result.etag };
-      },
+      save: withSaveStatus(rawSave, (s) => onSaveStatusRef.current?.(s)),
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.id]);
 
   const embedBasePath = `${import.meta.env.BASE_URL}embed/sheets`;

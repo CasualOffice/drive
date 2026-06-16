@@ -18,22 +18,41 @@
  * `public/embed/docs/` by `scripts/copy-embed.mjs` at prebuild time.
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import { CasualEditorIframe } from "@schnsrw/docx-js-editor";
 
 import { type FileDto } from "../../api/client.ts";
 import { DriveFileSource } from "../../file-source/DriveFileSource.ts";
+import { withSaveStatus, type OnSaveStatus } from "./save-status.ts";
 
 export interface CasualDocEditorProps {
   file: FileDto;
   /** `preview` = no toolbar, just canvas (modal mount). `editor` =
    *  full editor chrome (fullscreen route). */
   mode?: "preview" | "editor";
+  /** Optional callback that fires on every save attempt. Drives the
+   *  "Saving… / Saved / Failed" pill in `<FileFullscreen>`. */
+  onSaveStatus?: OnSaveStatus;
 }
 
-export function CasualDocEditor({ file, mode = "preview" }: CasualDocEditorProps) {
-  const fileSource = useMemo(() => new DriveFileSource(file), [file.id]);
+export function CasualDocEditor({ file, mode = "preview", onSaveStatus }: CasualDocEditorProps) {
+  // Latch the callback so the wrapped source isn't recreated on every
+  // host render (the host can swap the function freely).
+  const onSaveStatusRef = useRef(onSaveStatus);
+  onSaveStatusRef.current = onSaveStatus;
+
+  const fileSource = useMemo(() => {
+    const fs = new DriveFileSource(file);
+    // Patch save() so every save transition runs through the status
+    // tracker. `bind` so the method keeps its `this` context inside
+    // DriveFileSource (it touches `this.file`).
+    const originalSave = fs.save.bind(fs);
+    fs.save = withSaveStatus(originalSave, (s) => onSaveStatusRef.current?.(s));
+    return fs;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.id]);
+
   const embedBasePath = `${import.meta.env.BASE_URL}embed/docs`;
 
   return (
