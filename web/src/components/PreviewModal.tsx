@@ -9,7 +9,7 @@
  */
 import { lazy, Suspense, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ChevronLeft, ChevronRight, Download, Share2, Star, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Maximize2, Share2, Star, X } from "lucide-react";
 
 import type { UseFileSourceAutoSaveReturn } from "@schnsrw/docx-js-editor";
 
@@ -57,9 +57,7 @@ export function PreviewModal({
   // view. Stays null for every other stage; the indicator collapses to
   // nothing in that case (AutosaveStatus already renders null on the
   // idle/never-saved state).
-  const [autosaveState, setAutosaveState] = useState<UseFileSourceAutoSaveReturn | null>(
-    null,
-  );
+  const [autosaveState, setAutosaveState] = useState<UseFileSourceAutoSaveReturn | null>(null);
   // Reset when the focused file changes — peer files might not be docs,
   // and stale state from the previous file would lie to the user.
   useEffect(() => {
@@ -70,7 +68,7 @@ export function PreviewModal({
   // their file rows light up with the viewing dot. Pin updates on
   // ←/→ navigation between peer files; clears when the modal closes.
   const reportViewing = useReportViewing();
-  const focusedId = open ? files[index]?.id ?? null : null;
+  const focusedId = open ? (files[index]?.id ?? null) : null;
   useEffect(() => {
     reportViewing(focusedId);
     return () => {
@@ -131,9 +129,7 @@ export function PreviewModal({
             animation: "cd-modal-in 320ms var(--ease)",
           }}
         >
-          <Dialog.Title style={{ position: "absolute", left: -9999 }}>
-            {file.name}
-          </Dialog.Title>
+          <Dialog.Title style={{ position: "absolute", left: -9999 }}>{file.name}</Dialog.Title>
 
           {/* Stage */}
           <div
@@ -173,10 +169,7 @@ export function PreviewModal({
                   side="prev"
                   onClick={() => onChangeIndex((index - 1 + files.length) % files.length)}
                 />
-                <NavArrow
-                  side="next"
-                  onClick={() => onChangeIndex((index + 1) % files.length)}
-                />
+                <NavArrow side="next" onClick={() => onChangeIndex((index + 1) % files.length)} />
               </>
             )}
           </div>
@@ -191,25 +184,31 @@ export function PreviewModal({
               overflowY: "auto",
             }}
           >
-            <Dialog.Close asChild>
+            <div style={{ alignSelf: "flex-end", display: "flex", gap: 4, alignItems: "center" }}>
               <button
                 type="button"
-                aria-label="Close"
-                style={{
-                  alignSelf: "flex-end",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "var(--muted)",
-                  padding: 4,
-                  borderRadius: 8,
-                }}
+                aria-label="Expand to fullscreen"
+                title="Open in full view"
+                data-testid="preview-expand"
+                onClick={() => openInFullscreen(file)}
+                style={iconBtn()}
                 onMouseOver={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
                 onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                <X size={18} />
+                <Maximize2 size={16} />
               </button>
-            </Dialog.Close>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  style={iconBtn()}
+                  onMouseOver={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
+                  onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <X size={18} />
+                </button>
+              </Dialog.Close>
+            </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 11, margin: "6px 0 4px" }}>
               <span
@@ -278,29 +277,45 @@ export function PreviewModal({
   );
 }
 
+function iconBtn(): React.CSSProperties {
+  return {
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    color: "var(--muted)",
+    padding: 4,
+    borderRadius: 8,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  };
+}
+
 function NavArrow({ side, onClick }: { side: "prev" | "next"; onClick: () => void }) {
   return (
     <button
       type="button"
       aria-label={side === "prev" ? "Previous file" : "Next file"}
       onClick={onClick}
-      style={{
-        position: "absolute",
-        top: "50%",
-        transform: "translateY(-50%)",
-        [side === "prev" ? "left" : "right"]: 16,
-        width: 38,
-        height: 38,
-        borderRadius: "50%",
-        background: "var(--card)",
-        border: "1px solid var(--line-strong)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: "pointer",
-        color: "var(--ink)",
-        transition: "transform 200ms var(--ease), box-shadow 200ms",
-      } as React.CSSProperties}
+      style={
+        {
+          position: "absolute",
+          top: "50%",
+          transform: "translateY(-50%)",
+          [side === "prev" ? "left" : "right"]: 16,
+          width: 38,
+          height: 38,
+          borderRadius: "50%",
+          background: "var(--card)",
+          border: "1px solid var(--line-strong)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: "var(--ink)",
+          transition: "transform 200ms var(--ease), box-shadow 200ms",
+        } as React.CSSProperties
+      }
       onMouseOver={(e) => {
         e.currentTarget.style.transform = "translateY(-50%) scale(1.07)";
         e.currentTarget.style.boxShadow = "var(--shadow)";
