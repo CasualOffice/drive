@@ -28,11 +28,14 @@
  *     via `VITE_DRIVE_COLLAB_BACKEND_URL`. The wrapper handles it.
  */
 
-import { lazy, Suspense, useEffect, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { ArrowLeft, Share2 } from "lucide-react";
+import { toast } from "sonner";
 
-import { getFile, type FileDto } from "../api/client.ts";
+import { downloadUrl, getFile, renameFile, trashFile, type FileDto } from "../api/client.ts";
+import { EntryKebab } from "../components/EntryMenu.tsx";
 import { inferKind } from "../components/FileThumb.tsx";
+import { ShareDialog } from "../components/ShareDialog.tsx";
 import { useReportViewing } from "../state/PresenceContext.tsx";
 
 // Same lazy-load pattern as PreviewStage — both surfaces share the
@@ -46,6 +49,16 @@ const CasualDocEditor = lazy(() =>
 const CasualSheetWorkspace = lazy(() =>
   import("../components/editor/CasualSheetWorkspace.tsx").then((m) => ({
     default: m.CasualSheetWorkspace,
+  })),
+);
+// Every non-editor file type (image / pdf / video / audio / text /
+// md / generic) reuses PreviewStage's per-kind renderer at the
+// fullscreen route. Double-click on the file list lands here for
+// EVERY kind under the 2026-06-16 click model — without this fanout
+// non-editor types would hit the "No editor for this format" stub.
+const PreviewStage = lazy(() =>
+  import("../components/preview/PreviewStage.tsx").then((m) => ({
+    default: m.PreviewStage,
   })),
 );
 
@@ -134,6 +147,40 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
+  // Esc → back to /. The iframe owns its own keyboard inside the
+  // viewport; this listener fires only when the host page keeps focus
+  // (back-button focused, kebab open, no editor frame focused).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        const tag = (e.target as HTMLElement | null)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        goBack();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const onRename = (next: string) => {
+    if (state.kind !== "ready") return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === state.file.name) return;
+    const prev = state.file;
+    // Optimistic — flip the local state immediately so the title bar
+    // doesn't pop back to the old name during the request.
+    setState({ kind: "ready", file: { ...prev, name: trimmed } });
+    void (async () => {
+      try {
+        const updated = await renameFile(prev.id, trimmed);
+        setState({ kind: "ready", file: updated });
+      } catch (err) {
+        setState({ kind: "ready", file: prev });
+        toast.error(err instanceof Error ? err.message : "Rename failed");
+      }
+    })();
+  };
+
   return (
     <div
       data-testid="file-fullscreen"
@@ -146,51 +193,217 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
         flexDirection: "column",
       }}
     >
-      <header
-        style={{
-          flex: "0 0 auto",
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-          padding: "10px 18px",
-          borderBottom: "1px solid var(--line)",
-          background: "var(--card)",
+      <FullscreenHeader
+        state={state}
+        onBack={goBack}
+        onRename={onRename}
+        onTrash={() => {
+          if (state.kind !== "ready") return;
+          void (async () => {
+            try {
+              await trashFile(state.file.id);
+              toast.success("Moved to trash");
+              goBack();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Couldn't trash file");
+            }
+          })();
         }}
-      >
-        <button
-          type="button"
-          onClick={goBack}
-          aria-label="Back to Drive"
-          data-testid="file-fullscreen-back"
-          style={{
-            padding: 6,
-            border: "1px solid var(--line)",
-            borderRadius: 8,
-            background: "var(--card)",
-            cursor: "pointer",
-            display: "inline-flex",
-          }}
-        >
-          <ArrowLeft size={16} />
-        </button>
-        <div
-          data-testid="file-fullscreen-title"
-          style={{
-            fontSize: "var(--text-sm)",
-            fontWeight: 600,
-            color: "var(--text)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {state.kind === "ready" ? state.file.name : "Loading…"}
-        </div>
-      </header>
+        onDownload={() => {
+          if (state.kind !== "ready") return;
+          window.open(downloadUrl(state.file.id), "_blank", "noopener,noreferrer");
+        }}
+      />
       <main style={{ flex: 1, minHeight: 0, position: "relative" }}>
         <FullscreenBody state={state} />
       </main>
     </div>
+  );
+}
+
+function FullscreenHeader({
+  state,
+  onBack,
+  onRename,
+  onTrash,
+  onDownload,
+}: {
+  state: LoadState;
+  onBack: () => void;
+  onRename: (name: string) => void;
+  onTrash: () => void;
+  onDownload: () => void;
+}) {
+  const [shareOpen, setShareOpen] = useState(false);
+  const file = state.kind === "ready" ? state.file : null;
+
+  return (
+    <header
+      style={{
+        flex: "0 0 auto",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "10px 18px",
+        borderBottom: "1px solid var(--line)",
+        background: "var(--card)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="Back to Drive"
+        data-testid="file-fullscreen-back"
+        title="Back to Drive (Esc)"
+        style={{
+          padding: 6,
+          border: "1px solid var(--line)",
+          borderRadius: 8,
+          background: "var(--card)",
+          cursor: "pointer",
+          display: "inline-flex",
+        }}
+      >
+        <ArrowLeft size={16} />
+      </button>
+      <FilenameField name={file?.name ?? "Loading…"} editable={!!file} onCommit={onRename} />
+      <div style={{ flex: 1 }} />
+      {file && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            aria-label="Share"
+            data-testid="file-fullscreen-share"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 12px",
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              background: "var(--card)",
+              cursor: "pointer",
+              fontSize: "var(--text-sm)",
+              fontWeight: 500,
+              color: "var(--text)",
+            }}
+          >
+            <Share2 size={14} />
+            Share
+          </button>
+          <EntryKebab
+            entry={{ kind: "file", file }}
+            handlers={{
+              onOpen: () => {},
+              onRename: () => {
+                document
+                  .querySelector<HTMLElement>('[data-testid="file-fullscreen-title"]')
+                  ?.click();
+              },
+              onTrash,
+              onDownload,
+            }}
+          />
+        </>
+      )}
+      <ShareDialog open={shareOpen} file={file} onClose={() => setShareOpen(false)} />
+    </header>
+  );
+}
+
+function FilenameField({
+  name,
+  editable,
+  onCommit,
+}: {
+  name: string;
+  editable: boolean;
+  onCommit: (next: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(name);
+  }, [name, editing]);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          onCommit(draft);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            e.stopPropagation();
+            setDraft(name);
+            setEditing(false);
+          }
+        }}
+        data-testid="file-fullscreen-title-input"
+        style={{
+          fontSize: "var(--text-sm)",
+          fontWeight: 600,
+          color: "var(--text)",
+          background: "var(--bg)",
+          border: "1px solid var(--accent)",
+          borderRadius: 6,
+          padding: "4px 8px",
+          outline: "none",
+          minWidth: 220,
+          maxWidth: 480,
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => editable && setEditing(true)}
+      aria-label={editable ? `Rename ${name}` : name}
+      data-testid="file-fullscreen-title"
+      disabled={!editable}
+      style={{
+        fontSize: "var(--text-sm)",
+        fontWeight: 600,
+        color: "var(--text)",
+        background: "transparent",
+        border: "1px solid transparent",
+        borderRadius: 6,
+        padding: "4px 8px",
+        cursor: editable ? "text" : "default",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        maxWidth: 480,
+        textAlign: "left",
+      }}
+      onMouseOver={(e) => {
+        if (editable) e.currentTarget.style.background = "var(--bg-hover)";
+      }}
+      onMouseOut={(e) => {
+        e.currentTarget.style.background = "transparent";
+      }}
+    >
+      {name}
+    </button>
   );
 }
 
@@ -258,28 +471,28 @@ function FullscreenBody({ state }: { state: LoadState }) {
     );
   }
 
+  // Every other kind — image / pdf / video / audio / text / md /
+  // generic — falls through to PreviewStage. The fullscreen route
+  // gets the same per-kind viewer the modal uses, just without the
+  // surrounding modal chrome. PreviewStage already takes the full
+  // available space so it scales correctly to the route layout.
   return (
     <div
-      data-testid="file-fullscreen-unsupported"
+      data-testid="file-fullscreen-viewer"
       style={{
         width: "100%",
         height: "100%",
         display: "flex",
-        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 8,
         padding: 24,
-        textAlign: "center",
+        boxSizing: "border-box",
+        overflow: "auto",
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-        No editor for this format
-      </div>
-      <div style={{ fontSize: 13, color: "var(--text-muted)", maxWidth: 420 }}>
-        Casual Drive's in-app editor only opens .docx and .xlsx files. Use the
-        download button on the file's preview to grab the bytes.
-      </div>
+      <Suspense fallback={<LoadingFallback />}>
+        <PreviewStage file={file} kind={kind} />
+      </Suspense>
     </div>
   );
 }
