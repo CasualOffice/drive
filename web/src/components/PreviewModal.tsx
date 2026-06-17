@@ -15,8 +15,10 @@ import type { UseFileSourceAutoSaveReturn } from "@schnsrw/docx-js-editor";
 
 import { downloadUrl, type FileDto } from "../api/client.ts";
 import { useReportViewing } from "../state/PresenceContext.tsx";
+import { DetailsPanel } from "./DetailsPanel.tsx";
 import { FileThumb, inferKind } from "./FileThumb.tsx";
 import { PreviewStage } from "./preview/PreviewStage.tsx";
+import { ShareDialog } from "./ShareDialog.tsx";
 
 // AutosaveStatus is lazy — the SDK's vendor bundle (which contains a
 // React.Activity assignment that crashes module-init on React 19) must
@@ -58,6 +60,7 @@ export function PreviewModal({
   // nothing in that case (AutosaveStatus already renders null on the
   // idle/never-saved state).
   const [autosaveState, setAutosaveState] = useState<UseFileSourceAutoSaveReturn | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   // Reset when the focused file changes — peer files might not be docs,
   // and stale state from the previous file would lie to the user.
   useEffect(() => {
@@ -246,7 +249,7 @@ export function PreviewModal({
                 <primary.Icon size={15} strokeWidth={2} />
                 {primary.label}
               </ActionButton>
-              <ActionButton onClick={() => navigator.clipboard?.writeText(window.location.href)}>
+              <ActionButton onClick={() => setShareOpen(true)}>
                 <Share2 size={15} strokeWidth={2} />
                 Share
               </ActionButton>
@@ -255,14 +258,15 @@ export function PreviewModal({
               </ActionButton>
             </div>
 
-            <SectionLabel>Details</SectionLabel>
-            <Detail k="Type" v={typeLabel} />
-            <Detail k="Size" v={file.size > 0 ? formatBytes(file.size) : "—"} />
-            <Detail k="Modified" v={new Date(file.modified_at).toLocaleString()} />
-            <Detail k="Location" v="My Drive" />
+            {/* Real tabbed Details panel — Info / People / History.
+                Replaces the prior 4-row Details stub. */}
+            <div style={{ flex: 1, minHeight: 0, marginTop: 4, marginLeft: -26, marginRight: -26 }}>
+              <DetailsPanel file={file} onCreateShare={() => setShareOpen(true)} />
+            </div>
           </aside>
         </Dialog.Content>
       </Dialog.Portal>
+      <ShareDialog open={shareOpen} file={file} onClose={() => setShareOpen(false)} />
 
       <style>
         {`
@@ -379,41 +383,6 @@ function ActionButton({
     >
       {children}
     </button>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        fontSize: 10,
-        letterSpacing: "2px",
-        textTransform: "uppercase",
-        color: "var(--muted-2)",
-        fontWeight: 600,
-        marginBottom: 12,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Detail({ k, v }: { k: string; v: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "10px 0",
-        borderBottom: "1px solid var(--line)",
-        fontSize: "var(--text-sm)",
-      }}
-    >
-      <span style={{ color: "var(--muted)" }}>{k}</span>
-      <span style={{ fontWeight: 500, textAlign: "right" }}>{v}</span>
-    </div>
   );
 }
 

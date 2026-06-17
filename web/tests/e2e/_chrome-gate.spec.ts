@@ -200,6 +200,34 @@ test("UX-EDITOR-5: xlsx preview shows friendly fallback instead of parse error",
   await expect(page.getByText(/Failed to load workbook/i)).toHaveCount(0);
 });
 
+test("UX-EDITOR-8: PreviewModal Details panel mounts all 3 tabs", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.getByText("Q2 planning.xlsx").first().click();
+  await page.getByTestId("details-panel").waitFor({ timeout: 5_000 });
+  await expect(page.getByTestId("details-tab-info")).toBeVisible();
+  await expect(page.getByTestId("details-tab-people")).toBeVisible();
+  await expect(page.getByTestId("details-tab-history")).toBeVisible();
+  // Info tab is the default — content panel renders the metadata grid.
+  await expect(page.getByTestId("details-tab-info-panel")).toBeVisible();
+});
+
+test("UX-EDITOR-8: Details People tab → empty state + Create share CTA", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.getByText("Q2 planning.xlsx").first().click();
+  await page.getByTestId("details-tab-people").click();
+  // Demo state starts with no shares for the seeded file → empty state.
+  await expect(page.getByTestId("details-tab-people-panel")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByTestId("details-people-create-share")).toBeVisible();
+});
+
+test("UX-EDITOR-8: Details History tab → friendly Coming soon", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.getByText("Q2 planning.xlsx").first().click();
+  await page.getByTestId("details-tab-history").click();
+  await expect(page.getByTestId("details-tab-history-panel")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText(/Version history is coming/i)).toBeVisible();
+});
+
 test("UX-EDITOR-2: doc iframe stays light-themed under prefers-color-scheme:dark", async ({
   page,
   context,
