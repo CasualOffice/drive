@@ -4,12 +4,12 @@ import { defineConfig } from "astro/config";
 import mdx from "@astrojs/mdx";
 import sitemap from "@astrojs/sitemap";
 
-// Production site URL. Currently `drive.schnsrw.live` (the GitHub Pages
+// Production site URL. Currently `drive.casualoffice.org` (the GitHub Pages
 // target — see marketing/public/CNAME). Flip to https://casualoffice.org
-// or https://schnsrw.live when DNS lands (§15.13). For GitHub Pages
+// or https://casualoffice.org when DNS lands (§15.13). For GitHub Pages
 // org-site deploys (https://<org>.github.io/drive/) keep `base` too.
 // CI overrides via repo Variables: `MARKETING_SITE_URL`, `MARKETING_SITE_BASE`.
-const SITE = process.env.ASTRO_SITE || "https://drive.schnsrw.live";
+const SITE = process.env.ASTRO_SITE || "https://drive.casualoffice.org";
 const BASE = process.env.ASTRO_BASE || undefined;
 
 export default defineConfig({

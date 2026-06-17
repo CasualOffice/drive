@@ -11,7 +11,7 @@ import type { APIRoute } from "astro";
 export const prerender = true;
 
 export const GET: APIRoute = ({ site }) => {
-  const origin = (site?.toString() ?? "https://schnsrw.live").replace(/\/$/, "");
+  const origin = (site?.toString() ?? "https://casualoffice.org").replace(/\/$/, "");
   // Mirror the @astrojs/sitemap index format byte-for-byte so crawlers
   // see identical content at either URL.
   const body =

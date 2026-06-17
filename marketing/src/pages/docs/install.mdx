@@ -18,7 +18,7 @@ docker run -d \
   -e DRIVE_USERCONTENT_ORIGIN=https://usercontent-drive.your-server \
   -e DRIVE_STORAGE_BACKEND=fs \
   -e DRIVE_FS_ROOT=/data \
-  ghcr.io/schnsrw/casual-drive:latest
+  ghcr.io/casualoffice/drive:latest
 ```
 
 That's it. Visit `https://drive.your-server` in your browser, complete the first-run admin setup, and you have a working Drive.
@@ -34,7 +34,7 @@ You'll need:
 - A C toolchain for SQLite (Debian: `build-essential`; macOS: Xcode CLT)
 
 ```bash
-git clone https://github.com/schnsrw/casual-drive.git
+git clone https://github.com/CasualOffice/drive.git
 cd casual-drive
 
 # Build the SPA — its dist/ is embedded into the Rust binary via rust-embed.
