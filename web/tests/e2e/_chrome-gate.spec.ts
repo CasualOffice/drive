@@ -137,6 +137,43 @@ test("UX-EDITOR-1: sheet editor has Drive toolbar with all v0.6 commands", async
   }
 });
 
+test("UX-EDITOR-1 v2: sheet toolbar renders rich-format widgets", async ({ page }) => {
+  test.setTimeout(60_000);
+  await openSheetEditor(page);
+  await page.getByTestId("sheet-toolbar").waitFor({ timeout: 8_000 });
+  // Font family picker
+  await expect(page.getByTestId("sheet-tool-font-family")).toBeVisible();
+  // Font size stepper (− / value / +)
+  await expect(page.getByTestId("sheet-tool-font-size")).toBeVisible();
+  await expect(page.getByTestId("sheet-tool-font-size-dec")).toBeVisible();
+  await expect(page.getByTestId("sheet-tool-font-size-inc")).toBeVisible();
+  // Color popovers (text + fill)
+  await expect(page.getByTestId("sheet-tool-text-color")).toBeVisible();
+  await expect(page.getByTestId("sheet-tool-bg-color")).toBeVisible();
+  // Merge button
+  await expect(page.getByTestId("sheet-tool-merge")).toBeVisible();
+});
+
+test("UX-EDITOR-1 v2: font family picker opens menu with options", async ({ page }) => {
+  test.setTimeout(60_000);
+  await openSheetEditor(page);
+  await page.getByTestId("sheet-toolbar").waitFor({ timeout: 8_000 });
+  await page.getByTestId("sheet-tool-font-family").click();
+  await page.getByTestId("sheet-font-family-menu").waitFor({ timeout: 3_000 });
+  // Spot-check a few canonical options
+  await expect(page.getByTestId("sheet-font-calibri")).toBeVisible();
+  await expect(page.getByTestId("sheet-font-arial")).toBeVisible();
+  await expect(page.getByTestId("sheet-font-times-new-roman")).toBeVisible();
+});
+
+test("UX-EDITOR-1 v2: text color popover opens with swatches", async ({ page }) => {
+  test.setTimeout(60_000);
+  await openSheetEditor(page);
+  await page.getByTestId("sheet-toolbar").waitFor({ timeout: 8_000 });
+  await page.getByTestId("sheet-tool-text-color").click();
+  await expect(page.getByTestId("sheet-tool-text-color-swatch-0")).toBeVisible({ timeout: 3_000 });
+});
+
 test("UX-EDITOR-5: docx preview shows friendly fallback instead of parse error", async ({
   page,
 }) => {

@@ -55,6 +55,10 @@ const IDLE_FORMAT_STATE: SheetFormatState = {
   underline: false,
   strikethrough: false,
   align: null,
+  fontFamily: null,
+  fontSize: null,
+  textColor: null,
+  bgColor: null,
 };
 
 export function CasualSheetWorkspace({
