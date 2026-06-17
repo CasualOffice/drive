@@ -4,12 +4,12 @@
 
 **Open-source, self-hosted Drive that opens `.xlsx` and `.docx` in the browser. A drop-in alternative to Google Drive or OneDrive — your storage, your editors, your server.**
 
-[![CI](https://img.shields.io/github/actions/workflow/status/schnsrw/drive/ci.yml?branch=main&label=CI)](./.github/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/CasualOffice/drive/ci.yml?branch=main&label=CI)](./.github/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-195%20green-brightgreen)](#)
 
-[Live demo](https://drive.schnsrw.live/demo) &nbsp;·&nbsp; [Docs](https://drive.schnsrw.live/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Pipeline](./PIPELINE.md)
+[Live demo](https://drive.casualoffice.org/demo) &nbsp;·&nbsp; [Docs](https://drive.casualoffice.org/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Pipeline](./PIPELINE.md)
 
 </div>
 
@@ -18,7 +18,7 @@
 Casual Drive is a small, sharp file manager built around two ideas:
 
 1. **Your files belong on your server.** Filesystem, S3, MinIO, Cloudflare R2, Backblaze B2 — pick any. Per-workspace bring-your-own-bucket too.
-2. **Office files belong in the browser.** Click a `.xlsx` and it opens in [Casual Sheet](https://github.com/schnsrw/sheet); click a `.docx` and it opens in [Casual Document](https://github.com/schnsrw/document) — browser-only via the editor SDKs by default, or via [WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/) when an editor server is configured for real-time co-editing.
+2. **Office files belong in the browser.** Click a `.xlsx` and it opens in [Casual Sheet](https://github.com/CasualOffice/sheets); click a `.docx` and it opens in [Casual Document](https://github.com/CasualOffice/docs) — browser-only via the editor SDKs by default, or via [WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/) when an editor server is configured for real-time co-editing.
 
 One Rust binary, one Docker container, a polished React SPA, and a marketing site that doubles as live documentation.
 
@@ -36,7 +36,7 @@ docker run -d --name drive \
   ghcr.io/schnsrw/casual-drive:latest
 ```
 
-Visit `https://drive.your-server`, complete the one-time admin setup, upload a file, click it. That's the demo. Full env-var matrix at <https://drive.schnsrw.live/docs/configuration>.
+Visit `https://drive.your-server`, complete the one-time admin setup, upload a file, click it. That's the demo. Full env-var matrix at <https://drive.casualoffice.org/docs/configuration>.
 
 ## What it does
 
@@ -76,7 +76,7 @@ drive/
     drive-http/          Axum router, two-origin middleware, every API surface
     drive-bin/           Binary entry point
   web/                   React 19 SPA, embedded into the binary via rust-embed
-  marketing/             Astro 5 site (drive.schnsrw.live) + the /demo SPA
+  marketing/             Astro 5 site (drive.casualoffice.org) + the /demo SPA
   docs/
     ARCHITECTURE.md      System-level architecture
     research/            12 grounded research briefs + synthesis
@@ -123,15 +123,15 @@ Every PR runs `cargo fmt --check`, `cargo clippy -- -Dwarnings`, `cargo test --w
 
 ## Demo
 
-- **Live demo** (in-memory, no backend, resets on reload): <https://drive.schnsrw.live/demo>
-- **Marketing site** (install + configuration + architecture + contributing docs): <https://drive.schnsrw.live>
+- **Live demo** (in-memory, no backend, resets on reload): <https://drive.casualoffice.org/demo>
+- **Marketing site** (install + configuration + architecture + contributing docs): <https://drive.casualoffice.org>
 
 The same SPA bundle is served in both places — the demo just runs against a localStorage-backed shim. Drop your own files in, sign in as `demo` / `demo`, click around.
 
 ## Contributing
 
 1. Read [`CLAUDE.md`](./CLAUDE.md) — the five inviolable rules + locked decisions.
-2. Read the [Contributing docs](https://drive.schnsrw.live/docs/contributing) and the relevant `docs/research/` brief for whatever area you're touching.
+2. Read the [Contributing docs](https://drive.casualoffice.org/docs/contributing) and the relevant `docs/research/` brief for whatever area you're touching.
 3. Open an issue describing what you'd like to take on before sending a PR.
 4. PRs must pass the CI gates above. UI work must honour the [10 polish commandments](./docs/research/04-polish-principles.md) — every commandment-break needs explicit justification in the PR description.
 
@@ -141,8 +141,8 @@ Apache-2.0 — see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
 
 ## Sister projects
 
-- [Casual Sheet](https://github.com/schnsrw/sheet) — self-hosted `.xlsx` editor.
-- [Casual Document](https://github.com/schnsrw/document) — self-hosted `.docx` editor.
-- [Casual Office](https://schnsrw.live) — umbrella site.
+- [Casual Sheet](https://github.com/CasualOffice/sheets) — self-hosted `.xlsx` editor.
+- [Casual Document](https://github.com/CasualOffice/docs) — self-hosted `.docx` editor.
+- [Casual Office](https://casualoffice.org) — umbrella site.
 
 Drive is the file-centric front door that wraps them into a coherent suite.
