@@ -152,6 +152,14 @@ const FRAME_STYLE: CSSProperties = {
   display: "block",
 };
 
+/** Drive's current theme, read from the `data-theme` attribute ThemeToggle
+ *  writes on `<html>` (absent ⇒ `system`). Passed to the embed so the sheet
+ *  matches Drive's light/dark, with live updates via the observer below. */
+function currentTheme(): "light" | "dark" | "system" {
+  const t = document.documentElement.getAttribute("data-theme");
+  return t === "light" || t === "dark" ? t : "system";
+}
+
 export const SheetEmbed = forwardRef<SheetEmbedRef, SheetEmbedProps>(function SheetEmbed(
   props,
   ref,
@@ -235,9 +243,10 @@ export const SheetEmbed = forwardRef<SheetEmbedRef, SheetEmbedProps>(function Sh
       onError: (d) => onErrorRef.current?.(d as SheetEmbedError),
       onEditorReady: () => {
         transport.sendHostHello({ capabilities: ["load", "save"] });
-        // The editor mounts in whatever viewMode the URL carried; send the
-        // current one explicitly so a viewMode change before `ready` lands.
+        // The editor mounts in whatever viewMode/theme the URL carried; send
+        // the current values explicitly so changes before `ready` still land.
         transport.sendSetViewMode({ viewMode: viewModeRef.current });
+        transport.sendSetTheme({ theme: currentTheme() });
       },
     });
     transportRef.current = transport;
@@ -248,6 +257,16 @@ export const SheetEmbed = forwardRef<SheetEmbedRef, SheetEmbedProps>(function Sh
   useEffect(() => {
     transportRef.current?.sendSetViewMode({ viewMode });
   }, [viewMode]);
+
+  // Mirror Drive's light/dark into the embed: ThemeToggle flips `data-theme`
+  // on <html>; forward each change so the embedded sheet re-themes live.
+  useEffect(() => {
+    const obs = new MutationObserver(() => {
+      transportRef.current?.sendSetTheme({ theme: currentTheme() });
+    });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -271,7 +290,8 @@ export const SheetEmbed = forwardRef<SheetEmbedRef, SheetEmbedProps>(function Sh
     `${embedBasePath}/embed.html` +
     `?app=sheet` +
     `&docId=${encodeURIComponent(docId)}` +
-    `&viewMode=${viewMode}`;
+    `&viewMode=${viewMode}` +
+    `&theme=${currentTheme()}`;
 
   return (
     <iframe
