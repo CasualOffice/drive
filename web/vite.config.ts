@@ -68,7 +68,7 @@ export default defineConfig(({ mode }) => {
               return "vendor-prosemirror";
             }
             if (id.includes("@univerjs/")) return "vendor-univer";
-            if (id.includes("@schnsrw/casual-sheets")) return "vendor-univer";
+            if (id.includes("@casualoffice/sheets")) return "vendor-univer";
             if (id.includes("@schnsrw/docx-js-editor")) return "vendor-docx-editor";
             if (id.includes("yjs") || id.includes("y-prosemirror") || id.includes("y-websocket")) {
               return "vendor-collab";

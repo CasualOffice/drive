@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 import { DropdownMenu, Popover } from "radix-ui";
 
-import type { CasualSheetsIframeRef } from "@schnsrw/casual-sheets/sheets";
+import type { CasualSheetsIframeRef } from "@casualoffice/sheets/sheets";
 
 export interface SheetFormatState {
   bold: boolean;
@@ -60,7 +60,7 @@ export interface SheetFormatState {
 }
 
 /** The SDK 0.7 command union. Mirrors `CommandExecuteData['command']`
- *  from `@schnsrw/casual-sheets`. */
+ *  from `@casualoffice/sheets`. */
 type Command =
   | "undo"
   | "redo"

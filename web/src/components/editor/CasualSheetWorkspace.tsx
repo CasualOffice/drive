@@ -1,6 +1,6 @@
 /**
  * CasualSheetWorkspace — Drive's mount for `.xlsx` files via the iframe
- * variant `<CasualSheetsIframe>` from `@schnsrw/casual-sheets@>=0.5.0`.
+ * variant `<CasualSheetsIframe>` from `@casualoffice/sheets@>=0.11.0`.
  *
  * Same rationale as `CasualDocEditor`:
  *   - CSS isolation (Univer chrome no longer bleeds into Drive's tree).
@@ -13,7 +13,7 @@
  * `embedBasePath` resolves under Drive's own origin via Vite's
  * BASE_URL so the iframe loads from `${BASE_URL}embed/sheets/embed.html`.
  * The embed runtime is copied from
- * `@schnsrw/casual-sheets/embed/*` into `public/embed/sheets/` by
+ * `@casualoffice/sheets/embed/*` into `public/embed/sheets/` by
  * `scripts/copy-embed.mjs` at prebuild time.
  */
 
@@ -23,7 +23,7 @@ import {
   CasualSheetsIframe,
   type CasualSheetsIframeRef,
   type HostFileBridge,
-} from "@schnsrw/casual-sheets/sheets";
+} from "@casualoffice/sheets/sheets";
 
 import { type FileDto } from "../../api/client.ts";
 import { DriveFileSource } from "../../file-source/DriveFileSource.ts";

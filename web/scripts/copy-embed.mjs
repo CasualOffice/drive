@@ -22,7 +22,7 @@ const require_ = createRequire(import.meta.url);
 
 const PACKAGES = [
   // [npm name, public/embed/<subdir>, exports-key we use to anchor to the embed/ dir]
-  ["@schnsrw/casual-sheets", "sheets", "embed/embed.html"],
+  ["@casualoffice/sheets", "sheets", "embed/embed.html"],
   ["@schnsrw/docx-js-editor", "docs", "embed/embed.html"],
 ];
 
