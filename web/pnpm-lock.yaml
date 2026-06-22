@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@casualoffice/sheets':
-        specifier: ^0.14.0
-        version: 0.14.0(0953f3d71c7a8c10fc7c24cb28db60bd)
+        specifier: ^0.15.0
+        version: 0.15.0(0953f3d71c7a8c10fc7c24cb28db60bd)
       '@fontsource-variable/ibm-plex-sans':
         specifier: ^5.2.8
         version: 5.2.8
@@ -243,8 +243,8 @@ packages:
     resolution: {integrity: sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA==}
     engines: {node: '>=6.9.0'}
 
-  '@casualoffice/sheets@0.14.0':
-    resolution: {integrity: sha512-YTjI3ThQv+167NPHWnwxMCHz5+X2H0xnVeX5gOILKbi069GgO02FwDhIGycuQ/NfogWwt4tCmkZXfs3zBaKCSw==}
+  '@casualoffice/sheets@0.15.0':
+    resolution: {integrity: sha512-HkArnp7IVR3E5ZxXrLnI6wP3Zajke9eJhYse1JkLzjuvYVbLGdxIDH5hub5nAkiSDUDMxKqGxCom0exNi+2xTg==}
     peerDependencies:
       '@hocuspocus/provider': ^2.15.0
       '@univerjs/core': ^0.25.0
@@ -3379,7 +3379,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@casualoffice/sheets@0.14.0(0953f3d71c7a8c10fc7c24cb28db60bd)':
+  '@casualoffice/sheets@0.15.0(0953f3d71c7a8c10fc7c24cb28db60bd)':
     dependencies:
       exceljs: 4.4.0
     optionalDependencies:
