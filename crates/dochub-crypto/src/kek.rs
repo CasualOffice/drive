@@ -48,7 +48,10 @@ impl std::fmt::Debug for EnvKek {
 impl EnvKek {
     /// Construct from raw 32-byte key material.
     pub fn from_bytes(key: [u8; 32], key_version: u32) -> Self {
-        Self { kek: key, key_version }
+        Self {
+            kek: key,
+            key_version,
+        }
     }
 
     /// Construct from a standard-base64 32-byte key (e.g. an env var). The
@@ -64,7 +67,10 @@ impl EnvKek {
         let mut key = [0u8; 32];
         key.copy_from_slice(&decoded);
         decoded.zeroize();
-        Ok(Self { kek: key, key_version })
+        Ok(Self {
+            kek: key,
+            key_version,
+        })
     }
 }
 
