@@ -9,7 +9,9 @@
 pub mod config;
 pub mod error;
 pub mod id;
+pub mod ingest;
 
 pub use config::{Backend, Config, ConfigError, OidcConfig};
 pub use error::DriveError;
 pub use id::{FileId, FolderId};
+pub use ingest::{guard, DocKind, IngestError, ALLOWED_EXTENSIONS};
