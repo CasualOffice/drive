@@ -711,6 +711,7 @@ dependencies = [
 name = "dochub-core"
 version = "0.0.1"
 dependencies = [
+ "infer",
  "serde",
  "serde_json",
  "sha2",
