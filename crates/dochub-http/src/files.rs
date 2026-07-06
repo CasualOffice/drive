@@ -266,6 +266,14 @@ pub(crate) fn storage_key(file_id: &str) -> String {
     format!("files/{file_id}")
 }
 
+/// Build the version registry (build spec §5) from request state. Cheap — the
+/// DEK resolver wraps the master KEK held on `Config`; nothing is persisted
+/// until a version is committed.
+fn version_registry(s: &HttpState) -> dochub_db::Registry {
+    let deks = dochub_db::WorkspaceDeks::new(s.db.clone(), s.config.master_kek.clone());
+    dochub_db::Registry::new(s.db.clone(), s.storage.clone(), deks)
+}
+
 // ── Editor handoff ──────────────────────────────────────────────────────
 
 /// Per-launch WOPI access-token TTL. CLAUDE.md fixes this at 10 min.
@@ -732,6 +740,10 @@ async fn upload_file(
         crate::workspace_storage::resolve_upload_storage(&s, &workspace_id).await?;
 
     let id = ulid::Ulid::new().to_string();
+    // Keep a handle on the raw bytes for the version commit below; `bytes`
+    // itself is moved into the legacy plaintext write. `Bytes` clone is cheap
+    // (refcount bump, no copy).
+    let raw = bytes.clone();
     let meta = storage
         .put(&storage_key(&id), bytes, content_type.as_deref())
         .await
@@ -761,6 +773,17 @@ async fn upload_file(
         })
         .await
         .map_err(|e| FilesError::Internal(e.to_string()))?;
+
+    // Commit the initial immutable version (build spec §5): seal + content-
+    // address the bytes and record seq=1 in the hash chain. Additive to the
+    // legacy plaintext write above (the read-path cutover is a follow-up).
+    if let Some(ws) = file.workspace_id.clone() {
+        version_registry(&s)
+            .commit_version(&ws, &file.id, &raw, &session.user_id, "upload")
+            .await
+            .map_err(|e| FilesError::Internal(e.to_string()))?;
+    }
+
     AuditRepo::emit(
         &s.db,
         NewAuditEvent {
@@ -1178,16 +1201,30 @@ async fn put_content(
         .map_err(|_| FilesError::NotFound)?;
     ensure_owner(&file.owner_id, &session)?;
 
-    let new_size = body.len() as u64;
     let content_type = file.content_type.clone();
 
+    // Keep the legacy plaintext blob at `files/{id}` so the existing read
+    // paths (get_content / download / WOPI) keep working. The cutover to
+    // serving bytes from the version store — and dropping this plaintext
+    // write — is a follow-up (build spec §5; requires re-sealing existing
+    // blobs, out of scope for this PR).
     s.storage
-        .put(&storage_key(&id), body, content_type.as_deref())
+        .put(&storage_key(&id), body.clone(), content_type.as_deref())
         .await
         .map_err(|e| FilesError::Internal(e.to_string()))?;
 
-    files
-        .set_size_and_touch(&id, new_size)
+    // Registry write path: a save commits an immutable, hash-chained version
+    // (build spec §5). Pre-existing files with no history start a fresh chain
+    // at seq=1 (handled lazily — no backfill here). `set_version_head` inside
+    // commit_version bumps `files.version` to the new head.
+    let workspace = match file.workspace_id.clone() {
+        Some(w) => w,
+        None => crate::workspaces::resolve_active_workspace(&s.db, &session.user_id, None)
+            .await
+            .map_err(|e| FilesError::Internal(format!("workspace: {e:?}")))?,
+    };
+    version_registry(&s)
+        .commit_version(&workspace, &id, &body, &session.user_id, "edit")
         .await
         .map_err(|e| FilesError::Internal(e.to_string()))?;
 

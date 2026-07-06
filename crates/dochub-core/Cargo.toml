@@ -12,6 +12,8 @@ rust-version = { workspace = true }
 workspace = true
 
 [dependencies]
+dochub-crypto = { path = "../dochub-crypto" }
+
 serde     = { workspace = true }
 thiserror = { workspace = true }
 time      = { workspace = true }
@@ -22,3 +24,4 @@ infer     = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+base64     = { workspace = true }

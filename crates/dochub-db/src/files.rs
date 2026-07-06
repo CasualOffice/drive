@@ -584,6 +584,23 @@ impl<'a> FileRepo<'a> {
         Ok(())
     }
 
+    /// Point the file's head at a freshly committed version: set `version` to
+    /// the new head `seq` (the head pointer per build spec §5), refresh `size`
+    /// to the version's logical byte length, and stamp `modified_at`. Called by
+    /// [`crate::registry::Registry::commit_version`] after the version row is
+    /// appended. `seq` is monotone, so this only ever moves the head forward.
+    pub async fn set_version_head(&self, id: &str, seq: i64, size: i64) -> Result<(), DbError> {
+        let now_s = ts(time::OffsetDateTime::now_utc());
+        sqlx::query("UPDATE files SET version = ?, size = ?, modified_at = ? WHERE id = ?")
+            .bind(seq)
+            .bind(size)
+            .bind(&now_s)
+            .bind(id)
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
+
     /// Bump version + update size/etag after a successful PutFile or upload.
     pub async fn record_overwrite(
         &self,

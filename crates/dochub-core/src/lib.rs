@@ -1,8 +1,9 @@
 //! Domain types, errors, IDs, and runtime configuration shared across the
 //! Casual Drive workspace.
 //!
-//! This crate must not depend on any other crate in the workspace. Everything
-//! else depends on it (or its narrower siblings).
+//! This crate depends only on `dochub-crypto` — the leaf crypto crate, which
+//! itself has no workspace dependencies — so `Config` can hold the master KEK
+//! (build spec §8). Everything else in the workspace depends on this crate.
 
 #![forbid(unsafe_code)]
 
@@ -11,7 +12,7 @@ pub mod error;
 pub mod id;
 pub mod ingest;
 
-pub use config::{Backend, Config, ConfigError, OidcConfig};
+pub use config::{dev_master_kek, Backend, Config, ConfigError, OidcConfig};
 pub use error::DriveError;
 pub use id::{FileId, FolderId};
 pub use ingest::{guard, DocKind, IngestError, ALLOWED_EXTENSIONS};

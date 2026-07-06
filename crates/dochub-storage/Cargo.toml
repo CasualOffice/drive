@@ -12,7 +12,8 @@ rust-version = { workspace = true }
 workspace = true
 
 [dependencies]
-dochub-core = { path = "../dochub-core" }
+dochub-core   = { path = "../dochub-core" }
+dochub-crypto = { path = "../dochub-crypto" }
 
 opendal    = { workspace = true }
 tokio      = { workspace = true }

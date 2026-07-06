@@ -12,7 +12,9 @@ rust-version = { workspace = true }
 workspace = true
 
 [dependencies]
-dochub-core = { path = "../dochub-core" }
+dochub-core    = { path = "../dochub-core" }
+dochub-crypto  = { path = "../dochub-crypto" }
+dochub-storage = { path = "../dochub-storage" }
 
 sqlx       = { workspace = true }
 tokio      = { workspace = true }
@@ -21,6 +23,8 @@ thiserror  = { workspace = true }
 time       = { workspace = true }
 ulid       = { workspace = true }
 tracing    = { workspace = true }
+base64     = { workspace = true }
 
 [dev-dependencies]
 tokio      = { workspace = true }
+bytes      = { workspace = true }
