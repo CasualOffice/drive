@@ -16,6 +16,9 @@ pub enum DbError {
 
     #[error("invalid database url: {0}")]
     InvalidUrl(String),
+
+    #[error("corrupt stored data: {0}")]
+    Corrupt(&'static str),
 }
 
 impl DbError {

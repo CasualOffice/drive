@@ -3,7 +3,7 @@
 
 use dochub_db::{
     Db, DbError, FileRepo, FolderRepo, NewFile, NewFolder, NewSession, NewUser, SessionRepo,
-    UserRepo, WorkspaceKind, WorkspaceRepo,
+    UserRepo, WorkspaceDeks, WorkspaceKeysRepo, WorkspaceKind, WorkspaceRepo,
 };
 
 async fn fresh_db() -> Db {
@@ -382,4 +382,72 @@ async fn files_and_folders_are_workspace_scoped() {
 
     assert_eq!(files.workspace_used_bytes(&personal).await.unwrap(), 10);
     assert_eq!(files.workspace_used_bytes(&team).await.unwrap(), 25);
+}
+
+// --- workspace_keys / DEK resolver (build spec §3) ------------------------
+
+/// `get_or_create` is idempotent per workspace and distinct across workspaces.
+/// DEK bytes are never exposed, so equality is proven functionally: a blob
+/// sealed under the first handle opens under the second handle of the SAME
+/// workspace, and fails under a DIFFERENT workspace's key.
+#[tokio::test]
+async fn workspace_dek_get_or_create_roundtrip() {
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let ws1 = personal_ws(&db, &owner).await;
+    let ws2 = WorkspaceRepo::new(&db)
+        .insert("Team", WorkspaceKind::Team, &owner)
+        .await
+        .unwrap()
+        .id;
+
+    let deks = WorkspaceDeks::new(db.clone(), dochub_core::dev_master_kek());
+
+    // First call creates + persists the row.
+    let dek_a = deks.get_or_create(&ws1).await.unwrap();
+    assert!(
+        WorkspaceKeysRepo::new(&db).get(&ws1).await.unwrap().is_some(),
+        "first get_or_create must persist a wrapped DEK"
+    );
+
+    // Second call for the SAME workspace returns the SAME key (unwrapped from
+    // the persisted row).
+    let dek_a2 = deks.get_or_create(&ws1).await.unwrap();
+    let blob = dochub_crypto::seal(&dek_a, b"registry payload");
+    assert_eq!(
+        dochub_crypto::open(&dek_a2, &blob.0).unwrap(),
+        b"registry payload",
+        "same workspace must resolve to the same DEK across calls"
+    );
+
+    // A DIFFERENT workspace gets a DIFFERENT key: opening ws1's blob under
+    // ws2's DEK fails authentication.
+    let dek_b = deks.get_or_create(&ws2).await.unwrap();
+    assert!(
+        dochub_crypto::open(&dek_b, &blob.0).is_err(),
+        "distinct workspaces must have distinct DEKs"
+    );
+}
+
+/// The wrapped DEK is persisted only in wrapped form: the stored column is
+/// base64 and decodes to a versioned envelope, never the raw 32-byte key.
+#[tokio::test]
+async fn workspace_key_persisted_only_wrapped() {
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let ws = personal_ws(&db, &owner).await;
+
+    let deks = WorkspaceDeks::new(db.clone(), dochub_core::dev_master_kek());
+    deks.get_or_create(&ws).await.unwrap();
+
+    let wrapped = WorkspaceKeysRepo::new(&db)
+        .get(&ws)
+        .await
+        .unwrap()
+        .expect("row exists");
+    // Versioned envelope: 0x01 prefix, and longer than a bare 32-byte key
+    // (version + nonce + ciphertext + tag).
+    assert_eq!(wrapped.ct.first(), Some(&0x01));
+    assert!(wrapped.ct.len() > 32);
+    assert_eq!(wrapped.key_version, 1);
 }

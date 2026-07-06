@@ -4,9 +4,16 @@
 //! for the full env-var contract, mirrored in `.env.example`.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
+use dochub_crypto::EnvKek;
 use thiserror::Error;
 use url::Url;
+
+/// KEK version for the Phase 0 `DOCHUB_MASTER_KEY` provider. Rotation (a bump
+/// past 1) is a Phase 1 concern; the wrapped-DEK rows already carry the
+/// version so re-wrap is lossless.
+const MASTER_KEY_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
@@ -48,6 +55,12 @@ pub struct Config {
     pub admin_password_hash: String,
     pub recipient_footer: bool,
     pub is_prod: bool,
+    /// Master key-encryption-key (KEK), parsed from `DOCHUB_MASTER_KEY`
+    /// (base64, 32 bytes). Wraps every per-workspace DEK. Boot refuses to
+    /// start without it (build spec §8) — encryption at rest is not optional.
+    /// Held behind an `Arc` so `Config` stays `Clone`; the key material is
+    /// zeroized on drop and never appears in `Debug`.
+    pub master_kek: Arc<EnvKek>,
     /// Casual Sheets origin (e.g. `https://sheet.casualoffice.org`). When
     /// `None`, the editor handoff endpoint returns 503 and the SPA shows a
     /// "editor isn't configured" toast. See docs/ux/08-editor-handoff.md.
@@ -102,6 +115,10 @@ pub enum ConfigError {
     FsRootMissing,
     #[error("S3/MinIO backend selected but {0} is missing")]
     S3FieldMissing(&'static str),
+    #[error("DOCHUB_MASTER_KEY is required (base64 32-byte KEK) — refusing to start without at-rest encryption")]
+    MasterKeyMissing,
+    #[error("DOCHUB_MASTER_KEY is invalid: {0}")]
+    MasterKeyInvalid(&'static str),
 }
 
 impl Config {
@@ -186,6 +203,11 @@ impl Config {
 
         let recipient_footer = env_bool("DOCHUB_RECIPIENT_FOOTER").unwrap_or(true);
 
+        // Boot invariant (build spec §8): no master key, no start. Parsed
+        // before the optional origin blocks so a misconfigured deployment
+        // fails on the most important thing first.
+        let master_kek = parse_master_kek(std::env::var("DOCHUB_MASTER_KEY").ok())?;
+
         let sheet_origin = match std::env::var("DOCHUB_SHEET_ORIGIN").ok() {
             Some(s) if !s.is_empty() => Some(
                 Url::parse(&s)
@@ -222,6 +244,7 @@ impl Config {
             admin_password_hash,
             recipient_footer,
             is_prod,
+            master_kek,
             oidc: load_oidc_from_env()?,
             allow_password_auth: env_bool("DOCHUB_ALLOW_PASSWORD_AUTH").unwrap_or(true),
             sheet_origin,
@@ -281,6 +304,32 @@ fn env_secret_32(name: &'static str, is_prod: bool) -> Result<[u8; 32], ConfigEr
     // fixed-width HMAC keys.
     out.copy_from_slice(&bytes[..32]);
     Ok(out)
+}
+
+/// Parse the master KEK from a raw `DOCHUB_MASTER_KEY` value. Pure (takes the
+/// value rather than reading the env directly) so the boot invariant is unit
+/// testable without racing on process-global env state.
+fn parse_master_kek(raw: Option<String>) -> Result<Arc<EnvKek>, ConfigError> {
+    let raw = raw.ok_or(ConfigError::MasterKeyMissing)?;
+    if raw.trim().is_empty() {
+        return Err(ConfigError::MasterKeyMissing);
+    }
+    let kek = EnvKek::from_base64(&raw, MASTER_KEY_VERSION).map_err(|e| match e {
+        dochub_crypto::CryptoError::BadKeyLength => {
+            ConfigError::MasterKeyInvalid("must decode to exactly 32 bytes")
+        }
+        _ => ConfigError::MasterKeyInvalid("not valid standard base64"),
+    })?;
+    Ok(Arc::new(kek))
+}
+
+/// A fixed, well-known master KEK for tests and local fixtures. Not wired to
+/// any production path — `Config::from_env` always derives the KEK from the
+/// environment. `#[doc(hidden)]` keeps it out of the public surface.
+#[doc(hidden)]
+#[must_use]
+pub fn dev_master_kek() -> Arc<EnvKek> {
+    Arc::new(EnvKek::from_bytes([0x2a; 32], MASTER_KEY_VERSION))
 }
 
 /// Load the optional OIDC block from env. All four required fields must
@@ -375,6 +424,41 @@ mod tests {
     fn origin_host_keeps_nondefault_port() {
         let u = Url::parse("http://127.0.0.1:8080").unwrap();
         assert_eq!(origin_host(&u), "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn master_key_missing_is_error() {
+        assert!(matches!(
+            parse_master_kek(None),
+            Err(ConfigError::MasterKeyMissing)
+        ));
+        assert!(matches!(
+            parse_master_kek(Some("   ".into())),
+            Err(ConfigError::MasterKeyMissing)
+        ));
+    }
+
+    #[test]
+    fn master_key_invalid_is_error() {
+        // Not base64.
+        assert!(matches!(
+            parse_master_kek(Some("not!!base64!!".into())),
+            Err(ConfigError::MasterKeyInvalid(_))
+        ));
+        // Valid base64 but wrong length (16 bytes).
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let short = STANDARD.encode([0u8; 16]);
+        assert!(matches!(
+            parse_master_kek(Some(short)),
+            Err(ConfigError::MasterKeyInvalid(_))
+        ));
+    }
+
+    #[test]
+    fn master_key_valid_base64_parses() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let key = STANDARD.encode([7u8; 32]);
+        assert!(parse_master_kek(Some(key)).is_ok());
     }
 
     #[test]

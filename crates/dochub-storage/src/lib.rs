@@ -6,10 +6,12 @@
 
 #![forbid(unsafe_code)]
 
+pub mod blob;
 pub mod byo;
 pub mod registry;
 pub mod secret_box;
 
+pub use blob::StorageKey;
 pub use byo::{
     build_operator, ssrf_guard, test_connection, validate_shape as validate_shape_, ByoConfig,
     ByoError, Provider,
@@ -78,6 +80,10 @@ pub enum StorageError {
     Time(#[from] time::error::ComponentRange),
     #[error("configuration error: {0}")]
     Config(String),
+    /// Seal/open failed. The inner `CryptoError` carries no key or plaintext
+    /// bytes, so it is safe to surface and log.
+    #[error("crypto error: {0}")]
+    Crypto(#[from] dochub_crypto::CryptoError),
 }
 
 #[derive(Clone)]

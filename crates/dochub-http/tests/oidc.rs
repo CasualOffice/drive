@@ -63,6 +63,7 @@ async fn fixture(oidc: Option<OidcConfig>, allow_password_auth: bool) -> HttpSta
         is_prod: false,
         sheet_origin: None,
         document_origin: None,
+        master_kek: dochub_core::dev_master_kek(),
     };
     let auth = AuthState::new(db.clone(), false, time::Duration::hours(1))
         .with_password_auth(allow_password_auth);
