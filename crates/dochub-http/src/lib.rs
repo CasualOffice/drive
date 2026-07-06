@@ -25,6 +25,7 @@ mod search;
 mod share;
 mod spa;
 mod state;
+mod wopi_docs;
 mod workspace_storage;
 mod workspaces;
 
@@ -94,8 +95,16 @@ async fn api_me(State(s): State<HttpState>, session: AuthSession) -> axum::Json<
 }
 
 fn app_origin_router(state: HttpState) -> Router {
+    // WOPI GetFile/PutFile route through the encrypted version chain via the
+    // registry-backed document store — never a plaintext blob.
+    let wopi_deks =
+        dochub_db::WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone());
+    let wopi_registry =
+        dochub_db::Registry::new(state.db.clone(), state.storage.clone(), wopi_deks);
+    let wopi_docs: std::sync::Arc<dyn dochub_wopi::DocumentStore> =
+        std::sync::Arc::new(wopi_docs::RegistryDocStore::new(wopi_registry));
     let wopi_state = WopiAppState {
-        storage: state.storage.clone(),
+        docs: wopi_docs,
         wopi: state.wopi.clone(),
         jwt_secret: state.jwt_secret.clone(),
     };

@@ -10,11 +10,10 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use dochub_core::FileId;
-use dochub_storage::Storage;
-use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    docs::DocumentStore,
     state::{LockEntry, WopiState},
     token::verify_token,
     WopiError,
@@ -27,16 +26,16 @@ const H_ITEMVER: HeaderName = HeaderName::from_static("x-wopi-itemversion");
 
 #[derive(Clone)]
 pub struct WopiAppState {
-    pub storage: Storage,
+    /// Document-bytes port. GetFile/PutFile go through the encrypted version
+    /// chain here — no plaintext blob is ever read from or written to storage.
+    pub docs: Arc<dyn DocumentStore>,
     pub wopi: WopiState,
     pub jwt_secret: Arc<[u8; 32]>,
 }
 
 impl std::fmt::Debug for WopiAppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WopiAppState")
-            .field("storage", &self.storage)
-            .finish_non_exhaustive()
+        f.debug_struct("WopiAppState").finish_non_exhaustive()
     }
 }
 
@@ -64,10 +63,6 @@ fn header_str<'a>(h: &'a HeaderMap, name: &HeaderName) -> Option<&'a str> {
     h.get(name).and_then(|v| v.to_str().ok())
 }
 
-fn storage_key(id: FileId) -> String {
-    format!("files/{id}")
-}
-
 // ─── CheckFileInfo (GET /wopi/files/{id}) ─────────────────────────────
 
 pub(crate) async fn check_file_info(
@@ -77,11 +72,7 @@ pub(crate) async fn check_file_info(
 ) -> Result<Response, WopiError> {
     let claims = verify_token(&s.jwt_secret, &access_token, id)?;
     let meta = s.wopi.get(id).await.ok_or(WopiError::NotFound)?;
-    let size = match s.storage.stat(&storage_key(id)).await {
-        Ok(m) => m.size,
-        Err(dochub_storage::StorageError::NotFound(_)) => 0,
-        Err(e) => return Err(WopiError::Internal(e.to_string())),
-    };
+    let size = s.docs.size(&id.to_string()).await?;
     let info = CheckFileInfo {
         base_file_name: meta.name,
         owner_id: "admin".into(),
@@ -108,15 +99,12 @@ pub(crate) async fn get_file(
     Path(id): Path<FileId>,
     Query(TokenQuery { access_token }): Query<TokenQuery>,
 ) -> Result<Response, WopiError> {
-    verify_token(&s.jwt_secret, &access_token, id)?;
+    let claims = verify_token(&s.jwt_secret, &access_token, id)?;
     let meta = s.wopi.get(id).await.ok_or(WopiError::NotFound)?;
-    let (_m, stream) = s
-        .storage
-        .get(&storage_key(id), None)
-        .await
-        .map_err(|_| WopiError::NotFound)?;
-    let body = Body::from_stream(stream.map_err(|e| std::io::Error::other(e.to_string())));
-    let mut r = Response::new(body);
+    // Serve the head version's decrypted bytes (lazily backfilling v1 from any
+    // legacy plaintext blob). No plaintext object is read here.
+    let bytes = s.docs.read(&id.to_string(), &claims.user_id).await?;
+    let mut r = Response::new(Body::from(bytes));
     r.headers_mut().insert(
         H_ITEMVER,
         HeaderValue::from_str(&meta.version.to_string()).unwrap(),
@@ -143,23 +131,20 @@ pub(crate) async fn put_file(
         let meta = s.wopi.get(id).await.ok_or(WopiError::NotFound)?;
         meta.lock.filter(|l| !l.expired()).map(|l| l.id)
     };
-    let stat_size = match s.storage.stat(&storage_key(id)).await {
-        Ok(m) => m.size,
-        Err(dochub_storage::StorageError::NotFound(_)) => 0,
-        Err(e) => return Err(WopiError::Internal(e.to_string())),
-    };
+    let head_size = s.docs.size(&id.to_string()).await?;
     match (current_lock_opt.as_deref(), lock_header) {
         (Some(cur), Some(h)) if cur == h => {}
         (Some(cur), _) => return Err(WopiError::LockConflict(cur.to_string())),
         // createnew: PutFile-without-lock allowed only on a 0-byte file.
-        (None, _) if stat_size == 0 && body.is_empty() => {}
+        (None, _) if head_size == 0 && body.is_empty() => {}
         (None, _) => return Err(WopiError::LockConflict(String::new())),
     }
 
-    s.storage
-        .put(&storage_key(id), body, None)
-        .await
-        .map_err(|e| WopiError::Internal(e.to_string()))?;
+    // Commit the save as a new immutable, hash-chained version — the sole write
+    // path for document bytes.
+    s.docs
+        .commit(&id.to_string(), &claims.user_id, body.to_vec())
+        .await?;
 
     let new_version = s
         .wopi

@@ -16,8 +16,6 @@
 //! - `PUT    /api/files/{id}/content`           — replace raw bytes (SDK)
 //! - `GET    /api/files/{id}/open`              — WOPI handoff (new tab)
 
-use std::time::Duration;
-
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, State},
@@ -29,7 +27,6 @@ use axum::{
 use bytes::Bytes;
 use dochub_auth::AuthSession;
 use dochub_db::{AuditRepo, File, FileRepo, Folder, FolderRepo, NewAuditEvent, NewFile, NewFolder};
-use dochub_storage::SignedUrl;
 use serde::{Deserialize, Serialize};
 
 use crate::HttpState;
@@ -272,6 +269,39 @@ pub(crate) fn storage_key(file_id: &str) -> String {
 fn version_registry(s: &HttpState) -> dochub_db::Registry {
     let deks = dochub_db::WorkspaceDeks::new(s.db.clone(), s.config.master_kek.clone());
     dochub_db::Registry::new(s.db.clone(), s.storage.clone(), deks)
+}
+
+/// The workspace a file's bytes are keyed under. Falls back to the caller's
+/// Personal workspace for the rare pre-workspaces legacy row whose
+/// `workspace_id` is still NULL — the same resolution the save path uses, so
+/// reads and writes agree on which DEK seals the chain.
+async fn file_workspace(
+    s: &HttpState,
+    file: &File,
+    session: &AuthSession,
+) -> Result<String, FilesError> {
+    match file.workspace_id.clone() {
+        Some(w) => Ok(w),
+        None => crate::workspaces::resolve_active_workspace(&s.db, &session.user_id, None)
+            .await
+            .map_err(|e| FilesError::Internal(format!("workspace: {e:?}"))),
+    }
+}
+
+/// Serve a file's current document bytes from the encrypted version chain,
+/// lazily backfilling a v1 version from the legacy plaintext blob when the file
+/// has no history yet (build spec §5). The single read path shared by
+/// `get_content` and `download_file`.
+async fn read_document_bytes(
+    s: &HttpState,
+    file: &File,
+    session: &AuthSession,
+) -> Result<Vec<u8>, FilesError> {
+    let workspace = file_workspace(s, file, session).await?;
+    version_registry(s)
+        .read_or_backfill(&workspace, &file.id, &session.user_id)
+        .await
+        .map_err(|e| FilesError::Internal(e.to_string()))
 }
 
 // ── Editor handoff ──────────────────────────────────────────────────────
@@ -731,23 +761,14 @@ async fn upload_file(
     .await
     .map_err(|e| FilesError::Internal(format!("workspace: {e:?}")))?;
 
-    // Pipeline §8.9 — route the bytes to the workspace's BYO bucket if
-    // it has one configured + the secret can be decrypted. Personal
-    // workspaces never have one. A BYO row whose secret won't decrypt
-    // (master key rotated, envelope corrupted) is a hard failure: we'd
-    // rather refuse the upload than silently write to the host's bucket.
-    let (storage, storage_id) =
+    // Pipeline §8.9 — validate the workspace's BYO storage binding (a row
+    // whose secret won't decrypt is a hard failure). We keep the `storage_id`
+    // pointer on the row, but the document bytes themselves are sealed into the
+    // version chain below rather than written as a plaintext object.
+    let (_storage, storage_id) =
         crate::workspace_storage::resolve_upload_storage(&s, &workspace_id).await?;
 
     let id = ulid::Ulid::new().to_string();
-    // Keep a handle on the raw bytes for the version commit below; `bytes`
-    // itself is moved into the legacy plaintext write. `Bytes` clone is cheap
-    // (refcount bump, no copy).
-    let raw = bytes.clone();
-    let meta = storage
-        .put(&storage_key(&id), bytes, content_type.as_deref())
-        .await
-        .map_err(|e| FilesError::Internal(e.to_string()))?;
 
     let file = FileRepo::new(&s.db)
         .insert(&NewFile {
@@ -755,19 +776,15 @@ async fn upload_file(
             parent_id,
             name,
             size,
-            // Authoritative content-type precedence: sniffed bytes →
-            // storage adapter's reported type → client header. Sniffed
-            // wins because it's the only one the user can't fake.
-            content_type: sniffed
-                .map(str::to_string)
-                .or(meta.content_type)
-                .or(content_type),
-            etag: meta.etag,
+            // Authoritative content-type precedence: sniffed bytes → client
+            // header. Sniffed wins because it's the only one the user can't
+            // fake. (No storage-adapter type any more — nothing is `put`.)
+            content_type: sniffed.map(str::to_string).or(content_type),
+            etag: None,
             owner_id: session.user_id.clone(),
-            workspace_id,
+            workspace_id: workspace_id.clone(),
             storage_id,
-            // Proxy multipart commits the row as ready in one shot —
-            // the bytes are already in the bucket by the time we get here.
+            // Proxy multipart commits the row as ready in one shot.
             status: dochub_db::FileStatus::Ready,
             expected_size: None,
         })
@@ -775,14 +792,12 @@ async fn upload_file(
         .map_err(|e| FilesError::Internal(e.to_string()))?;
 
     // Commit the initial immutable version (build spec §5): seal + content-
-    // address the bytes and record seq=1 in the hash chain. Additive to the
-    // legacy plaintext write above (the read-path cutover is a follow-up).
-    if let Some(ws) = file.workspace_id.clone() {
-        version_registry(&s)
-            .commit_version(&ws, &file.id, &raw, &session.user_id, "upload")
-            .await
-            .map_err(|e| FilesError::Internal(e.to_string()))?;
-    }
+    // address the bytes and record seq=1 in the hash chain. This is the sole
+    // write path for the document bytes — no plaintext object is stored.
+    version_registry(&s)
+        .commit_version(&workspace_id, &file.id, &bytes, &session.user_id, "upload")
+        .await
+        .map_err(|e| FilesError::Internal(e.to_string()))?;
 
     AuditRepo::emit(
         &s.db,
@@ -1099,29 +1114,54 @@ async fn download_file(
         },
     );
 
-    let signed = s
-        .storage
-        .signed_get(
-            &storage_key(&id),
-            Duration::from_secs(s.config.signed_url_ttl_secs),
-        )
-        .await
-        .map_err(|e| FilesError::Internal(e.to_string()))?;
+    // Decrypt + stream the head version's bytes (backfilling legacy files on
+    // first read). We no longer redirect to a signed URL over the plaintext
+    // blob — that blob is gone; bytes only ever exist encrypted at rest.
+    let bytes = read_document_bytes(&s, &file, &session).await?;
+    let size = bytes.len();
+    let content_type = file
+        .content_type
+        .as_deref()
+        .unwrap_or("application/octet-stream");
 
-    let target = match signed {
-        SignedUrl::Native { url, .. } => url.to_string(),
-        SignedUrl::Token { token, .. } => {
-            // Send the user to the user-content origin's /raw/{token} handler.
-            let mut base = s.config.usercontent_origin.clone();
-            base.set_path(&format!("/raw/{token}"));
-            base.to_string()
-        }
-    };
-
-    let mut r = (StatusCode::FOUND, ()).into_response();
-    r.headers_mut()
-        .insert(header::LOCATION, HeaderValue::from_str(&target).unwrap());
+    let mut r = Response::new(Body::from(bytes));
+    let h = r.headers_mut();
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+    h.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&size.to_string()).unwrap(),
+    );
+    h.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!(
+            "attachment; filename*=UTF-8''{}",
+            encode_rfc5987(&file.name)
+        ))
+        .unwrap_or(HeaderValue::from_static("attachment")),
+    );
     Ok(r)
+}
+
+/// Percent-encode a filename for an RFC 5987 `filename*` parameter — the same
+/// posture as the `/raw` share handler.
+fn encode_rfc5987(s: &str) -> String {
+    s.chars()
+        .flat_map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~') {
+                vec![c.to_string()]
+            } else {
+                let mut buf = [0u8; 4];
+                c.encode_utf8(&mut buf)
+                    .bytes()
+                    .map(|b| format!("%{b:02X}"))
+                    .collect()
+            }
+        })
+        .collect()
 }
 
 // ── SDK content endpoints ───────────────────────────────────────────────
@@ -1149,18 +1189,17 @@ async fn get_content(
         .map_err(|_| FilesError::NotFound)?;
     ensure_owner(&file.owner_id, &session)?;
 
-    let (meta, stream) = s
-        .storage
-        .get(&storage_key(&id), None)
-        .await
-        .map_err(|e| FilesError::Internal(e.to_string()))?;
+    // Source of truth: the encrypted version chain. A legacy file with no
+    // history is backfilled to v1 from its plaintext blob on this first read.
+    let bytes = read_document_bytes(&s, &file, &session).await?;
+    let size = bytes.len();
 
     let content_type = file
         .content_type
         .as_deref()
         .unwrap_or("application/octet-stream");
 
-    let mut response = Response::new(Body::from_stream(stream));
+    let mut response = Response::new(Body::from(bytes));
     let headers = response.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
@@ -1169,7 +1208,7 @@ async fn get_content(
     );
     headers.insert(
         header::CONTENT_LENGTH,
-        HeaderValue::from_str(&meta.size.to_string()).unwrap(),
+        HeaderValue::from_str(&size.to_string()).unwrap(),
     );
     // The SDK fetches with default cache semantics; force no-store so a
     // mid-edit reload always gets the latest bytes instead of a stale
@@ -1201,28 +1240,12 @@ async fn put_content(
         .map_err(|_| FilesError::NotFound)?;
     ensure_owner(&file.owner_id, &session)?;
 
-    let content_type = file.content_type.clone();
-
-    // Keep the legacy plaintext blob at `files/{id}` so the existing read
-    // paths (get_content / download / WOPI) keep working. The cutover to
-    // serving bytes from the version store — and dropping this plaintext
-    // write — is a follow-up (build spec §5; requires re-sealing existing
-    // blobs, out of scope for this PR).
-    s.storage
-        .put(&storage_key(&id), body.clone(), content_type.as_deref())
-        .await
-        .map_err(|e| FilesError::Internal(e.to_string()))?;
-
     // Registry write path: a save commits an immutable, hash-chained version
-    // (build spec §5). Pre-existing files with no history start a fresh chain
-    // at seq=1 (handled lazily — no backfill here). `set_version_head` inside
-    // commit_version bumps `files.version` to the new head.
-    let workspace = match file.workspace_id.clone() {
-        Some(w) => w,
-        None => crate::workspaces::resolve_active_workspace(&s.db, &session.user_id, None)
-            .await
-            .map_err(|e| FilesError::Internal(format!("workspace: {e:?}")))?,
-    };
+    // (build spec §5) — the *sole* write path for document bytes. No plaintext
+    // blob is written; `commit_version` seals the bytes and its
+    // `set_version_head` bumps `files.version` to the new head. Pre-existing
+    // files start a fresh chain at seq=1.
+    let workspace = file_workspace(&s, &file, &session).await?;
     version_registry(&s)
         .commit_version(&workspace, &id, &body, &session.user_id, "edit")
         .await

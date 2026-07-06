@@ -761,6 +761,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "argon2",
+ "async-trait",
  "axum",
  "base64 0.22.1",
  "bytes",
@@ -820,11 +821,10 @@ dependencies = [
 name = "dochub-wopi"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "axum",
  "bytes",
  "dochub-core",
- "dochub-storage",
- "futures",
  "http-body-util",
  "jsonwebtoken",
  "serde",

@@ -10,7 +10,10 @@ use axum::{
 use bytes::Bytes;
 use dochub_auth::{hash_password, AuthState};
 use dochub_core::{Backend, Config};
-use dochub_db::{Db, NewUser, UserRepo};
+use dochub_db::{
+    Db, FileRepo, FileStatus, FileVersionsRepo, NewFile, NewUser, UserRepo, WorkspaceKind,
+    WorkspaceRepo,
+};
 use dochub_http::{router, HttpState};
 use dochub_storage::Storage;
 use dochub_wopi::WopiState;
@@ -716,7 +719,9 @@ async fn rename_then_move_then_trash_then_restore() {
 }
 
 #[tokio::test]
-async fn download_redirects_to_signed_user_content_url() {
+async fn download_streams_decrypted_bytes_from_the_version_chain() {
+    // Post-cutover: download no longer 302-redirects to a signed plaintext
+    // URL — it decrypts the head version and streams it as an attachment.
     let app = router(fixture().await);
     let cookie = sign_in(&app).await;
     let boundary = "----b";
@@ -749,11 +754,269 @@ async fn download_redirects_to_signed_user_content_url() {
         ))
         .await
         .unwrap();
-    assert_eq!(r.status(), StatusCode::FOUND);
-    let loc = r.headers().get("location").unwrap().to_str().unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let disp = r
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(disp.starts_with("attachment"), "got disposition {disp}");
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), b"abc");
+}
+
+// ─── Version-chain read/write cutover ────────────────────────────────────
+
+/// Upload (a save) commits an immutable version and writes NO plaintext blob;
+/// reading the content back serves the committed bytes from the chain.
+#[tokio::test]
+async fn upload_commits_a_version_and_reads_from_the_chain() {
+    let state = fixture().await;
+    let app = router(state.clone());
+    let cookie = sign_in(&app).await;
+
+    let boundary = "----chain";
+    let body = build_multipart(
+        boundary,
+        &[MultipartField::File(
+            "file",
+            "doc.txt",
+            "text/plain",
+            b"hello world",
+        )],
+    );
+    let created = json_body(
+        app.clone()
+            .oneshot(auth_req(
+                "POST",
+                "/api/files",
+                &cookie,
+                Some(&format!("multipart/form-data; boundary={boundary}")),
+                Body::from(body),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // A committed version row exists at seq=1.
+    let head = FileVersionsRepo::new(&state.db)
+        .head(&id)
+        .await
+        .unwrap()
+        .expect("v1 must be committed on upload");
+    assert_eq!(head.seq, 1);
+
+    // No plaintext document blob was written to the backend (spy on storage).
     assert!(
-        loc.starts_with(&format!("http://{UCN}/raw/")),
-        "got location {loc}"
+        matches!(
+            state.storage.stat(&format!("files/{id}")).await,
+            Err(dochub_storage::StorageError::NotFound(_))
+        ),
+        "no plaintext blob may exist at files/{{id}} after save"
+    );
+
+    // Reading the content back serves the committed plaintext, byte-identical.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            &format!("/api/files/{id}/content"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), b"hello world");
+}
+
+/// The SDK save path (`PUT /content`) commits a new head version and no
+/// plaintext blob; the next read serves the new bytes from the chain.
+#[tokio::test]
+async fn put_content_save_bumps_the_chain_and_reads_back() {
+    let state = fixture().await;
+    let app = router(state.clone());
+    let cookie = sign_in(&app).await;
+
+    // Seed via upload (seq=1), then save new bytes via the SDK content PUT.
+    let boundary = "----put";
+    let body = build_multipart(
+        boundary,
+        &[MultipartField::File(
+            "file",
+            "note.txt",
+            "text/plain",
+            b"v1 body",
+        )],
+    );
+    let created = json_body(
+        app.clone()
+            .oneshot(auth_req(
+                "POST",
+                "/api/files",
+                &cookie,
+                Some(&format!("multipart/form-data; boundary={boundary}")),
+                Body::from(body),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "PUT",
+            &format!("/api/files/{id}/content"),
+            &cookie,
+            Some("application/octet-stream"),
+            Body::from("v2 body!!"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+
+    // Head advanced to seq=2, still no plaintext blob.
+    let head = FileVersionsRepo::new(&state.db)
+        .head(&id)
+        .await
+        .unwrap()
+        .expect("head exists");
+    assert_eq!(head.seq, 2);
+    assert!(
+        matches!(
+            state.storage.stat(&format!("files/{id}")).await,
+            Err(dochub_storage::StorageError::NotFound(_))
+        ),
+        "PUT save must not write a plaintext blob"
+    );
+
+    // Read serves the latest committed bytes.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            &format!("/api/files/{id}/content"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), b"v2 body!!");
+}
+
+/// A pre-existing legacy file (a file row + a plaintext blob, no version row)
+/// backfills v1 on first read and serves those bytes; a second read reuses the
+/// existing v1 with no duplicate backfill.
+#[tokio::test]
+async fn legacy_file_is_backfilled_once_on_read() {
+    let state = fixture().await;
+    let app = router(state.clone());
+    let cookie = sign_in(&app).await;
+
+    let admin = UserRepo::new(&state.db)
+        .find_by_username("admin")
+        .await
+        .unwrap();
+    let ws = WorkspaceRepo::new(&state.db)
+        .list_for_user(&admin.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|w| matches!(w.kind, WorkspaceKind::Personal))
+        .expect("admin has a Personal workspace")
+        .id;
+
+    // Insert a file row + a legacy plaintext blob, but NO version row.
+    let id = ulid::Ulid::new().to_string();
+    FileRepo::new(&state.db)
+        .insert(&NewFile {
+            id: id.clone(),
+            parent_id: None,
+            name: "legacy.txt".into(),
+            size: 12,
+            content_type: Some("text/plain".into()),
+            etag: None,
+            owner_id: admin.id.clone(),
+            workspace_id: ws,
+            storage_id: None,
+            status: FileStatus::Ready,
+            expected_size: None,
+        })
+        .await
+        .unwrap();
+    state
+        .storage
+        .put(
+            &format!("files/{id}"),
+            Bytes::from_static(b"legacy bytes"),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        FileVersionsRepo::new(&state.db)
+            .head(&id)
+            .await
+            .unwrap()
+            .is_none(),
+        "precondition: no version row yet"
+    );
+
+    // First read backfills v1 and returns the legacy bytes.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            &format!("/api/files/{id}/content"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), b"legacy bytes");
+
+    let head = FileVersionsRepo::new(&state.db)
+        .head(&id)
+        .await
+        .unwrap()
+        .expect("backfilled v1");
+    assert_eq!(head.seq, 1);
+    assert_eq!(head.reason.as_deref(), Some("backfill v1"));
+
+    // Second read reuses v1 — no duplicate backfill.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            &format!("/api/files/{id}/content"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), b"legacy bytes");
+    let chain = FileVersionsRepo::new(&state.db)
+        .list_chain(&id)
+        .await
+        .unwrap();
+    assert_eq!(
+        chain.len(),
+        1,
+        "second read must not append another version"
     );
 }
 
