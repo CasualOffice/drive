@@ -1,90 +1,110 @@
-# 08 — Editor handoff (WOPI)
+# 08 — Editor handoff (embedded native editors; WOPI optional interop)
 
-Companion to `docs/ARCHITECTURE.md` §"Three-token identity model" + `docs/research/01-wopi.md`. Defines the **`GET /api/files/{id}/open`** endpoint that lights up the "Open in Casual Sheets / Editor" buttons.
+Companion to `docs/ARCHITECTURE.md` §"Embedded editing" + §"Token model". Defines how a document opens for editing. In Doc-Hub the **primary path is an embedded native editor inside the SPA** — Casual Sheet, Casual Docs, Casual PDF, and the Markdown/text editor. **WOPI is demoted to optional interop** for external Office clients; it is never the default.
 
-## Flow
+## Why embedded is primary
+
+- Bytes are **encrypted at rest**. To edit, the server decrypts the current version **in memory** and streams it to the embedded editor over the authenticated **app origin** — no plaintext ever hits disk, no new browser origin, no launcher tab.
+- Saving must **append a hash-chained version + an audit event**. An in-SPA editor lets Doc-Hub own that commit path directly instead of reconstructing it from a WOPI `PutFile` callback.
+- **Co-editing** runs through the `collab` server (Yjs/Hocuspocus), which relays opaque document bytes. Embedding keeps presence, autosave, and version commits coherent.
+
+WOPI stays available so an operator who wants desktop-Office / Collabora interop can wire it, but it is a config-gated side path.
+
+## Embedded flow (primary)
 
 ```
-SPA (drive.<host>)              Drive backend                   Casual Sheets (sheet.<host>)
-─────────────────               ─────────────                   ─────────────────────────────
-click "Open in Casual Sheets"
+SPA (hub.<host>)                     Doc-Hub backend                        collab server (optional)
+──────────────────                     ─────────────                        ────────────────────────
+open "Budget Q2.xlsx"
       │
       ▼
-GET /api/files/{id}/open ─────► verify file exists + owner
-                                mint WOPI access token
-                                pick editor by content-type
-                                build entry_url
-                          ◄──── 200 {editor_app, entry_url,
-                                     access_token,
-                                     access_token_ttl}
-window.open(entry_url, "_blank")
-                          ────────────────────────────────► load editor
-                                                             editor calls back via WOPI:
-                                                             /wopi/files/{id}
-                                                             /wopi/files/{id}/contents
-                                                             /wopi/files/{id} (lock/unlock)
+GET /api/files/{id}/editor ─────────►  verify access (member/role)
+                                       mint editor access token
+                                       pick embedded editor by type
+                                       decrypt current version in memory
+                              ◄──────  200 {editor, version, access_token,
+                                            access_token_ttl, stream_url, collab_url?}
+mount <Editor> in the SPA
+GET stream_url (app origin) ────────►  stream decrypted bytes (TLS, in-memory)
+      │
+      ├─ (team doc) connect collab_url ───────────────────────────────────►  presence + CRDT relay
+      ▼
+user edits (autosave or Cmd-S)
+POST /api/files/{id}/versions ──────►  encrypt bytes → write write-once blob
+                                       append version {content_hash, prev_hash, seq}
+                                       append audit files.edit
+                                       enqueue reindex
+                              ◄──────  201 {version: N+1, content_hash}
+editor chrome advances vN → vN+1
 ```
 
-The token Drive mints is the *same* WOPI token the editor will hand back on every call — minted with `drive_wopi::mint_token` over `(user_id, file_id, perms, exp, jti)`. TTL = 10 min, in line with the WOPI spec; the editor refreshes its own clock via `CheckFileInfo`.
+The **editor access token** is per-launch, per-document, short-TTL, HMAC-signed over `(user_id, file_id, perms, exp, jti)`; the document id in the stream/save URL must match the claim (`verify_token`). It is a distinct token from share-link and signed-URL tokens — never interchangeable.
 
-## Endpoint contract
-
-### `GET /api/files/{id}/open` (authed, owner-only)
+### `GET /api/files/{id}/editor` (authed)
 
 ```json
 {
-  "editor_app": "sheet",                          // "sheet" | "document"
-  "entry_url": "https://sheet.example.org/wopi/editor?WOPISrc=https%3A%2F%2Fdrive.example.org%2Fwopi%2Ffiles%2Ff_xyz&access_token=<jwt>",
-  "access_token": "<jwt>",
-  "access_token_ttl": 600000,                     // ms; matches CLAUDE.md "10 min"
-  "wopi_src": "https://drive.example.org/wopi/files/f_xyz"
+  "editor": "sheet",                         // "sheet" | "docs" | "pdf" | "markdown"
+  "version": 4,                              // the head being opened
+  "access_token": "<hmac-jwt>",
+  "access_token_ttl": 600000,                // ms; short TTL, refreshed transparently
+  "stream_url": "https://hub.<host>/api/files/f_xyz/stream?v=4",
+  "collab_url": "wss://hub.<host>/collab/f_xyz"   // present only for co-editable team docs
 }
 ```
 
-- **401** if no session.
-- **403** if the caller isn't the file owner.
-- **404** if the file is missing or trashed.
-- **415** if the file's extension isn't mapped to an editor (only `.xlsx` / `.docx` in v0; macro-enabled cousins are explicitly unsupported per CLAUDE.md).
+- **401** no session · **403** caller can't edit this document (role/perms) · **404** missing or tombstoned · **415** the type has no embedded editor (opaque `.xlsm`/`.pptx`) → the SPA offers **Download** instead.
 
-Editor-app dispatch table:
+Embedded-editor dispatch:
 
-| Extension | content_type (sniffed) | editor_app | Origin env var |
+| Extension | Sniffed content_type | `editor` | Editor |
 |---|---|---|---|
-| `.xlsx` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | `sheet` | `DRIVE_SHEET_ORIGIN` |
-| `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | `document` | `DRIVE_DOCUMENT_ORIGIN` |
-| anything else | — | (415) | — |
+| `.xlsx`, `.csv` | spreadsheet MIME | `sheet` | Casual Sheet (embedded) |
+| `.docx` | wordprocessing MIME | `docs` | Casual Docs (embedded) |
+| `.pdf` | `application/pdf` | `pdf` | Casual PDF (embedded) |
+| `.md`, `.txt`, `.json`, `.yaml` | text MIMEs | `markdown` | Markdown/text editor (embedded) |
+| `.xlsm`, `.pptx` (opaque) | — | (415) | Download only |
 
-The editor's launch path under its own origin is `/wopi/editor`. That's a sibling-repo concern (`../sheet/`, `../document/`); Drive only knows the origin.
+### `POST /api/files/{id}/versions` (authed, editor-token gated)
 
-## SPA behaviour
+Body is the edited document bytes (opaque). The server encrypts, writes write-once, and appends `version N+1` with `content_hash = SHA-256(ciphertext)` and `prev_hash =` the previous head's hash. Response `201 {version, content_hash}`. Nothing is overwritten; the previous version stays in the chain. Concurrent co-edit saves are serialised by the collab session so the chain stays linear (see flow 8 in `01-flows.md`).
 
-1. From the Preview Modal's primary action (or the row's context-menu "Open"), call `openInEditor(file.id)`.
-2. Before the network call: `window.open("about:blank", "_blank")` to grab a popup handle synchronously — browsers only allow popups inside a click handler, so we can't open one after an `await`.
-3. When the response lands, set the popup's location to `entry_url`. If the popup handle is null (blocked), show a sonner toast with a "Click to open" button that does the same redirect on a real click.
-4. Audit-emit `files.open_in_editor` on the server, with `{editor_app}` in metadata so the Activity feed renders "opened *Q2.xlsx* in Casual Sheets."
+## SPA behaviour (embedded)
 
-## Config additions
+1. From the document detail modal's primary action (or the row's **Open**), call `openInEditor(file.id)` → `GET /api/files/{id}/editor`.
+2. Mount the matching `<Editor>` component in place (no new tab). Show the version (`vN`) in the editor chrome and a **Read-only** badge if perms are view-only.
+3. Fetch `stream_url` with `credentials: "same-origin"`; the editor renders the decrypted bytes.
+4. On autosave / `Cmd-S`, POST the bytes to `/versions`; on 201 advance the chrome to `vN+1` and (optionally) toast **"Saved as vN+1."**
+5. For team documents, connect `collab_url` for presence + live merge; fall back to single-writer with a banner if the collab server is unreachable.
+6. Audit-emit `files.open_in_editor` and `files.edit` server-side so the Activity feed renders "opened / saved *Q2.xlsx*".
 
-```
-DRIVE_SHEET_ORIGIN     = https://sheet.<host>
-DRIVE_DOCUMENT_ORIGIN  = https://document.<host>
-```
+## WOPI (optional interop)
 
-Optional in v0 — when missing, `/api/files/{id}/open` returns `503 Service Unavailable` with `{"error": "editor not configured"}` and the SPA shows a polished "editor isn't configured on this instance" toast. The Open buttons stay visible but become advisory.
+WOPI is off by default and only lights up when a WOPI target is configured. It exists for external Office / Collabora clients, not for the in-app experience.
+
+- Config (all optional):
+  ```
+  DOCHUB_WOPI_ENABLED       = false            # default off
+  DOCHUB_SHEET_ORIGIN       = https://sheet.<host>
+  DOCHUB_DOCS_ORIGIN        = https://docs.<host>
+  ```
+- When enabled, the document detail dropdown shows **"Open in external app (WOPI)"** as a secondary action. Doc-Hub mints a WOPI access token `(user_id, file_id, perms, exp, jti)` (10-min TTL, refreshed via `CheckFileInfo`) and the external editor calls back to `/wopi/files/{id}` and `/wopi/files/{id}/contents` **on the app origin** (also covered by `host_dispatch`). A WOPI `PutFile` lands through the same version-commit path — it appends a hash-chained version, exactly like the embedded save.
+- When `DOCHUB_WOPI_ENABLED=false` (default), `/wopi/*` returns 404 and the external-app action is hidden. Embedded editing is unaffected.
 
 ## Demo mode
 
-The Pages demo has no live editor sibling, so `openInEditor` returns synthesised 503 metadata and the SPA shows: *"Casual Sheets / Editor isn't included in the static demo — self-host the real build to use it."* + a Download fallback. This keeps the buttons working as a discoverable feature instead of silently failing.
+The Pages demo has no live editor sibling, so `openInEditor` returns synthesised metadata and the SPA shows a read-only rendered preview plus: *"Casual Sheet / Docs isn't included in the static demo — self-host the real build to edit."* + a Download fallback. The buttons stay discoverable instead of silently failing.
 
 ## Security recap
 
-- Token is bound to the user, the file id, the perms, and a `jti`. Validated on every WOPI request via `verify_token`, which also enforces the URL `file_id` matches the claim.
-- The handoff endpoint is **app-origin only** (cookies live there). The editor talks to `/wopi/files/{id}` on the app origin too — also covered by `host_dispatch`.
-- The mint is **owner-only** today. When sharing-with-edit-permission lands (v0.2), share-link consumers get their own per-share scoped token at `/s/{token}/open`.
-- `/api/files/{id}/open` is a `GET` because it's idempotent; nothing changes on the file itself. Token uniqueness comes from the `jti` claim per launch.
+- The editor access token is bound to user, file id, perms, and a `jti`, validated on every stream/save call; the URL `file_id` must match the claim.
+- Editing is **app-origin only** (session cookies live there); the collab socket and byte stream never move to the user-content origin.
+- Decryption is in-memory and streamed; no decrypted document bytes are ever written to a storage backend (property-tested with a spy backend).
+- The mint is gated by project role today. Share-link recipients with future edit permission (v0.2) get their own per-share scoped token at `/s/{token}/editor`.
+- Every version commit — embedded or WOPI — goes through the single append-only, hash-chained path. There is no code route that overwrites a version.
 
 ## Out of scope (v0)
 
-- Edit handoff from share-link recipients — needs RBAC + a recipient-side session model. v0.2.
-- PowerPoint / Casual Slides — the sibling editor doesn't exist yet (CLAUDE.md §"Out of scope"). Slot reserved with a `pptx` MIME mapping returning 501.
-- Co-editing presence at the Drive level — editor owns its own collaboration; Drive is files.
+- Edit handoff from share-link recipients — needs recipient-scoped session + RBAC. v0.2.
+- Casual Slides for `.pptx` — the sibling editor doesn't exist yet; the slot returns 501 until it ships.
+- Cross-editor co-editing presence surfaced at the Doc-Hub list level — the editor owns its own collaboration; Doc-Hub owns documents and versions.

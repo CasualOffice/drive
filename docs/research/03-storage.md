@@ -1,17 +1,21 @@
 # Storage Abstraction Layer — Research Brief
 
-Casual Drive needs one storage API behind four interchangeable adapters: filesystem, in-memory, S3, MinIO. The question is whether to consume an existing unified SDK or roll our own trait. This brief grounds the answer in current upstream sources.
+Doc-Hub needs one storage API behind four interchangeable adapters: filesystem, in-memory, S3, MinIO (plus R2/B2 via the S3 path). The question is whether to consume an existing unified SDK or roll our own trait — and, above that, how to bolt a **mandatory at-rest encryption layer** onto the facade so no plaintext document bytes ever reach a backend. This brief grounds the answer in current upstream sources.
+
+> The facade is not just a storage abstraction; it is the encryption boundary. Every write goes `plaintext → dochub-crypto.seal → operator.write(ciphertext)`; every read reverses it. There is no code path that writes plaintext document bytes to a backend, and no config that disables encryption (`CLAUDE.md`, `ARCHITECTURE.md`). Everything about OpenDAL below sits *underneath* that layer.
 
 ## TL;DR
 
-- Apache **OpenDAL** (TLP since 2024-01-18, latest v0.54.1 2025-10-13) already implements all four of our adapters (`s3`, `fs`, `memory`, MinIO via `s3` + custom endpoint) plus 40+ more, behind one `Operator` API.
+- Apache **OpenDAL** (TLP since 2024-01-18, latest v0.54.1 2025-10-13) already implements all four of our adapters (`s3`, `fs`, `memory`, MinIO via `s3` + custom endpoint) plus 40+ more, behind one `Operator` API. It moves **opaque ciphertext blobs**; it never sees plaintext.
+- **Mandatory encryption layer.** The `Storage` facade seals bytes with `dochub-crypto` (AES-256-GCM envelope encryption, per-workspace DEK wrapped by a master KEK/KMS) before `operator.write`, and opens them after `operator.read`. Boot refuses to start without a key.
+- **Write-once, content-addressed.** Document versions are write-once blobs keyed by **opaque ULIDs** (never derived from user input or filename); `content_hash = SHA-256(ciphertext)`. The facade never overwrites a committed blob — the immutable version engine owns that invariant.
 - **`object_store`** (Apache Arrow) covers S3, GCS, Azure, memory, local fs. Narrower trait. Portable signed-URL support is still partial.
 - OpenDAL surfaces per-backend feature gaps through a typed `Capability` struct (`op.info().full_capability().presign_read`) — the cleanest way to handle "S3 has presign, fs doesn't" without a leaky trait.
-- For fs and memory, presign is self-minted: HMAC-SHA256 token over `(path, expiry, method)`, served from `/raw/{token}` in Axum.
+- For fs and memory, presign is self-minted: HMAC-SHA256 token over `(key, expiry, method)`, served from `/raw/{token}` in Axum on the user-content origin.
 - A hand-rolled trait is ~150–250 LoC of trait + ~1.5–3k LoC across four impls and reinvents capability gates, retry layers, signed-URL abstraction, list pagination, multipart chunking.
-- **Recommendation: build on OpenDAL** behind a thin `Storage` facade (~80–120 LoC) that hides `Operator` and adds the `/raw/{token}` fallback when `capability.presign_read == false`.
-- Conformance: one `rstest` suite per backend factory; MinIO via `testcontainers-modules` `minio` feature.
-- Path model: Unix-style, leading slash optional, `//` collapsed — adopt OpenDAL's RFC-0112 rules verbatim.
+- **Recommendation: build on OpenDAL** behind a thin `Storage` facade (~80–120 LoC + the encryption layer) that hides `Operator`, wraps every read/write in seal/open, and adds the `/raw/{token}` fallback when `capability.presign_read == false`.
+- Conformance: one `rstest` suite per backend factory; MinIO via `testcontainers-modules` `minio` feature; plus a **spy-backend property test** asserting the bytes handed to the operator are always ciphertext.
+- Path model: Unix-style, leading slash optional, `//` collapsed — adopt OpenDAL's RFC-0112 rules verbatim; keys are opaque ULIDs.
 
 ## 1. OpenDAL Deep-Dive
 
@@ -31,7 +35,7 @@ S3 wire-up from upstream service docs \[7\]:
 use opendal::{Operator, services::S3};
 
 let builder = S3::default()
-    .bucket("casual-drive")
+    .bucket("dochub")
     .region("us-east-1")
     .endpoint("https://s3.amazonaws.com")
     .access_key_id(&key)
@@ -43,11 +47,11 @@ let op: Operator = Operator::new(builder)?
     .finish();
 ```
 
-MinIO is just S3 with a custom endpoint and `region("auto")` \[7\]. Fs and memory are one-liners (`Fs::default().root("/var/drive")`, `Memory::default()`).
+MinIO is just S3 with a custom endpoint and `region("auto")` \[7\]. Fs and memory are one-liners (`Fs::default().root("/var/hub")`, `Memory::default()`).
 
 ### Backends
 
-`opendal::services` lists 50+ backends including `s3`, `fs`, `memory`, `azblob`, `gcs`, `oss`, `obs`, `cos`, `b2`, `webdav`, `sftp`, `gdrive`, `dropbox`, `redis`, `rocksdb`, `postgresql`, `mysql` \[8\]. **All four Casual Drive adapters are first-class.**
+`opendal::services` lists 50+ backends including `s3`, `fs`, `memory`, `azblob`, `gcs`, `oss`, `obs`, `cos`, `b2`, `webdav`, `sftp`, `gdrive`, `dropbox`, `redis`, `rocksdb`, `postgresql`, `mysql` \[8\]. **All Doc-Hub adapters (fs, memory, S3, MinIO, R2, B2) are first-class.** We deliberately expose only the object-store + local set; the hub does not want KV or remote-Drive backends as document stores.
 
 ### Streaming reads and writes
 
@@ -92,6 +96,23 @@ let entries = op.list("dir/").await?;  // returns Vec<Entry>
 
 Weekly commits, monthly releases, full PMC. Production users: **Databend, GreptimeDB, RisingWave, Quickwit, Lance, sccache, SeaTunnel, Vector, QuestDB, CrateDB, SlateDB, Spice.ai, Vaultwarden, Dify, RAGFlow, LlamaIndex** \[14\].
 
+## 1a. The mandatory encryption layer (sits above OpenDAL)
+
+OpenDAL is the plaintext-agnostic transport. Doc-Hub wraps it so **no plaintext document bytes ever reach a backend** — the non-negotiable rule from `CLAUDE.md`. The facade is the only thing that talks to the `Operator`, and it always seals on the way in / opens on the way out:
+
+```
+write(key, plaintext)  →  dochub-crypto.seal(workspace_dek, plaintext)  →  operator.write(key, ciphertext)
+read(key)              →  operator.read(key)  →  dochub-crypto.open(workspace_dek, ciphertext)  →  plaintext
+```
+
+- **Envelope encryption.** Each workspace has a Data Encryption Key (DEK). The DEK is wrapped by a master Key Encryption Key (KEK) from `DOCHUB_MASTER_KEY` or an external KMS; only wrapped DEKs are persisted. Primitive: AES-256-GCM (`ring`/`aws-lc-rs`), random 96-bit nonce per blob, stored as `nonce ‖ ciphertext ‖ tag`. Same envelope scheme seals BYO-bucket credentials (`08-byo-storage.md`).
+- **No plaintext at rest — enforced two ways.** By construction (handlers hold `Arc<Storage>` / `Arc<StorageRegistry>`, never `opendal::Operator`, so they *cannot* reach the raw operator) and by test (a spy backend asserts every byte it receives is ciphertext, and `open(seal(x)) == x` for all `x`).
+- **Opaque ULID keys.** Storage keys are `ulid::Ulid::new()`, never derived from filename or user input — no path-traversal or key-guessing surface. Human-facing names live only in the DB.
+- **Write-once, content-addressed versions.** Each committed version is a new write-once blob; the immutable version engine records `content_hash = SHA-256(ciphertext)` and `prev_hash`. The facade never overwrites a committed blob; "delete" is a tombstone under retention/legal-hold, never an `operator.delete` of held bytes.
+- **Key rotation is blob-free.** Rotating the KEK re-wraps DEKs; document blobs are not rewritten. Explicit workspace re-key is the only path that re-encrypts blobs.
+
+This is a `Layer`-shaped concern but we keep it in the facade rather than an `opendal::Layer`, because seal/open needs the per-workspace DEK (resolved from `StorageRegistry`, `08-byo-storage.md`), which an operator-level layer doesn't have in scope.
+
 ## 2. `object_store` (Apache Arrow)
 
 Originally InfluxData's, donated to Apache Arrow, now in `apache/arrow-rs-object-store` (latest 0.13.2) \[15\], \[16\]. Apache-2.0/MIT.
@@ -101,7 +122,7 @@ One `ObjectStore` trait: `put_opts`, `put_multipart_opts` (returns `Box<dyn Mult
 vs OpenDAL:
 
 - **Narrower backends** — object stores + local fs; no SFTP/HDFS/Drive/KV. Bridge crate `object_store_opendal` lets you borrow OpenDAL's extras \[18\].
-- **Signed URLs**: not portable on the trait. Tracked as `apache/arrow-rs#3027`; partial S3 landed, Azure/GCP open \[19\]. Matters for us.
+- **Signed URLs**: not portable on the trait. Tracked as `apache/arrow-rs#3027`; partial S3 landed, Azure/GCP open \[19\]. Matters for us (direct-to-storage upload, `10-direct-upload.md`).
 - **Large multipart S3 throughput** is historically better than OpenDAL — acknowledged upstream \[20\].
 - **No `Layer` system.** Retry/throttle/metrics are BYO.
 
@@ -125,7 +146,7 @@ pub struct ObjectMeta {
 pub struct ListPage { pub entries: Vec<ObjectMeta>, pub next_token: Option<String> }
 pub enum SignedUrl {
     Native(url::Url),                              // S3/MinIO presign
-    Token { token: String, expires_at: i64 },     // fs/memory HMAC, served at /raw/{token}
+    Token { token: String, expires_at: i64 },     // fs/memory HMAC, served at /raw/{token} on the user-content origin
 }
 
 #[async_trait]
@@ -179,7 +200,7 @@ Hand-rolled, we'd reinvent the same enum.
 
 **MinIO** — same Sigv4 wire format. Min 1 s, default/max 7 d (604 800 s) \[25\]. OpenDAL's `S3` builder with custom `endpoint` and `region("auto")` is the canonical wiring \[7\].
 
-**Filesystem** — no native equivalent. Drive mints its own token:
+**Filesystem** — no native equivalent. Doc-Hub mints its own token:
 
 ```
 token = base64url( payload || hmac_sha256(secret, payload) )
@@ -232,11 +253,11 @@ async fn native_presign_round_trips(#[case] b: Backend) {
 }
 ```
 
-The same cases run against our `Storage` facade, asserting `signed_get` returns the right `SignedUrl` variant and both code paths serve bytes.
+The same cases run against our `Storage` facade, asserting `signed_get` returns the right `SignedUrl` variant and both code paths serve bytes. One extra case is non-negotiable: a **spy backend** wraps the operator and asserts every byte written is ciphertext (`seal` ran) and `open(seal(x)) == x` for all `x` (proptest). This is Testing invariant #1, "No plaintext at rest."
 
 ## 7. Path / Key Model
 
-Unix-style. OpenDAL auto-normalises per RFC-0112 \[29\]: `//` collapses to `/`; leading slash optional (`"/abc"` == `"abc"`); absolute backend path is `{root}/{path}`. We adopt verbatim as Drive's contract: lowercase Unix paths, slash-separated, leading slash optional, no `.`/`..`, no Windows `\`. `Key` is a `String` normalised at the API boundary.
+Unix-style. OpenDAL auto-normalises per RFC-0112 \[29\]: `//` collapses to `/`; leading slash optional (`"/abc"` == `"abc"`); absolute backend path is `{root}/{path}`. We adopt verbatim as Doc-Hub's contract, but keys are **opaque ULIDs** minted server-side, not user paths: slash-separated, leading slash optional, no `.`/`..`, no Windows `\`. `Key` is a `String` normalised at the API boundary; it never carries a filename.
 
 ## 8. Metadata, Mtime, Etags, Content-Types
 
@@ -250,11 +271,11 @@ Per OpenDAL's `Capability` and `Metadata` \[13\], \[22\]:
 | `content_type` | Yes (set on PUT) | **No** native; sniff via `infer` crate from extension or first 8 KiB | We carry it on the in-memory record |
 | `version_id` | Optional (versioned buckets) | No | No |
 
-Drive's `ObjectMeta` always carries `etag` and `content_type`; the facade synthesises what the backend doesn't. S3/MinIO: trust the header. Fs: sidecar JSON or xattr written alongside the bytes. Memory: `HashMap<String, ObjectMeta>` parallel to the byte store.
+Doc-Hub's `ObjectMeta` always carries `etag` and `content_type`; the facade synthesises what the backend doesn't. Note `content_type` here describes the *ciphertext* blob (opaque octet-stream at rest); the document's real MIME lives in the DB `files` row, set by the allowlisted, magic-byte-sniffed ingest. S3/MinIO: trust the header. Fs: sidecar JSON or xattr written alongside the bytes. Memory: `HashMap<String, ObjectMeta>` parallel to the byte store.
 
 ## 9. Recommendation
 
-**Build on OpenDAL.** Wrap it in a Drive-specific facade.
+**Build on OpenDAL.** Wrap it in a Doc-Hub-specific facade that hides `Operator` and, critically, hosts the mandatory seal/open encryption layer (§1a).
 
 Reasons in order of weight:
 
@@ -266,27 +287,29 @@ Reasons in order of weight:
 
 Tradeoffs we accept:
 
-- OpenDAL is slower than `object_store` on big multipart S3 throughput \[20\]. Drive uploads are small files; not bottlenecked. If it changes, the facade lets us swap S3 specifically to `object_store` without touching handlers.
+- OpenDAL is slower than `object_store` on big multipart S3 throughput \[20\]. Doc-Hub stores documents (docx/xlsx/pdf/md/txt/csv/json/yaml), not media — files are small and not bottlenecked. If it changes, the facade lets us swap S3 specifically to `object_store` without touching handlers or the encryption layer.
 - 50+ services we don't need — mitigated by `default-features = false, features = ["services-s3", "services-fs", "services-memory"]`.
 - v0.54 churn (RFC-5313 removed `Metakey`, RFC-6189 removed blocking, RFC-6213 added options APIs) \[3\] — pin exact version, audit `docs/upgrade` on bump.
 
 ### What this implies in code
 
 ```rust
-// services/drive/src/storage/mod.rs
+// crates/dochub-storage/src/lib.rs
 #[derive(Clone)]
 pub struct Storage {
     op: opendal::Operator,
-    sign_key: Arc<[u8; 32]>,   // HMAC secret for self-minted tokens
-    raw_base: Arc<str>,        // base URL of the /raw/{token} mount
+    crypto: Arc<dochub_crypto::Envelope>, // per-workspace DEK seal/open — the encryption boundary
+    sign_key: Arc<[u8; 32]>,             // HMAC secret for self-minted tokens
+    raw_base: Arc<str>,                  // base URL of the /raw/{token} mount (user-content origin)
 }
 
 pub enum SignedUrl { Native(url::Url), Token { url: url::Url, expires_at: i64 } }
 
 impl Storage {
-    pub fn from_env() -> anyhow::Result<Self> { /* pick s3/fs/memory/minio per DRIVE_BACKEND */ }
-    pub async fn put_stream(&self, key: &str, body: BodyStream)  -> anyhow::Result<ObjectMeta> { /* op.writer_with(key).sink(body) */ }
-    pub async fn get_stream(&self, key: &str, range: Option<Range<u64>>) -> anyhow::Result<BodyStream> { /* op.reader(..).into_bytes_stream(range) */ }
+    pub fn from_env() -> anyhow::Result<Self> { /* pick s3/fs/memory/minio/r2/b2 per DOCHUB_STORAGE_BACKEND; refuse to boot without a master key */ }
+    // Every write seals; every read opens. Handlers cannot bypass this — they never see `op`.
+    pub async fn put_stream(&self, key: &str, body: BodyStream)  -> anyhow::Result<ObjectMeta> { /* seal → op.writer_with(key).sink(ciphertext) — write-once, opaque ULID key */ }
+    pub async fn get_stream(&self, key: &str, range: Option<Range<u64>>) -> anyhow::Result<BodyStream> { /* op.reader(..).into_bytes_stream(range) → open */ }
     pub async fn stat(&self, key: &str)   -> anyhow::Result<ObjectMeta> { /* op.stat */ }
     pub async fn delete(&self, key: &str) -> anyhow::Result<()> { /* op.delete */ }
     pub async fn copy(&self, s: &str, d: &str)   -> anyhow::Result<()> { /* op.copy */ }
@@ -305,9 +328,9 @@ impl Storage {
 }
 ```
 
-Handlers depend only on `Arc<Storage>`. Backend is a construction-time choice. The `/raw/{token}` route is always mounted — the handler just verifies HMAC and streams from the same `Operator`.
+Handlers depend only on `Arc<Storage>` (or `Arc<StorageRegistry>` once BYO-bucket lands, `08-byo-storage.md`). Backend is a construction-time choice; **the encryption layer is not a choice** — it is inside every read/write. The `/raw/{token}` route is always mounted on the user-content origin — the handler verifies HMAC, opens the ciphertext, and streams plaintext (never exposing the blob at rest).
 
-That is the entire abstraction layer. Build it and stop.
+That is the entire abstraction layer: OpenDAL for transport, a thin facade for the seal/open encryption boundary, opaque ULID keys, write-once blobs. Build it and stop.
 
 ## Sources
 

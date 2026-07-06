@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Two ways to run Casual Drive — a one-line Docker command for the impatient, or a from-source build for the curious. Either way, you're done in 30 seconds.
+description: Two ways to run Doc-Hub — a one-line Docker command for the impatient, or a from-source build for the curious. Either way, you have an encrypted document hub in about a minute.
 layout: ../../layouts/DocLayout.astro
 ---
 
@@ -9,21 +9,23 @@ layout: ../../layouts/DocLayout.astro
 The fastest path. One command, one container, persistent storage on the host.
 
 ```bash
-docker run -d \
-  --name casual-drive \
+docker run -d --name hub \
   -p 8080:8080 \
-  -v $HOME/drive-data:/data \
-  -e DRIVE_BIND=0.0.0.0:8080 \
-  -e DRIVE_APP_ORIGIN=https://drive.your-server \
-  -e DRIVE_USERCONTENT_ORIGIN=https://usercontent-drive.your-server \
-  -e DRIVE_STORAGE_BACKEND=fs \
-  -e DRIVE_FS_ROOT=/data \
-  ghcr.io/casualoffice/drive:latest
+  -v $HOME/dochub-data:/data \
+  -e DOCHUB_BIND=0.0.0.0:8080 \
+  -e DOCHUB_APP_ORIGIN=https://hub.your-server \
+  -e DOCHUB_USERCONTENT_ORIGIN=https://usercontent-dochub.your-server \
+  -e DOCHUB_STORAGE_BACKEND=fs \
+  -e DOCHUB_FS_ROOT=/data \
+  -e DOCHUB_MASTER_KEY=<32-byte base64 KEK> \
+  ghcr.io/casualoffice/dochub:latest
 ```
 
-That's it. Visit `https://drive.your-server` in your browser, complete the first-run admin setup, and you have a working Drive.
+That's it. Visit `https://hub.your-server`, complete the one-time admin setup, create a project, and you have a working hub.
 
 The image is a multi-stage `cargo-chef` build on top of `debian:trixie-slim`. Compressed image size is around 90 MB.
+
+Generate a master key with `openssl rand -base64 32` and keep it out of your shell history — the hub **refuses to start** without it, and losing it means losing the keys that unwrap your workspace data.
 
 ## From source
 
@@ -34,8 +36,8 @@ You'll need:
 - A C toolchain for SQLite (Debian: `build-essential`; macOS: Xcode CLT)
 
 ```bash
-git clone https://github.com/CasualOffice/drive.git
-cd casual-drive
+git clone https://github.com/CasualOffice/dochub.git
+cd hub
 
 # Build the SPA — its dist/ is embedded into the Rust binary via rust-embed.
 cd web
@@ -44,51 +46,53 @@ pnpm build
 cd ..
 
 # Build + run the server.
-cargo run --release -p drive
+cargo run --release -p dochub
 ```
 
-Default port is `:8080`. The single binary serves the SPA, the JSON API, the WOPI endpoints, and the user-content origin.
+Default port is `:8080`. The single binary serves the SPA, the JSON API, the embedded-editor byte streams, and the user-content origin.
 
 ## Required environment
 
-These five are non-negotiable in production:
+These six are non-negotiable in production:
 
 | Var | Purpose |
 |---|---|
-| `DRIVE_BIND` | TCP bind address. Use `0.0.0.0:8080` behind a reverse proxy. |
-| `DRIVE_APP_ORIGIN` | The origin the app lives on (`https://drive.example.com`). Cookies + CSP scope here. |
-| `DRIVE_USERCONTENT_ORIGIN` | The origin that serves raw bytes (`https://usercontent-drive.example.com`). Must differ from `DRIVE_APP_ORIGIN`. |
-| `DRIVE_STORAGE_BACKEND` | `fs`, `s3`, `minio`, or `memory`. |
-| `DRIVE_DATABASE_URL` | `sqlite:///data/drive.db` or `postgres://user:pass@host/db`. |
+| `DOCHUB_BIND` | TCP bind address. Use `0.0.0.0:8080` behind a reverse proxy. |
+| `DOCHUB_APP_ORIGIN` | The origin the app lives on (`https://hub.example.com`). Cookies + CSP scope here. |
+| `DOCHUB_USERCONTENT_ORIGIN` | The origin that serves raw bytes (`https://usercontent-dochub.example.com`). Must differ from `DOCHUB_APP_ORIGIN`. |
+| `DOCHUB_STORAGE_BACKEND` | `fs`, `s3`, `minio`, or `memory`. |
+| `DOCHUB_DATABASE_URL` | `sqlite:///data/hub.db` or `postgres://user:pass@host/db`. |
+| `DOCHUB_MASTER_KEY` | The master KEK that wraps every workspace data key. Boot aborts without it (or a configured KMS). |
 
-Drive will **refuse to start** if `DRIVE_APP_ORIGIN == DRIVE_USERCONTENT_ORIGIN` in production. That's a deliberate safety rail — see the [two-origin architecture](/docs/architecture).
+The hub will **refuse to start** if `DOCHUB_APP_ORIGIN == DOCHUB_USERCONTENT_ORIGIN` in production, or if no master key/KMS is configured. Both are deliberate safety rails — see the [two-origin architecture](/docs/architecture).
 
-The full env-var table — including storage credentials, session knobs, and editor URLs — lives on [Configuration](/docs/configuration).
+The full env-var table — including storage credentials, KMS, session/HMAC secrets, and OIDC — lives on [Configuration](/docs/configuration).
 
 ## First-run checklist
 
-1. **Open the app.** `https://drive.your-server` — you should see the Setup screen.
+1. **Open the app.** `https://hub.your-server` — you should see the Setup screen.
 2. **Create the admin.** Username + 12+ character password. Argon2id-hashed, stored in `users`.
-3. **Upload a file.** Pick anything; we sniff its magic bytes and store the metadata in the `files` table.
-4. **Click it.** A `.xlsx` opens in Casual Sheet, a `.docx` in Casual Document, anything else previews inline (image, PDF, video, audio, Markdown, plain text).
-5. **Configure backups.** See [Configuration → Backup](/docs/configuration) — Drive's data lives in the database + the storage backend; both need their own backup plan.
+3. **Create a project.** Your personal locker exists at signup; team projects are created here.
+4. **Upload a document.** Only the documents-only allowlist (`docx, xlsx, csv, xlsm, pptx, pdf, md, txt, json, yaml`) is accepted — every upload is checked by extension **and** magic-byte sniff. The bytes are encrypted before they hit storage and recorded as version 1 of a hash-chained history.
+5. **Edit it.** A `.xlsx` opens in the embedded Casual Sheet, a `.docx` in Casual Docs, a `.pdf` in Casual PDF — each save appends a new, verifiable version. Nothing is ever overwritten.
+6. **Configure backups + key custody.** See [Configuration → Backup](/docs/configuration) — the hub's data lives in the database + the encrypted storage backend, and neither is readable without the master key. Back up all three, separately.
 
 ## Reverse proxy
 
-Drive itself listens on plain HTTP and expects a reverse proxy to terminate TLS. A minimal Caddy config:
+The hub itself listens on plain HTTP and expects a reverse proxy to terminate TLS. A minimal Caddy config:
 
 ```caddy
-drive.your-server {
+hub.your-server {
   reverse_proxy localhost:8080
 }
 
-usercontent-drive.your-server {
+usercontent-dochub.your-server {
   reverse_proxy localhost:8080
 }
 ```
 
-Both hostnames point at the same Drive process — the request `Host` header is what selects the origin. Nginx, Traefik, Cloudflare Tunnel all work the same way.
+Both hostnames point at the same hub process — the request `Host` header is what selects the origin. Nginx, Traefik, Cloudflare Tunnel all work the same way.
 
 ## Upgrading
 
-Pull the new image and restart. SQL migrations run automatically on boot via `sqlx::migrate!()`. The migration log is in `audit_events`, action `system.migration_applied`.
+Pull the new image and restart. SQL migrations run automatically on boot via `sqlx::migrate!()`. The migration is recorded as an append-only, hash-chained entry in the `audit_log`, action `system.migration_applied`.

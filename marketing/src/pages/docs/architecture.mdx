@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: A small Drive built on a small set of decisions. One Rust binary, two HTTP origins, a four-backend storage facade, three token types, and WOPI for the editor handoff.
+description: A document registry built on a small set of decisions — one Rust binary, an encrypted storage facade, an immutable hash-chained version engine, two HTTP origins, embedded native editors, and content search with an optional AI layer.
 layout: ../../layouts/DocLayout.astro
 ---
 
@@ -8,15 +8,15 @@ layout: ../../layouts/DocLayout.astro
 
 ```
                     ┌───────────────────────────────┐
-                    │       Browser                 │
+                    │           Browser             │
                     └────────────┬──────────────────┘
                                  │
                 ┌────────────────┼─────────────────────┐
                 │                │                     │
-        drive.example.com        │     usercontent-drive.example.com
+        hub.example.com        │     usercontent-dochub.example.com
         ┌─────────────────┐      │     ┌──────────────────────────┐
         │  SPA · JSON API │      │     │  /raw/{token} (bytes)    │
-        │  WOPI endpoints │      │     │  CSP: sandbox; none      │
+        │  Editor streams │      │     │  CSP: sandbox; none      │
         │  Session cookie │      │     │  Content-Disposition:    │
         │  Strict CSP     │      │     │    attachment            │
         └────────┬────────┘      │     └─────────────┬────────────┘
@@ -24,82 +24,106 @@ layout: ../../layouts/DocLayout.astro
                  └───────────────┼───────────────────┘
                                  │
                        ┌─────────▼─────────┐
-                       │  drive binary     │
+                       │  hub binary     │
                        │  (Rust + Axum)    │
                        └─────────┬─────────┘
                                  │
-                  ┌──────────────┼──────────────┐
-                  │              │              │
-              SQL DB         Storage         Editors
-            (SQLite           facade         (sheet/,
-             or Postgres)        │           document/)
-                                 │
-              ┌──────┬───────────┼────────────┐
-              │      │           │            │
-             fs   memory         S3         MinIO
+       ┌──────────┬──────────────┼──────────────┬──────────┐
+       │          │              │              │          │
+   SQL DB    Encrypted        Version +      Index /    Embedded
+ (SQLite/    storage          hash-chain      AI        editors
+  Postgres)  facade           engine       (Tantivy)  (Sheet/Docs/PDF)
 ```
 
-A single Rust binary. Two HTTP origins served by the same process — the request `Host` header selects the surface. Four storage backends behind one trait. Three token types that never get confused with each other.
+A single Rust binary. Two HTTP origins served by the same process — the request `Host` header selects the surface. A mandatory encryption layer sits in front of every storage backend. Every save appends a hash-chained version; nothing is ever overwritten. The server holds the keys — a deliberate trade that makes content search and AI possible.
+
+## Encrypted storage facade
+
+Handler code talks to `Arc<Storage>`. It never reaches into the OpenDAL operator directly. The facade wraps the operator with a mandatory encryption layer:
+
+```
+write(key, plaintext)  →  seal(workspace_dek, plaintext)  →  operator.write(key, ciphertext)
+read(key)              →  operator.read(key) → open(workspace_dek, ciphertext) → plaintext
+```
+
+- **Envelope encryption.** Each workspace has a Data Encryption Key (DEK). The DEK is wrapped by a master Key Encryption Key (KEK) supplied via `DOCHUB_MASTER_KEY` or an external KMS; only wrapped DEKs are persisted. Primitive: AES-256-GCM (`ring`/`aws-lc-rs`), a random 96-bit nonce per blob, stored as `nonce ‖ ciphertext ‖ tag`.
+- **No plaintext at rest.** No code path writes plaintext document bytes to a backend. Enforced by construction — handlers can't reach the raw operator — and by test, where a spy backend asserts ciphertext.
+- **Key rotation** re-wraps DEKs under a new KEK without rewriting document blobs.
+- **Backends:** `fs`, `memory`, `s3`, `minio`, `r2`, `b2` via OpenDAL. Storage keys are opaque ULIDs, never derived from user input. BYO-bucket credentials are sealed with the same envelope scheme.
+
+Encryption defends a stolen disk or database dump — not a fully compromised, running server. That's the boundary, stated plainly. This is **not** zero-knowledge E2E.
+
+## Immutable version + hash-chain engine
+
+The heart of the registry.
+
+```
+file_versions(file_id, seq, storage_key, size, content_hash, prev_hash, author_id, reason, created_at)
+```
+
+- On every committed save, a **new** version row is appended: `content_hash = SHA-256(ciphertext)`, `prev_hash =` the previous version's `content_hash`. `seq` increments; the head is the file's current version.
+- **Write-once.** Version blobs are content-addressed and never overwritten. "Delete" writes a tombstone and obeys retention + legal hold; bytes under hold are never removed.
+- **Verification.** `verify_chain(file_id)` recomputes hashes and links end-to-end. A mismatch is a tamper alarm — surfaced to admins and audited, never silently repaired.
+- **Restore** version *k* appends a new version *N+1* whose bytes equal *k*. The old chain is preserved; restore is additive.
+- **Audit chain.** The append-only `audit_log` is hash-chained the same way; committed rows are never updated or deleted. Optional: periodic Ed25519-signed anchoring of chain heads for third-party-verifiable provenance.
 
 ## Two-origin model
 
-The app and the file bytes live on different origins. This is non-negotiable.
+The app and the document bytes live on different origins. This is non-negotiable.
 
-- **`drive.example.com`** — the SPA, the JSON API, the WOPI endpoints. Cookies live here. A strict CSP locks the page down.
-- **`usercontent-drive.example.com`** — the only place raw file bytes are ever served. `Content-Security-Policy: sandbox; default-src 'none'`. No cookies. Every non-previewable type gets `Content-Disposition: attachment` forced.
+- **`hub.example.com`** — the SPA, the JSON API, the embedded-editor byte streams. Cookies live here. A strict CSP locks the page down.
+- **`usercontent-dochub.example.com`** — the only place raw bytes are ever served, via `/raw/{token}` for share links and isolated content. `Content-Security-Policy: sandbox; default-src 'none'`. No cookies. Every non-previewable type gets `Content-Disposition: attachment` forced.
 
-A user uploads an HTML file with `<script>` in it. Without two-origin separation, opening that file would execute the script with access to your session cookie — game over. With separation, the script runs on a cookieless origin sandboxed to nothing, so it can't reach the app.
+The hub **refuses to start** in production if the two origins are configured the same. Neither CSP is weakened; `/raw/{token}` never moves to the app origin.
 
-Drive **refuses to start** in production if the two origins are configured the same. Test this.
-
-## Three tokens, three jobs
+## Four tokens, four jobs
 
 Don't reuse one for another's job.
 
 | Token | Where it lives | Purpose | TTL |
 |---|---|---|---|
-| **Session cookie** | `__Host-cd_sid` browser cookie | The signed-in admin | configurable (default 7d) |
-| **WOPI access token** | Header + query on every WOPI request | Per-launch, per-file edit grant | 10 min |
-| **Share-link token** | Path segment `/s/<token>` | Public, optionally-password-gated share | configurable (default 30d) |
-| **Signed-URL token** | `?token=` on `/raw/{token}` | Per-download HMAC for the fs/mem backends | 5 min |
+| **Session cookie** | `__Host-dh_sid` browser cookie | The signed-in user | configurable (default 7d) |
+| **Editor access token** | Header on every editor byte-stream request | Per-launch, per-document edit grant, HMAC over `(user_id, file_id, perms, exp, jti)` | short |
+| **Share-link token** | Path segment `/s/<token>` | Public, optionally-password-gated share | configurable |
+| **Signed-URL token** | `?token=` on `/raw/{token}` | Per-download HMAC over `(key, exp, method)` for the fs/mem backends | short |
 
-All four are validated server-side with constant-time compares. The WOPI access token is HMAC-SHA256 over `(user_id, file_id, perms, exp, jti)` — the file id in the URL must match the file id in the claim, every call.
+All are validated server-side with constant-time compares. The editor access token's document id in the URL must match the id in the claim, every call.
 
-## WOPI handoff
+## Embedded editing
 
-When you click a `.xlsx` in Drive:
+The primary editing path is **embedded**, not WOPI:
 
-1. The SPA hits `GET /api/files/{id}/open`.
-2. The server mints a WOPI access token + returns `{ editor_app, entry_url, access_token, wopi_src }`.
-3. The SPA navigates to `entry_url` (sheet.example.com), passing the token + WOPI src.
-4. The editor (Casual Sheet) calls back to `wopi_src` for `CheckFileInfo`, `GetFile`, `Lock`, `Unlock`, `PutFile`, `RefreshLock`, `RenameFile` — the 7-endpoint WOPI surface.
-5. Drive validates the access token on every callback. File id in URL must match the file id in the claim.
+```
+SPA opens a document → app origin mints an editor access token → embedded editor (Sheet/Docs/PDF)
+   → server decrypts bytes in memory, streams them over the authenticated app origin
+   → user edits (optionally co-edits via the collab server)
+   → save → encrypt → append hash-chained version → audit → enqueue reindex
+```
 
-Locks are 30-minute, refreshed every ~10 minutes by the editor. Stale locks (`expires_at < now()`) are treated as absent. The 409-conflict response includes a mandatory `X-WOPI-Lock` header carrying the conflicting lock id — that's WOPI spec, not a convention.
+One `<Editor>` component hosts each format via its sibling SDK. Team documents co-edit through the `collab` server (Yjs / Hocuspocus), which relays opaque document bytes and never parses them. WOPI remains available as **optional interop** for external Office clients, but is not the default path.
 
-> Proof-key RSA validation (needed for MS365 federation) is wired but stubbed in v0. The hook returns `Ok(())`. When the federation switch flips, that hook becomes real.
+## Content indexing
 
-## Storage facade
+`dochub-index` runs a lazy background worker: on a new version, it calls the `core` engine to extract text (`docx`/`xlsx`/`pdf`/`md`/`txt`/`csv`/`json`/`yaml`), normalizes it, and writes to a Tantivy full-text index. A `files.index_state` column (`pending | ready | unsupported | failed`) drives the worker. Search unions Tantivy content hits with SQL metadata and returns snippets + highlights — it reads *inside* documents, not just filenames. Tombstoning a document removes it from the index.
 
-Handler code talks to `Arc<Storage>`. It never reaches into the OpenDAL operator directly. The facade is what lets every backend present the same capability set + lets the signed-URL `/raw/{token}` fallback work uniformly.
+## AI layer (optional)
 
-Adding a new backend = listing a new `opendal::services::*` builder in `Storage::from_env`. The trait doesn't grow.
+`dochub-ai` sits beside search, never replacing it for compliance-critical retrieval:
 
-Storage keys are `ulid::Ulid::new()`. Never derived from user input. Display names are separate metadata, sanitised on store and re-sanitised on render. The fs adapter canonicalises and root-confines every resolved path; it refuses symlinks that escape the root.
+- **Semantic search** — embeddings + rerank alongside the Tantivy exact/full-text results.
+- **Summaries, entity + PII detection, cross-document Q&A** — all read-only suggestions; a human approves any action. AI never mutates documents or history.
+- **Provider** — pluggable; default Claude via the Anthropic API (Haiku for extraction/classification, Sonnet/Opus for reasoning), with a local-model adapter for air-gapped installs. Every AI action is audited.
 
-## Workspaces
+## Boot invariants (fail-fast)
 
-Every user gets a Personal workspace at signup, immutable + untransferable. They can create zero-or-more Team workspaces. Team workspace owners can transfer ownership to a Member (atomic transaction). Files + folders are scoped by `workspace_id`; switching workspaces in the sidebar re-scopes every list, search, upload, and folder-create.
+The binary refuses to start unless: a master key or KMS is configured; the two origins differ in production; the DB migrates cleanly; the storage backend is reachable. These are asserted in `dochub-bin` and covered by tests.
 
-Membership is enforced via `WorkspaceMemberRepo::role_of`. A caller can only operate inside workspaces where they hold an Owner or Member row.
+## Where the design lives
 
-## Where the briefs live
+The decisions behind each piece are documented in the repo:
 
-The decisions behind each piece are documented in topic briefs you can find in the repo:
-
-- `docs/research/01-wopi.md` — WOPI conformance, lock semantics, proof-key.
-- `docs/research/02-auth.md` — Argon2id, tower-sessions, why not OIDC in v0.
-- `docs/research/03-storage.md` — OpenDAL trait, four-backend matrix.
-- `docs/research/04-polish-principles.md` — the 10 commandments + tokens.
-- `docs/research/05-rust-stack.md` — Axum 0.8 + tokio + sqlx::Any.
-- `docs/research/06-security.md` — magic-byte sniff, CSP, redaction.
+- [`docs/ARCHITECTURE.md`](https://github.com/CasualOffice/dochub/blob/main/docs/ARCHITECTURE.md) — the full system architecture this page distills.
+- [`docs/TESTING.md`](https://github.com/CasualOffice/dochub/blob/main/docs/TESTING.md) — the test contract behind every invariant above.
+- `docs/research/00-synthesis.md` — locked decisions + tension resolutions.
+- `docs/research/06-security.md` — threat model, magic-byte sniff, CSP, redaction.
+- `docs/ux/01-flows.md` + `docs/ux/02-surface.md` — numbered flows and surface spec.

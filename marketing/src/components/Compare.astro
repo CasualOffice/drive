@@ -1,16 +1,16 @@
 ---
 /**
- * Comparison table — Casual Drive vs Google Drive vs Nextcloud.
+ * Comparison table — Doc-Hub vs Google Drive vs Nextcloud.
  * Mobile: horizontal scroll inside container, never overflows viewport.
  */
 const rows = [
   { feat: "Self-hosted", cd: "Yes", gd: "No", nc: "Yes" },
-  { feat: "Edit .xlsx in browser", cd: "Yes (Casual Sheet)", gd: "Yes (Sheets)", nc: "Add-on" },
-  { feat: "Edit .docx in browser", cd: "Yes (Casual Document)", gd: "Yes (Docs)", nc: "Add-on" },
-  { feat: "S3 / MinIO backend", cd: "Yes", gd: "No", nc: "Add-on" },
+  { feat: "Encrypted at rest (your keys)", cd: "Yes (per-workspace)", gd: "Provider-held", nc: "Add-on" },
+  { feat: "Immutable, hash-chained history", cd: "Yes (tamper-evident)", gd: "Revisions (mutable)", nc: "Versions (prunable)" },
+  { feat: "Native edit in browser", cd: "Yes (Docs / Sheet / PDF)", gd: "Yes (Docs / Sheets)", nc: "Add-on" },
+  { feat: "Search inside documents", cd: "Yes (full-text)", gd: "Yes", nc: "Add-on" },
   { feat: "Single binary install", cd: "Yes", gd: "—", nc: "No (PHP stack)" },
-  { feat: "Two-origin sandbox", cd: "Yes", gd: "Yes", nc: "Optional" },
-  { feat: "Audit log", cd: "Yes (built-in)", gd: "Workspace tier", nc: "Add-on" },
+  { feat: "Compliance: retention + legal hold", cd: "Yes (built-in)", gd: "Enterprise tier", nc: "Add-on" },
   { feat: "Tracking / telemetry", cd: "None", gd: "Heavy", nc: "Optional" },
   { feat: "Cost at 5 users", cd: "$5 / mo VPS", gd: "$30 / mo", nc: "$5 / mo VPS" },
 ];
@@ -22,8 +22,8 @@ const rows = [
       <p class="section-eyebrow">Compared</p>
       <h2 class="section-title">Where it sits.</h2>
       <p class="section-lede">
-        Not a Drive clone. Not a Nextcloud fork. A focused, fast file
-        manager built for the Casual Office suite.
+        Not a Drive clone. Not a Nextcloud fork. A focused document registry
+        built for the Casual Office suite — encrypted, versioned, provable.
       </p>
     </header>
 
@@ -32,7 +32,7 @@ const rows = [
         <thead>
           <tr>
             <th scope="col" class="compare-feat">Feature</th>
-            <th scope="col" class="compare-us">Casual Drive</th>
+            <th scope="col" class="compare-us">Doc-Hub</th>
             <th scope="col">Google Drive</th>
             <th scope="col">Nextcloud</th>
           </tr>
@@ -53,8 +53,8 @@ const rows = [
     </div>
     <p class="compare-foot">
       Honest table. We're not the best at everything — we're the best at
-      being a small, sharp, self-hosted file manager that opens Office
-      documents in the browser.
+      being a small, sharp, self-hosted hub that keeps your documents
+      encrypted, versioned forever, and provable.
     </p>
   </div>
 </section>

@@ -1,6 +1,6 @@
 # 03 — Premium Sign-In Surface Patterns (2026)
 
-> Research brief. The first surface a user sees in Casual Drive. This brief replaces §13 of [`../ux/02-surface.md`](../ux/02-surface.md), keeping every other surface intact.
+> Research brief. The first surface a user sees in Doc-Hub. This brief replaces §13 of [`../ux/02-surface.md`](../ux/02-surface.md), keeping every other surface intact.
 
 **Methodology.** `WebSearch` only — `WebFetch` was permission-denied on most hosts and the live sign-in pages are JS-rendered, so raw markup didn't surface. Visual specifics reconstructed from secondary sources are tagged `[unverified]`. Synthesis rests on OWASP, web.dev, MDN, NN/g material that did return clean snippets, plus the tokens in [`../research/04-polish-principles.md`](../research/04-polish-principles.md).
 
@@ -9,11 +9,11 @@
 ## TL;DR
 
 - **Reference set converges on a centred card, ~360–440 px, on a near-blank canvas.** Split-screen is a marketing tactic, not a polish tactic. Linear, Stripe, GitHub, 1Password, Things Cloud, Vercel, Notion all centre.
-- **Email-first / password-second multi-step exists to support SSO routing.** It does not speed up password users — it slows them and is the leading cause of password-manager autofill breakage ([Smashing][smashing-2step], [Evert Pot][evert-multi]). With one tenant, Drive ships a single-page form.
+- **Email-first / password-second multi-step exists to support SSO routing.** It does not speed up password users — it slows them and is the leading cause of password-manager autofill breakage ([Smashing][smashing-2step], [Evert Pot][evert-multi]). With one tenant, Doc-Hub ships a single-page form.
 - **Microcopy splits two ways:** Apple-style "Sign in to continue." (calm, instructional) or Linear-style "Welcome back" (warm, personal). Pick one and hold it everywhere.
 - **Gold-standard error is generic.** "That username or password is incorrect." inline below the inputs, `aria-invalid` + `aria-describedby`, optional 1-cycle shake gated on `prefers-reduced-motion` ([WP Trac][wp-shake], [WCAG 2.3.3][wcag-233]).
 - **Autocomplete is non-negotiable:** `autocomplete="username"` on the identifier, `autocomplete="current-password"` on the secret, both inside a real `<form>` with a submit button ([web.dev][webdev-signin], [MDN][mdn-pw]).
-- **Drive v0:** username + password, single page, centred card, Apple-leaning copy ("Sign in to continue."), generic error with shake, caps-lock icon hint (no toast), passkey hook reserved for Phase 3.
+- **Doc-Hub v0:** username + password, single page, centred card, Apple-leaning copy ("Sign in to continue."), generic error with shake, caps-lock icon hint (no toast), passkey hook reserved for Phase 3.
 
 ---
 
@@ -27,7 +27,7 @@ Email-first → magic link or 6-digit code; passkeys added May 2024 ([login meth
 
 ### 2. Vercel — `vercel.com/login`
 
-Single page; OAuth stack (**Continue with GitHub / GitLab / Bitbucket / Google / SAML SSO**) plus email for magic link ([login][vercel-login], [faster login changelog][vercel-google]). Centred ~360–400 px card on dark canvas `[unverified]`, triangle glyph only. Button verb: **"Continue with <Provider>"**. No password → no eye, no caps-lock. Errors return as a banner above the card `[unverified]`. The pattern Drive inherits when Phase 3 adds OIDC.
+Single page; OAuth stack (**Continue with GitHub / GitLab / Bitbucket / Google / SAML SSO**) plus email for magic link ([login][vercel-login], [faster login changelog][vercel-google]). Centred ~360–400 px card on dark canvas `[unverified]`, triangle glyph only. Button verb: **"Continue with <Provider>"**. No password → no eye, no caps-lock. Errors return as a banner above the card `[unverified]`. The pattern Doc-Hub inherits when Phase 3 adds OIDC.
 
 ### 3. Stripe — `dashboard.stripe.com/login`
 
@@ -37,9 +37,9 @@ Email + password one page → mandatory 2FA on a second page (TOTP, SMS, securit
 
 Email-first → magic code, password (if set), or OAuth (Google, Apple, SAML). Centred ~440 px card on cream canvas; SSO buttons stacked above email; **"Continue with email"** below `[unverified]`. Eye toggle on the password step `[unverified]`. A known autofill friction point per [Evert Pot][evert-multi].
 
-### 5. 1Password — web vault
+### 5. 1Password — web hub
 
-Account address + email + **Secret Key** (34 chars) + master password + optional 2FA ([Secret Key][op-secret], [CLI sign-in][op-cli]). Multi-stage by design — the Secret Key field is the visual centre, monospace, paste-affordance prominent (user pastes from Emergency Kit PDF). Glyph + wordmark — the brand *is* the trust artefact. Notably **errors are specific** ("Secret Key is incorrect") — an intentional anti-enumeration exception because the key's entropy makes the leak gain-free. **No "Forgot" link** for the master password. Eye toggle on master password. Proves multi-stage feels premium *only when the security model demands it* — Drive's doesn't.
+Account address + email + **Secret Key** (34 chars) + master password + optional 2FA ([Secret Key][op-secret], [CLI sign-in][op-cli]). Multi-stage by design — the Secret Key field is the visual centre, monospace, paste-affordance prominent (user pastes from Emergency Kit PDF). Glyph + wordmark — the brand *is* the trust artefact. Notably **errors are specific** ("Secret Key is incorrect") — an intentional anti-enumeration exception because the key's entropy makes the leak gain-free. **No "Forgot" link** for the master password. Eye toggle on master password. Proves multi-stage feels premium *only when the security model demands it* — Doc-Hub's doesn't.
 
 ### 6. GitHub — `github.com/login`
 
@@ -51,19 +51,19 @@ Email + password one page; OAuth (Google, SAML SSO) stacked above ([login help][
 
 ### 8. Raycast — sync sign-in
 
-OAuth-only: three buttons (**Continue with Google / GitHub / Apple**) ([account management][raycast-acc], [direct sign-in][raycast-direct]). Centred narrow card on charcoal, wordmark + tagline above. No inputs. First button focused. Proves a sign-in surface *can* be three buttons — but only when the product owns no credentials. Drive does. What we steal is the canvas restraint.
+OAuth-only: three buttons (**Continue with Google / GitHub / Apple**) ([account management][raycast-acc], [direct sign-in][raycast-direct]). Centred narrow card on charcoal, wordmark + tagline above. No inputs. First button focused. Proves a sign-in surface *can* be three buttons — but only when the product owns no credentials. Doc-Hub does. What we steal is the canvas restraint.
 
 ### 9. Things Cloud — Cultured Code
 
-No public web sign-in; native macOS/iOS sheet only ([Cultured Code login][things-login]). ~420 px sheet, two stacked inputs, primary **Continue**, "Reset password" link beneath. Native SF Pro. Inline error in red border + helper line — **no shake**, macOS sheets are quiet. macOS-native caps-lock glyph appears automatically. Native Keychain autofill. *One sheet, two fields, one button, one link* — Drive should match that density.
+No public web sign-in; native macOS/iOS sheet only ([Cultured Code login][things-login]). ~420 px sheet, two stacked inputs, primary **Continue**, "Reset password" link beneath. Native SF Pro. Inline error in red border + helper line — **no shake**, macOS sheets are quiet. macOS-native caps-lock glyph appears automatically. Native Keychain autofill. *One sheet, two fields, one button, one link* — Doc-Hub should match that density.
 
 ---
 
 ## Synthesis
 
-**Field strategy.** Three patterns: (1) identifier-first routed (Linear, Notion, Stripe-effectively) — required when multiple methods per account; (2) single-page credentials (GitHub, Figma, Things Cloud) — right when one method dominates; (3) OAuth-only (Raycast). Pattern 1 is overrepresented in design write-ups because enterprise SaaS needs it, but **for most users it's a regression** — breaks autofill (password managers expect both fields on one DOM), adds a round-trip, adds microcopy. Smashing says use it only when SSO routing demands it ([Smashing][smashing-2step]); Evert Pot shows you can salvage autofill with a hidden `autocomplete="username"` input on the password page, but that's undoing damage you caused ([Evert Pot][evert-multi]). **Drive = pattern 2.** Phase 3 keeps the password form and adds a "Continue with <Provider>" block above it — still pattern 2.
+**Field strategy.** Three patterns: (1) identifier-first routed (Linear, Notion, Stripe-effectively) — required when multiple methods per account; (2) single-page credentials (GitHub, Figma, Things Cloud) — right when one method dominates; (3) OAuth-only (Raycast). Pattern 1 is overrepresented in design write-ups because enterprise SaaS needs it, but **for most users it's a regression** — breaks autofill (password managers expect both fields on one DOM), adds a round-trip, adds microcopy. Smashing says use it only when SSO routing demands it ([Smashing][smashing-2step]); Evert Pot shows you can salvage autofill with a hidden `autocomplete="username"` input on the password page, but that's undoing damage you caused ([Evert Pot][evert-multi]). **Doc-Hub = pattern 2.** Phase 3 keeps the password form and adds a "Continue with <Provider>" block above it — still pattern 2.
 
-**Layout — centred vs split.** Centred wins for polish. Split-screen with marketing art ([Eleken][eleken], [Stylosheet][stylo]) is a marketing-funnel tactic for public SaaS landings where login *is* the landing page. Drive is self-hosted — the user already chose to install. Centred focuses attention, works narrow without breakpoints, matches every canonical reference here.
+**Layout — centred vs split.** Centred wins for polish. Split-screen with marketing art ([Eleken][eleken], [Stylosheet][stylo]) is a marketing-funnel tactic for public SaaS landings where login *is* the landing page. Doc-Hub is self-hosted — the user already chose to install. Centred focuses attention, works narrow without breakpoints, matches every canonical reference here.
 
 **Error UX (wrong credentials).** Generic copy ("That username or password is incorrect.") — specific leaks which usernames exist ([Control Gap][control-gap], [OWASP testing guide][owasp-enum]). Inline under the password (or above the button) — eye is already there. 1 px `--danger` border on *both* inputs + helper line. 1-cycle horizontal shake (~8 px, 250 ms), gated on `prefers-reduced-motion: no-preference` — WordPress core's filed bug gives the canonical pattern ([WP Trac][wp-shake], [WCAG 2.3.3][wcag-233]). ARIA: `aria-invalid="true"` + `aria-describedby` + `role="alert"` ([MDN][mdn-invalid], [WebAIM][webaim-forms]). Server: always Argon2id-verify (dummy hash on miss) for wall-time parity ([Stytch][stytch-enum]).
 
@@ -77,9 +77,9 @@ No public web sign-in; native macOS/iOS sheet only ([Cultured Code login][things
 
 ---
 
-## Drive-specific recommendation
+## Doc-Hub-specific recommendation
 
-**Field set: username + password.** `DRIVE_ADMIN_USER` is an arbitrary string — `<input type="text" autocomplete="username">` covers an email value *and* "admin"/"sachin"/whatever. Password not magic link: magic links need SMTP, a regression from the env-seeded model in [`../research/02-auth.md`](../research/02-auth.md). Phase 3 migration: OIDC adds a "Continue with <IdP>" block *above* the username field; password form stays for the env-seeded admin. No URL change.
+**Field set: username + password.** `DOCHUB_ADMIN_USER` is an arbitrary string — `<input type="text" autocomplete="username">` covers an email value *and* "admin"/"sachin"/whatever. Password not magic link: magic links need SMTP, a regression from the env-seeded model in [`../research/02-auth.md`](../research/02-auth.md). Phase 3 migration: OIDC adds a "Continue with <IdP>" block *above* the username field; password form stays for the env-seeded admin. No URL change.
 
 **Layout: centred 360 px card** on `--bg-canvas`. No split, no marketing art, no animated background — this is an entry checkpoint, not a landing.
 
@@ -93,14 +93,14 @@ No public web sign-in; native macOS/iOS sheet only ([Cultured Code login][things
 
 **Focus + autofill.** `autoFocus` on username on cold mount only. Real `<form action="/api/login" method="post">`. Username: `type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required`. Password: `type="password" autocomplete="current-password" required`. Hidden CSRF input per [`../research/02-auth.md`](../research/02-auth.md) §3.
 
-**Brand presence.** Lucide `cloud` 28 px `--accent` above the card; wordmark **"Casual Drive"** in `--font-display`, `--text-xl`, `--weight-semibold` centred below the glyph. No tagline. `DRIVE_BRAND_NAME` and optional `DRIVE_BRAND_GLYPH_URL` overrides deferred to a later config pass.
+**Brand presence.** Lucide `shield-check` 28 px `--accent` above the card; wordmark **"Doc-Hub"** in `--font-display`, `--text-xl`, `--weight-semibold` centred below the glyph. No tagline. `DOCHUB_BRAND_NAME` and optional `DOCHUB_BRAND_GLYPH_URL` overrides deferred to a later config pass.
 
 ### Microcopy — final v0 strings
 
 | Slot | Copy |
 |---|---|
-| Page title (`<title>`) | `Sign in · Casual Drive` |
-| Brand wordmark | `Casual Drive` |
+| Page title (`<title>`) | `Sign in · Doc-Hub` |
+| Brand wordmark | `Doc-Hub` |
 | Heading under wordmark | `Sign in to continue.` |
 | Username label | `Username` |
 | Password label | `Password` |
@@ -111,7 +111,7 @@ No public web sign-in; native macOS/iOS sheet only ([Cultured Code login][things
 | Server error (5xx) | `Something went wrong. Try again.` |
 | Caps-lock tooltip | `Caps Lock is on.` |
 
-**Deliberately omitted:** "Forgot password?" (v0 admin recovers via env rotation; no email flow). "Sign up" (single-tenant). "Remember me" (the `__Host-cd_sid` cookie persists across sessions by default; offering an opt-out would imply we *might* use a session-only cookie, which we don't).
+**Deliberately omitted:** "Forgot password?" (v0 admin recovers via env rotation; no email flow). "Sign up" (single-tenant). "Remember me" (the `__Host-dh_sid` cookie persists across sessions by default; offering an opt-out would imply we *might* use a session-only cookie, which we don't).
 
 ---
 
@@ -125,10 +125,10 @@ Replaces §13 of [`../ux/02-surface.md`](../ux/02-surface.md).
                 (canvas: --bg-canvas, full viewport)
 
 
-                                ☁              ← Lucide cloud, 28px, --accent,
+                                🛡              ← Lucide shield-check, 28px, --accent,
                                                  24px above the card
 
-                          Casual Drive          ← --font-display, --text-xl,
+                          Doc-Hub          ← --font-display, --text-xl,
                                                  --weight-semibold, --fg-default,
                                                  16px below glyph
 
@@ -159,8 +159,8 @@ Replaces §13 of [`../ux/02-surface.md`](../ux/02-surface.md).
 | Element | Token / library | Notes |
 |---|---|---|
 | Page | `<main>` on `--bg-canvas` / `--bg-canvas-dark` | min-height 100vh; centres card; honours `prefers-color-scheme` |
-| Brand glyph | Lucide `cloud`, 28 px, `--accent` | overridable later via `DRIVE_BRAND_GLYPH_URL` |
-| Wordmark | `--font-display`, `--text-xl`, `--weight-semibold`, `--fg-default` | overridable via `DRIVE_BRAND_NAME` |
+| Brand glyph | Lucide `shield-check`, 28 px, `--accent` | overridable later via `DOCHUB_BRAND_GLYPH_URL` |
+| Wordmark | `--font-display`, `--text-xl`, `--weight-semibold`, `--fg-default` | overridable via `DOCHUB_BRAND_NAME` |
 | Card | `--bg-default`, `--radius-xl`, `--shadow-md`, hairline `--border-default` | 360 px wide, `--space-6` padding |
 | Subhead | `--text-md`, `--fg-muted` | bottom margin `--space-5` |
 | Label | `--text-sm`, `--weight-medium`, `--fg-default`, sentence case | bottom margin `--space-1` |
@@ -207,8 +207,8 @@ Replaces §13 of [`../ux/02-surface.md`](../ux/02-surface.md).
 ```html
 <main class="signin-page">
   <header class="brand">
-    <svg class="brand-glyph" aria-hidden="true">…cloud…</svg>
-    <h1 class="brand-wordmark">Casual Drive</h1>
+    <svg class="brand-glyph" aria-hidden="true">…shield-check…</svg>
+    <h1 class="brand-wordmark">Doc-Hub</h1>
   </header>
 
   <form class="signin-card"
@@ -247,7 +247,7 @@ Replaces §13 of [`../ux/02-surface.md`](../ux/02-surface.md).
 
 ### Server contract (anti-enumeration)
 
-- POST `/api/login` returns 200 with `{ "error": "invalid_credentials" }` on logical failure; 200 + `Set-Cookie: __Host-cd_sid=…` on success. Same wall-time floor (~80 ms) regardless of path.
+- POST `/api/login` returns 200 with `{ "error": "invalid_credentials" }` on logical failure; 200 + `Set-Cookie: __Host-dh_sid=…` on success. Same wall-time floor (~80 ms) regardless of path.
 - After 5 failures in 60 s from one IP: 429 with `{ "error": "rate_limited", "retry_after": 60 }`. `tower_governor` per [`../research/02-auth.md`](../research/02-auth.md) §3.
 - "Username does not exist" is never exposed as a distinct path.
 

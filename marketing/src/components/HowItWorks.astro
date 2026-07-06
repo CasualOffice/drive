@@ -3,19 +3,19 @@ const steps = [
   {
     n: "01",
     title: "Run it",
-    body: "One Docker command. Or `cargo install drive` if you'd rather. SQLite by default — Postgres when you outgrow it.",
-    code: "docker run -p 8080:8080 ghcr.io/casualoffice/drive:latest",
+    body: "One Docker command with a master key. SQLite by default — Postgres when you outgrow it. Boot refuses to start without a key.",
+    code: "docker run -p 8080:8080 ghcr.io/casualoffice/dochub:latest",
   },
   {
     n: "02",
     title: "Open it",
-    body: "Visit drive.your-server. Create the admin account. You're in.",
-    code: "https://drive.your-server",
+    body: "Visit hub.your-server. Create the admin account. Create a project. You're in.",
+    code: "https://hub.your-server",
   },
   {
     n: "03",
-    title: "Use it",
-    body: "Upload a file. Click it. Edit it in the browser. Share it. Move it. Search it.",
+    title: "Keep it",
+    body: "Upload a document. Edit it natively. Every save appends an encrypted, hash-chained version — searchable, restorable, provable.",
     code: null,
   },
 ];
@@ -28,7 +28,7 @@ const steps = [
       <h2 class="section-title">Three steps. No vendor lock-in.</h2>
       <p class="section-lede">
         You don't need Kubernetes. You don't need a sales call. You need a
-        server with port 80 free.
+        server with port 80 free and a master key you control.
       </p>
     </header>
 

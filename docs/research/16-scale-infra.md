@@ -1,276 +1,151 @@
-# 16 — Scale infra (Redis + OpenSearch) (Phase 3)
+# 16 — Scale infra (index worker, Redis, AI) (later phase)
 
-Drive ships single-binary by design. Until ~50 concurrent users, the in-process defaults (sqlite/postgres for metadata, in-process rate limit, in-process presence hub, `LIKE` search) carry the load and operators don't need to run Redis or OpenSearch.
+Doc-Hub ships single-binary by design. Until ~50 concurrent users, the in-process defaults — SQLite/Postgres for metadata, in-process rate limit, in-process presence hub, an **embedded `core` + Tantivy** content index, and an optional in-process AI layer — carry the load, and operators don't need to run any extra service.
 
-Past that threshold — or the moment Drive is run as more than one replica behind a load balancer — those defaults start to bite. This brief locks the shape of the opt-in path so operators can flip env vars and scale without rewrites.
+Past that threshold — or the moment Doc-Hub runs as more than one replica behind a load balancer — some of those defaults start to bite. This brief locks the shape of the opt-in scaling path so operators can flip env vars and scale without rewrites.
+
+> Naming in flight: `drive-*`→`dochub-*`, `DRIVE_*`→`DOCHUB_*`.
 
 ## Why now
 
-Two triggers force the conversation:
+Three triggers force the conversation:
 
-1. **>50 concurrent users on one instance.** The in-process rate-limit map grows unbounded, search starts doing `LIKE '%q%'` table scans, the SSE presence hub allocates `O(users × subscribers)` on every fan-out. None of it falls over yet — but the operator's CPU graph stops being flat.
-2. **More than one Drive replica.** The moment a deployment runs `N > 1` instances behind a load balancer, the in-process state (rate limit, sessions if `MemoryStore`, presence hub, BYO adapter cache) becomes per-instance — users get a different bucket on every request and presence stops working entirely.
+1. **>50 concurrent users on one instance.** The in-process rate-limit map grows unbounded, the SSE presence hub allocates `O(users × subscribers)` per fan-out, and the `dochub-index` worker's extraction+embedding queue can fall behind on bursty uploads. None of it falls over yet — but the operator's CPU graph stops being flat.
+2. **More than one Doc-Hub replica.** The moment a deployment runs `N > 1` instances behind a load balancer, in-process state (rate limit, sessions if `MemoryStore`, presence hub, BYO adapter cache) becomes per-instance — users get a different bucket on every request, presence breaks, and each replica holds its own Tantivy index unless the index is shared.
+3. **AI at volume.** The optional `dochub-ai` layer calls an LLM provider (default Claude via the Anthropic API) for embeddings, summaries, PII detection, and Q&A. Under load that means provider rate limits, batching, and an embedding store that outgrows in-process memory.
 
-Both are deferred from v0 on purpose: a self-hoster on a $5 VPS shouldn't need to spin up Redis to read their own files. The opt-in lets them stay on the simple path until they've outgrown it.
+All three are deferred from v0 on purpose: a self-hoster on a $5 VPS shouldn't need Redis or a GPU to read their own documents. The opt-in lets them stay on the simple path until they've outgrown it.
+
+## What does NOT change: search is `core` + Tantivy
+
+The single most important scaling decision is what we **don't** do: Doc-Hub does **not** adopt OpenSearch/Elasticsearch as its search backend. Content search — the product feature of finding a phrase *inside* a `.docx`/`.pdf`/`.xlsx` — is served by the Rust `core` extraction engine feeding a **Tantivy** full-text index, embedded in the binary. Tantivy stays the search engine at every scale; scaling search means scaling the *index worker* and *sharing the index across replicas*, not swapping the engine (00-synthesis tension #6).
+
+Why Tantivy over an external search cluster:
+- It keeps the single-binary, $5-VPS promise — no second service to run just to search your own hub.
+- The index is a **derived view**: it can be dropped and rebuilt from the authoritative SQL rows + encrypted blobs at any time.
+- For compliance-critical retrieval, exact full-text (BM25) must never be silently replaced by fuzzy/semantic results; keeping the exact engine in-house guarantees that.
 
 ## Locked decisions
 
-### **Two optional services, never more**
+### **Redis is the one optional shared-state service**
 
-- **Redis** — the default escape hatch for ephemeral shared state: rate limit, session store, presence hub, BYO adapter cache invalidation. Same Redis instance for all four (different key prefixes).
-- **OpenSearch** — the default escape hatch for search: full-text indexing of file names, note bodies, share-link descriptions; filter aggregations (by type / owner / workspace / date / size). Optional secondary cluster for audit log analytics, but that's Phase 4.
-
-No MeiliSearch, no Elasticsearch (license), no SOLR. OpenSearch wins on Apache-2.0 license + the AWS-managed flavour being a one-click for the most common deployment shape.
-
-### **Both services are strictly opt-in via env**
+- **Redis** — the escape hatch for ephemeral shared state across replicas: rate limit, session store, presence hub, BYO adapter cache invalidation. Same Redis instance for all four (different key prefixes).
+- No MeiliSearch, no OpenSearch, no Elasticsearch, no SOLR — search is Tantivy (above). No second datastore beyond Redis.
 
 ```
-DRIVE_REDIS_URL=redis://redis.internal:6379/0
-DRIVE_OPENSEARCH_URL=https://opensearch.internal:9200
-DRIVE_OPENSEARCH_INDEX_PREFIX=drive_  # default
+DOCHUB_REDIS_URL=redis://redis.internal:6379/0
 ```
 
-If unset, Drive runs in-process for everything. Operators read the same docs as the rest of the env-var matrix.
+If unset, Doc-Hub runs in-process for everything. Operators read the same env-var matrix as the rest of the config.
 
-### **Trait at the boundary, two impls per service**
+### **Trait at the boundary, two impls per surface**
 
-Every surface that needs the escape hatch sits behind a trait that ships with two implementations:
+Every surface that needs the escape hatch sits behind a trait shipping two implementations:
 
 | Surface | Trait | In-process impl | Redis impl |
 |---|---|---|---|
-| Rate limit | `RateLimiterBackend` | `InMemoryLimiter` (today) | `RedisLimiter` (Lua script for atomic refill) |
-| Session store | `SessionStore` (tower-sessions) | `SqliteStore` (today) | `RedisStore` |
-| Presence hub | `PresenceHubBackend` (§14) | `InProcessHub` | `RedisPubSubHub` |
-| BYO cache invalidation | `StorageCacheBus` | `NoopBus` (today: single-instance assumption) | `RedisPubSubBus` |
+| Rate limit | `RateLimiterBackend` | `InMemoryLimiter` | `RedisLimiter` (Lua script for atomic refill) |
+| Session store | `SessionStore` (tower-sessions) | `SqlStore` | `RedisStore` (inherited directly from `tower-sessions`) |
+| Presence hub | `PresenceHubBackend` | `InProcessHub` | `RedisPubSubHub` (channel `presence:{workspace_id}`) |
+| BYO cache invalidation | `StorageCacheBus` | `NoopBus` | `RedisPubSubBus` |
 
-| Surface | Trait | In-process impl | OpenSearch impl |
-|---|---|---|---|
-| File / note search | `SearchBackend` | `SqlLikeSearch` (today) | `OpenSearchBackend` |
-| Search filters | (same) | reads sqlite cols + filters in memory | OpenSearch aggregations |
+`Config::from_env` reads `DOCHUB_REDIS_URL` and the binary picks the right impl at boot. Handlers see only the trait.
 
-`Config::from_env` reads `DRIVE_REDIS_URL` / `DRIVE_OPENSEARCH_URL` and the binary picks the right impl at boot. Handlers see only the trait.
+### **The content index worker scales before anything external does**
 
-### **OpenSearch indexes file metadata, not file contents (v0.3)**
+`dochub-index` owns the pipeline: on a new committed version, extract text via `core`, normalise, and write to the Tantivy index; a `files.index_state` column (`pending|ready|unsupported|failed`) drives it. Scaling knobs, in order of reach-for:
 
-Phase 1 of OpenSearch integration covers:
+1. **Bounded concurrency + backpressure.** The worker drains a `tokio::sync::mpsc` queue with a fixed worker-pool size (`DOCHUB_INDEX_WORKERS`). Bursty uploads queue as `pending`; the UI shows "indexing" rather than blocking the save.
+2. **Incremental + idempotent.** Every write to `files` enqueues a job; on boot the worker delta-syncs rows newer than the last-indexed watermark. No full reindex on restart. Re-extract on new version; remove from the index on tombstone.
+3. **Durable queue when volume justifies.** Promote the in-process `mpsc` to a persisted job queue (a `jobs` table drained with `SELECT … FOR UPDATE SKIP LOCKED`, or a crate like `sqlxmq`/`apalis`) so index work survives restarts and can be drained by a dedicated worker process.
+4. **Shared index for multi-replica.** Tantivy is single-writer. For `N > 1` replicas: a single **indexer replica** owns writes; readers open the index read-only over shared storage (a shared volume, or a periodically-synced index directory in object storage). `/api/admin/reindex` drops + rebuilds from the authoritative SQL + blobs after schema changes or corruption.
 
-- File `name`, `path`, `tags` (when tags land), `owner_username`, `workspace_id`, `created_at`, `size`, `content_type`.
-- Note `title`, `body` (sanitised markdown source), `wiki_links`, `workspace_id`.
-- Share-link `description` (Phase 2 sharing surface).
+The index only holds extracted **plaintext** derived from documents the server already decrypts — consistent with the server-trusted threat model (06 §0). It is never the source of truth.
 
-Phase 2 (v0.4): file *contents* — text/CSV/markdown extracted at upload time, PDF + Office formats via a separate `drive-text-extractor` worker (same sandbox shape as `drive-thumb-worker`). Out of scope here.
+### **AI scaling (`dochub-ai`, optional)**
 
-### **Search backend wire contract**
+The AI layer is off by default and scales independently of search:
 
-Both impls (`SqlLikeSearch` and `OpenSearchBackend`) speak the same `SearchBackend` trait and produce the same `GET /api/search` response shape. The differences are in capability, not contract — what the in-process path can't compute (snippets, facets, did-you-mean) is simply omitted from the response, and the SPA renders the graceful-degraded UI.
-
-**Request — `GET /api/search`**
-
-```
-?q=<query>                        # may be empty when at least one filter is set
-&after=<cursor>                   # opaque, HMAC-signed; absent = first page
-&limit=<n>                        # default 30, clamp [10, 100]
-&sort=relevance|modified|created|name|size
-&sort_dir=desc|asc                # default desc for modified/created/size, asc for name
-&scope=folder|workspace|all
-&folder_id=<id>                   # required when scope=folder
-&type=<csv>                       # canonical buckets: folder,document,spreadsheet,pdf,image,video,audio,markdown,archive,other
-&owner=<user_id>                  # repeatable
-&workspace=<workspace_id>         # repeatable; required when scope=workspace+
-&modified_after=<rfc3339>
-&modified_before=<rfc3339>
-&created_after=<rfc3339>
-&created_before=<rfc3339>
-&size_min=<bytes>
-&size_max=<bytes>
-&has_share_link=true|false
-&include_trashed=true|false       # default false
-```
-
-**Response shape**
-
-```json
-{
-  "files":   [ { /* FileDto */, "matches": [ { "field": "name", "snippet": "...", "offsets": [[3,9]] } ] } ],
-  "folders": [ { /* FolderDto */ } ],
-  "notes":   [ { /* NoteDto */, "matches": [ ... ] } ],
-  "total":   { "files": 142, "folders": 6, "notes": 3, "exact": true },
-  "next_cursor": "eyJzIjoibSIsInYiOjE3...",   // null when no more pages
-  "facets":  {                                 // OpenSearch only; omitted otherwise
-    "type":     [{ "value": "pdf", "count": 12 }, ...],
-    "owner":    [{ "value": "<user_id>", "count": 8, "label": "Alex" }, ...],
-    "modified": [{ "bucket": "last_7_days", "count": 17 }, ...]
-  },
-  "suggestions": ["kickoffs", "kick off"]      // OpenSearch only; omitted otherwise
-}
-```
-
-**`total.exact` semantics**
-
-- `true` when the backend produced an exact count cheaply (OpenSearch with `track_total_hits=true` up to 10 000).
-- `false` when the count is the page-size cap (sqlite path) — SPA renders `50+ files` / `Many results` accordingly.
-
-**Cursor format**
-
-Opaque base64-url string. Internally `HMAC-SHA256(sort_field || last_value || last_id || page_size || filters_hash)`, signed with the existing `signed_url_hmac_secret`. The server verifies the HMAC + the filter hash on every paginated request — a forged or stale cursor returns 400, never silently drifts the result set. Cursors expire 1 hour after issuance (the same window as a typical user session of scrolling).
-
-**Sort semantics**
-
-- `relevance` requires OpenSearch (BM25 `_score`); the sqlite path silently falls back to `modified desc` and returns `sort_applied: "modified"` in the response so the SPA can grey out the Relevance option in the popover.
-- All other sorts apply equally to both backends.
-- Folder grouping (folders first) is applied only when `sort=name`. Other sorts mix types — the user asked for "by modified date," they don't want folders artificially floated.
-
-**OpenSearch query shape (Phase 1)**
-
-```json
-{
-  "query": {
-    "bool": {
-      "must":   [ { "multi_match": { "query": "<q>", "fields": ["name^4", "title^3", "body"] } } ],
-      "filter": [
-        { "terms": { "workspace_id": ["<ws1>", "<ws2>"] } },   // always present; caller's memberships
-        { "terms": { "content_type_bucket": ["pdf", "image"] } },
-        { "term":  { "trashed": false } },
-        { "range": { "modified_at": { "gte": "<rfc3339>", "lte": "<rfc3339>" } } }
-      ]
-    }
-  },
-  "aggs": {
-    "type":     { "terms": { "field": "content_type_bucket", "size": 10 } },
-    "owner":    { "terms": { "field": "owner_id", "size": 10 } },
-    "modified": { "date_range": { "field": "modified_at", "ranges": [...] } }
-  },
-  "highlight": { "fields": { "name": {}, "title": {}, "body": { "fragment_size": 120, "number_of_fragments": 2 } } },
-  "suggest": {
-    "did_you_mean": { "text": "<q>", "phrase": { "field": "name", "size": 3 } }
-  },
-  "size":  30,
-  "search_after": [ "<sort_value>", "<id>" ],   // from cursor
-  "sort":  [ { "_score": "desc" }, { "_id": "asc" } ],
-  "track_total_hits": 10000
-}
-```
-
-**Sqlite fallback shape**
-
-```sql
-SELECT id, name, modified_at, ...
-FROM   files
-WHERE  workspace_id IN (?, ?, ...)
-  AND  trashed_at IS NULL
-  AND  LOWER(name) LIKE LOWER(?)             -- '%<q>%'
-  AND  modified_at >= ? AND modified_at <= ?
-  AND  ...
-ORDER  BY modified_at DESC, id DESC
-LIMIT  31;                                    -- +1 for has-more detection
-```
-
-The same query runs over `notes` (matching `title` and `body`) and `folders` (matching `name`); the handler unions + truncates client-side. `has_share_link` is computed via `EXISTS (SELECT 1 FROM share_links WHERE file_id = files.id)` — a single index lookup.
-
-**Performance SLOs**
-
-| Path | p50 | p95 | p99 | Backstop |
-|---|---|---|---|---|
-| Sqlite, ≤ 10k files in workspace | < 40 ms | < 120 ms | < 300 ms | 500 ms timeout → empty result + warning header |
-| OpenSearch, ≤ 100k files indexed | < 50 ms | < 150 ms | < 400 ms | circuit-break → sqlite fallback for 60s |
-| Type-ahead autocomplete (separate endpoint) | < 30 ms | < 80 ms | < 150 ms | suppress for that keystroke; never delay the main result |
-
-**Abort semantics**
-
-The handler reads `req.extensions::<tokio::sync::CancellationToken>()`. Axum already cancels the request future when the client drops; the OpenSearch / sqlx future inherits the cancellation. No per-handler abort code — just make sure long queries don't block on uncancellable work.
-
-**Facet cache**
-
-OpenSearch facets for the *unfiltered* current workspace are cached in the optional Redis cache for 30 seconds (key: `search:facets:<ws>:<scope>`). Filter-narrowed facets are computed on every request — they're cheap and the cache hit rate would be near zero.
-
-### **Re-indexing is incremental + idempotent**
-
-- Every write to `files` / `notes` / `share_links` enqueues an indexing job (`tokio::spawn` for v0.3; queue worker once volume justifies one).
-- On boot, Drive performs a delta sync: walks rows newer than the last-indexed-at, pushes diffs. No full reindex on every restart.
-- An `/api/admin/reindex` button drops the indexes + rebuilds — for after schema changes or recovering from index corruption.
-
-### **Redis-backed sessions inherit `tower-sessions::RedisStore` directly**
-
-No reinvention. `tower-sessions` already supports Redis; the env-var swap is one line in `drive-auth::session_store_from_env`.
-
-### **Presence hub on Redis uses PUBSUB, not streams**
-
-§14's brief described an in-process channel-per-workspace. The Redis impl maps each channel onto a Redis PUBSUB channel named `presence:{workspace_id}`. Subscribers are local SSE listeners; the publisher is whichever instance saw the heartbeat / audit event. No persistence — same amnesic semantics as the in-process hub.
-
-We don't use Redis Streams because we don't need replay or consumer groups for presence.
+- **Provider is pluggable** behind an `AiProvider` trait. Default: Claude via the Anthropic API (Haiku for extraction/classification, Sonnet/Opus for reasoning). A local-model adapter serves air-gapped installs with no egress.
+- **Embeddings are batched** and computed on the same index-worker cadence (a new version enqueues an embed job alongside the Tantivy job). Batch size + debounce are configurable to respect provider rate limits.
+- **Embedding store.** Vectors live beside the Tantivy index; for larger corpora, a vector index (e.g. an HNSW segment / a pgvector table when on Postgres) is added behind the same `AiProvider` retrieval trait. Semantic hits **rerank alongside** Tantivy exact results — never replacing them for compliance-critical retrieval.
+- **Rate-limit + circuit-break the provider.** Provider calls go through the same circuit-breaker middleware as the optional services; on provider failure, AI features degrade gracefully to plain Tantivy search and the SPA hides the AI affordances. Every AI call is audited and read-only.
+- **Cost + privacy controls.** Per-workspace toggles; the local-model adapter for installs that must not send content off-box.
 
 ### **Health-check + circuit-break on the optional services**
 
-- Boot probe: connect + ping. If `DRIVE_REDIS_URL` is set but unreachable, **boot fails** — operator opted in, deserves the loud failure.
-- Runtime: every call goes through a `tower` middleware that opens a circuit breaker on 5 consecutive failures over 10s, falls back to in-process for 60s, retries. Surface in `/api/admin/system` as `redis_status: healthy | circuit_open | unconfigured`.
-- Same shape for OpenSearch.
+- Boot probe: connect + ping. If `DOCHUB_REDIS_URL` (or an AI provider) is configured but unreachable, **boot fails** — the operator opted in, deserves the loud failure.
+- Runtime: every call goes through a `tower` middleware that opens a circuit breaker on 5 consecutive failures over 10s, falls back to in-process (or degrades AI) for 60s, retries. Surfaced in `/api/admin/system` as `redis_status` / `ai_status`: `healthy | circuit_open | unconfigured`.
 
 ## Locked-out decisions
 
-- **Redis-as-cache-of-sqlite-rows.** Tempting (`User`, `Workspace` are read-heavy). Skipped: the moment we cache rows we have an invalidation surface, and the metadata DB is the cheapest piece of the stack anyway. Cache when measured, not before.
-- **OpenSearch for audit log.** Different access pattern (time-series, write-heavy, range queries). v0.4 brief if ever needed; sqlite/postgres is fine until then.
-- **OpenSearch-as-primary-storage.** No. SQL stays authoritative; OpenSearch is a derived view that can be rebuilt.
-- **Embedded Tantivy/Lucene-on-disk.** Same trap as "Redis-as-cache" — adds a second source of truth, doesn't survive multi-node. If the operator's at >50 users they can run OpenSearch.
-- **Multi-region Redis / OpenSearch clusters.** Operator concern, not Drive's. We document "any reachable URL works" and stop.
+- **OpenSearch/Elasticsearch for content search.** No. Tantivy is the engine at every scale; the index is a rebuildable derived view. An external search cluster is a second source of truth and breaks the single-binary promise.
+- **Redis-as-cache-of-SQL-rows.** Tempting, skipped: caching rows adds an invalidation surface, and the metadata DB is the cheapest piece of the stack. Cache when measured, not before.
+- **OpenSearch for the audit log.** No — the audit log is authoritative, append-only, and hash-chained in SQL; it is never mirrored into a rebuildable index.
+- **Index/embeddings as the source of truth.** No. SQL rows + encrypted, hash-chained blobs are authoritative; Tantivy and the vector store are derived and rebuildable.
+- **Multi-region Redis clusters.** Operator concern, not Doc-Hub's. We document "any reachable URL works" and stop.
 
 ## Threat model
 
 | Risk | Mitigation |
 |---|---|
-| **Redis password in DRIVE_REDIS_URL leaks via logs** | URL redactor middleware already redacts `Authorization`, `Cookie`, `?access_token=`. Add `redis://*` URL redaction (replace `:<pwd>@` with `:***@`). |
-| **OpenSearch query injection via search box** | Use the OpenSearch client library's bound-parameter form (`Query::multi_match`), never string-concat into a query body. |
-| **Index leaks data across workspaces** | Every indexed doc has `workspace_id`; every query has a `term` filter on `workspace_id ∈ caller's memberships`. No `_all` queries from user-facing endpoints. |
-| **Stolen Redis credentials → presence forgery** | Presence events ride alongside the audit log; the audit log is authoritative + lives in SQL. A Redis attacker can spam events but can't fake history. |
-| **Redis connection exhaustion DoS** | `bb8-redis` pool with `max_size` matching the worker count; presence subscribers reuse a single pubsub connection. |
+| **Redis password in `DOCHUB_REDIS_URL` leaks via logs** | URL redactor middleware redacts `Authorization`, `Cookie`, `?access_token=`; add `redis://*` redaction (replace `:<pwd>@` with `:***@`). |
+| **AI provider key leaks via logs** | `DOCHUB_AI_API_KEY` redacted at the config + HTTP layer; never echoed in errors or `/api/admin/system`. |
+| **Content exfiltration via the AI provider** | Off by default; per-workspace opt-in; local-model adapter for air-gapped installs; every AI call audited. AI is read-only and never receives keys or writes storage. |
+| **Index leaks content across workspaces** | Every indexed doc carries `workspace_id`; every query filters on `workspace_id ∈ caller's memberships`. No `_all`/cross-workspace queries from user-facing endpoints. |
+| **Stolen Redis credentials → presence forgery** | Presence rides alongside the audit log; the audit log is authoritative in SQL. A Redis attacker can spam events but cannot fake history. |
+| **Index corruption / tamper** | The index is a derived view — `/api/admin/reindex` rebuilds it from the hash-chained authoritative blobs; a rebuilt index that disagrees with `verify_chain` surfaces a tamper alarm on the source, not the index. |
+| **Redis connection exhaustion DoS** | `bb8-redis` pool with `max_size` matching worker count; presence subscribers reuse a single pubsub connection. |
 
 ## Config
 
 ```
-DRIVE_REDIS_URL=redis://user:pass@host:6379/0          # opt-in, all four Redis-backed surfaces
-DRIVE_OPENSEARCH_URL=https://user:pass@host:9200       # opt-in
-DRIVE_OPENSEARCH_INDEX_PREFIX=drive_                   # default; lets a shared cluster host multiple Drives
-DRIVE_OPENSEARCH_FILES_INDEX=drive_files               # explicit override (default: prefix + "files")
-DRIVE_OPENSEARCH_NOTES_INDEX=drive_notes               # explicit override
-DRIVE_INDEXER_BATCH_SIZE=200                           # bulk-API batch
-DRIVE_INDEXER_INTERVAL_MS=2000                         # debounce
+DOCHUB_REDIS_URL=redis://user:pass@host:6379/0     # opt-in; rate limit, sessions, presence, cache bus
+DOCHUB_INDEX_WORKERS=4                             # Tantivy/extraction worker-pool size
+DOCHUB_INDEX_DIR=/data/index                       # Tantivy index location (shared volume for multi-replica)
+DOCHUB_INDEX_ROLE=writer|reader                    # multi-replica: exactly one writer owns index writes
+DOCHUB_AI_PROVIDER=anthropic|local|none            # default none (AI off)
+DOCHUB_AI_API_KEY=<provider key>                   # required when provider=anthropic
+DOCHUB_AI_EMBED_BATCH_SIZE=64                       # batch size for embedding jobs
+DOCHUB_AI_EMBED_INTERVAL_MS=2000                    # debounce
 ```
 
 ## Endpoints affected
 
-| Endpoint | Today (in-process) | With Redis | With OpenSearch |
+| Endpoint | Single instance (default) | With Redis | With AI enabled |
 |---|---|---|---|
-| `POST /api/auth/sign-in` | sqlite session | sqlite or `RedisStore` (env-picked) | unchanged |
-| `POST /api/files` (any upload) | sqlite write + audit | + enqueue index job (if OS set) | indexed within `INTERVAL_MS` |
-| `GET /api/search` | `LIKE '%q%'` | unchanged | OS query, filters, snippets |
-| `GET /api/presence/{ws}` (§14) | in-process hub | Redis PUBSUB hub | unchanged |
-| `POST /api/admin/reindex` | nothing (no index) | nothing | drop + rebuild all OS indexes |
+| `POST /api/auth/sign-in` | SQL session | SQL or `RedisStore` (env-picked) | unchanged |
+| `POST /api/files` (upload / new version) | SQL write + audit + enqueue index job | + Redis-backed rate limit | + enqueue embed job |
+| `GET /api/search` | Tantivy content query + SQL metadata | unchanged | + semantic rerank alongside Tantivy |
+| `GET /api/presence/{ws}` | in-process hub | Redis PUBSUB hub | unchanged |
+| `POST /api/admin/reindex` | drop + rebuild Tantivy from SQL + blobs | unchanged | also rebuilds embeddings |
 
 ## Implementation surface
 
-Four modules + one boot wire-up, ~800 LOC:
+Traits + one boot wire-up:
 
-- `crates/drive-cache/` (new) — thin Redis facade with the four traits. Default impls are in-process where they exist today.
-- `crates/drive-search/` (new) — the `SearchBackend` trait + `SqlLikeSearch` (moved from `drive-http::search`) + `OpenSearchBackend`.
-- `crates/drive-auth/src/session_store.rs` — picker between sqlite and Redis stores.
-- `crates/drive-http/src/state.rs` — `HttpState` gains `Arc<dyn SearchBackend>` + `Arc<dyn PresenceHubBackend>` + the rate-limit trait swap.
-- `crates/drive-bin/src/main.rs` — env-driven picker at boot, health probes, `tracing::info!` per-surface status.
-
-The indexer worker (PoC) is a `tokio::spawn` in `drive-bin` that drains a `tokio::sync::mpsc` channel. Promotion to a dedicated job queue (sqlx-job, river, etc.) is a Phase 4 conversation.
+- `crates/dochub-cache/` (new) — thin Redis facade with the four traits; in-process default impls where they exist today.
+- `crates/dochub-index/` — the Tantivy `SearchIndex` trait + `core`-backed extraction worker (already core to the product, extended here with worker-pool + durable-queue knobs).
+- `crates/dochub-ai/` — the optional `AiProvider` trait + Anthropic and local-model adapters; embedding worker.
+- `crates/dochub-auth/src/session_store.rs` — picker between SQL and Redis stores.
+- `crates/dochub-http/src/state.rs` — `AppState` gains the rate-limit + presence trait swaps.
+- `crates/dochub-bin/src/main.rs` — env-driven picker at boot, health probes, `tracing::info!` per-surface status.
 
 ## Test plan
 
-- Compile-time: `drive-cache` + `drive-search` compile with both `redis` and `default-features = false`. Feature-gated tests for the Redis impls (only run in CI with a sidecar redis service).
-- Integration: rate-limit + session + presence each have a Redis-backed test that uses `testcontainers-rs` to spin up a Redis. Skipped by default; CI runs them on the `infra` job.
-- OpenSearch: ditto. `testcontainers-rs` spins up `opensearchproject/opensearch:2` on demand; integration tests for index, search, filters, reindex.
+- Compile-time: `dochub-cache` compiles with both `redis` and `default-features = false`; feature-gated Redis tests run only in CI with a sidecar Redis.
+- Index: `dochub-index` unit + integration — extract a golden `.docx`/`.pdf`/`.xlsx`, assert the phrase is found; reindex on new version; index removal on tombstone; `reindex` rebuilds from blobs and matches.
+- Multi-replica: a `scripts/` compose brings up 2 Doc-Hub replicas (one `writer`, one `reader`) + Redis, runs a Playwright test that signs in on one replica and sees presence + freshly-indexed content on the other.
+- AI (when enabled): semantic query surfaces a doc keyword search misses; provider circuit-break degrades gracefully to Tantivy; every AI call is read-only and audited; local-model adapter produces no network egress (asserted).
 - Smoke: in-process impls keep their existing tests verbatim — the trait extraction must not break them.
-- Two-instance: a script in `scripts/` brings up 2 Drive replicas + Redis + OpenSearch via `docker compose`, runs a Playwright test that signs in on one + sees presence on the other.
 
 ## When to ship
 
-This brief is deferred until **the first operator outgrows in-process**. Concrete trigger: any of —
+Deferred until the first operator outgrows in-process. Concrete triggers — any of:
 
 - `/api/admin/system` reports `rate_limit_buckets > 1000` for a sustained hour.
-- An operator opens an issue saying they're running >1 replica.
-- A real-world Drive starts dropping presence events (telemetry shows hub fan-out > 5ms p99).
+- An operator opens an issue saying they run >1 replica.
+- The `dochub-index` queue depth stays above a threshold (extraction can't keep up with uploads).
+- AI features are enabled at a volume that hits provider rate limits.
 
-Until then, the existing in-process defaults are correct.
+Until then, the in-process defaults — Redis-free, single Tantivy index, AI off — are correct.

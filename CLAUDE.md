@@ -1,12 +1,14 @@
-# CLAUDE.md — instructions for Claude Code in this repo
+# CLAUDE.md — instructions for contributors and AI assistants in this repo
 
 ## What this project is
 
-**Casual Drive** — a self-hostable, file-centric Drive that opens `.xlsx` and `.docx` (and later `.pptx`) in the sibling Casual editors via the WOPI protocol. Part of the Casual Office suite (`schnsrw.live`; planned `casualoffice.org`).
+**Doc-Hub** — the CasualOffice Document Hub. A self-hostable, encrypted, tamper-evident **document registry and hub** for teams and individuals. Documents in; permanent, hash-chained, content-searchable history out. Part of the Casual Office suite (`casualoffice.org`).
 
-Single Rust binary, two HTTP origins, four pluggable storage backends, single-tenant admin auth, polished web UI.
+Single Rust binary, two HTTP origins, pluggable encrypted storage backends, project/team accounts, embedded native editors, polished web UI.
 
-## Five inviolable rules
+> Revamped from the former "Casual Drive" (a storage Drive). Where docs still say `drive-*` / `DRIVE_*`, read them as `dochub-*` / `DOCHUB_*` in flight — the rename is Phase 0 in `PLAN.md`.
+
+## Inviolable rules
 
 Set by the user. Never broken.
 
@@ -14,141 +16,96 @@ Set by the user. Never broken.
 2. **Plan UX.** Numbered flows before pixels. Spec lives in `docs/ux/01-flows.md`.
 3. **Consistent UI.** Surfaces, copy, motion all coherent. Spec lives in `docs/ux/02-surface.md`.
 4. **Industry-standard secure coding.** No homebrew crypto/auth. OWASP-aware. Checklist in `docs/research/06-security.md`.
-5. **Polished, minimalistic design.** macOS-*app*-grade polish — Things 3 / Linear / Raycast quality bar, NOT a Finder clone. Tokens + 10 commandments in `docs/research/04-polish-principles.md`.
+5. **Polished, minimalistic design.** macOS-*app*-grade polish — Things 3 / Linear / Raycast quality bar, professional and simple, NOT a Finder or Drive clone. Tokens + 10 commandments in `docs/research/04-polish-principles.md`.
+6. **History is append-only.** No code path may overwrite or hard-delete a committed document version, an audit event, or a hash-chain link. Destructive-looking operations are tombstones + retention, never erasure. This is the product.
+7. **Everything is tested.** No feature merges without unit + integration tests; user-facing flows carry an e2e use-case test; crypto and immutability invariants carry property tests. See `docs/TESTING.md`.
 
-Default working mode: **plan → present → ask → code.** Do not skip the planning loop even for "simple" tasks.
+Default working mode: **plan → present → ask → code.** Do not skip the planning loop.
+
+## Product scope
+
+**Documents only.** The ingest MIME allowlist is authoritative: `docx, xlsx, xlsm(opaque), pptx, pdf, md, txt, csv, json, yaml`. Everything else is rejected at upload. No video, images-as-primary, archives, or arbitrary binaries. The narrow scope is what lets us encrypt, index, and version everything.
+
+In scope:
+- Projects (team + personal locker), folders, documents, roles, invitations.
+- Native embedded editing (Sheet/Docs/PDF/Markdown) with real-time co-editing.
+- Immutable, hash-chained version history; restore-as-new; diff; provenance export.
+- Encryption at rest + in transit; per-workspace data keys.
+- Content full-text search (`core` + Tantivy); optional AI layer.
+- Compliance: audit log, retention, legal hold, document signing/provenance, reports.
+- Sharing (password + expiry) on the isolated user-content origin.
+
+Out of scope:
+- **Zero-knowledge E2E.** The server holds keys by design so it can index + reason over content. Encryption defends stolen storage/DB, not a compromised trusted server.
+- **Heavy/binary/media storage, sync clients, mailbox/calendar.**
+- **Native desktop app** — that is the Casual Desktop lane.
 
 ## Stack (locked)
 
-- **Backend:** Rust + Axum 0.8 + tokio + tower
-- **Storage:** OpenDAL behind a thin `Storage` facade (fs / memory / S3 / MinIO — all four shipped v0)
-- **Auth (v0):** single-tenant admin, `tower-sessions` + `__Host-cd_sid`, Argon2id passwords
-- **Editor handoff:** WOPI (Drive = host; sheet/, document/ = clients)
-- **Frontend:** React + Vite + Radix Primitives + shadcn/ui + Motion + cmdk + vaul + sonner + Lucide + Inter
-- **DB:** SQLite default, Postgres for production (every migration must be portable across both)
-- **SPA delivery:** `rust-embed`, single static binary
-- **Docker:** `cargo-chef` multi-stage, `debian:trixie-slim` runtime
-- **CI gates:** `cargo audit --deny warnings` + `cargo deny check` on every PR
+- **Backend:** Rust + Axum 0.8 + tokio + tower.
+- **Storage:** OpenDAL behind a thin `Storage` facade (fs / memory / S3 / MinIO / R2 / B2), with a mandatory at-rest **encryption layer** in `dochub-crypto`.
+- **Crypto:** AES-256-GCM envelope encryption; per-workspace DEK wrapped by a master KEK or external KMS; SHA-256 hash chains for versions + audit; Ed25519 for provenance signing. No homebrew primitives — use `ring`/`aws-lc-rs` and audited crates.
+- **DB:** SQLite default, Postgres for production. Every migration portable across both (TEXT ULIDs, ISO-8601 UTC, INTEGER 0/1 bools, no JSONB/enum/native-UUID).
+- **Auth:** Argon2id passwords, `tower-sessions` + `__Host-` cookie, OIDC (Authorization Code + PKCE).
+- **Editors:** embedded via the sibling editor SDKs (Sheet/Docs/PDF). Bytes are decrypted server-side and streamed to the embedded editor over the authenticated app origin. **WOPI is optional interop only** — not the primary editing path.
+- **Co-editing:** the `collab` server (Yjs / Hocuspocus), which relays opaque document bytes.
+- **Index/AI:** `core` for extraction; Tantivy for full-text; `dochub-ai` wraps a pluggable LLM provider (default Claude via the Anthropic API — Haiku for extraction/classification, Sonnet/Opus for reasoning/Q&A — with a local-model option for air-gapped installs).
+- **Frontend:** React + Vite + Radix + `@schnsrw/design-system` tokens.
+- **Delivery:** `rust-embed` single binary; `cargo-chef` multi-stage Docker on `debian:trixie-slim`.
 
-## What's in scope (v0)
-
-- Single-tenant admin signs in, manages files.
-- Upload/download (single + selection-as-zip).
-- Browse, rename, create folder, move (drag + picker), trash, restore from trash.
-- Open `.xlsx` in sheet/ and `.docx` in document/ via WOPI.
-- Search (Cmd-K palette).
-- Share-links with optional password and expiry (Phase 2).
-- Two-origin model: `drive.<host>` for the app; `usercontent-drive.<host>` for raw bytes.
-- Light + dark themes from day one.
-- Self-hostable in one Docker container on a $5 VPS.
-
-## What's out of scope
-
-- **MS365 / Office Online federation.** Proof-key RSA validation deferred; the hook stays in the design.
-- **Multi-user accounts.** Single-tenant v0; OIDC slot ready for Phase 3.
-- **Casual Slides handoff.** MIME slot reserved; no wiring until Slides exists.
-- **Macro-enabled Office formats** (`.xlsm` / `.docm` / `.pptm`) — accepted as opaque blobs, never auto-opened in editor.
-- **Auto-thumbnailing.** Decoding untrusted images is real CVE surface; needs sandboxed worker (Phase 3).
-- **Sync clients.** Browser-only.
-- **Real-time presence at the Drive level.** Editors carry their own collab; Drive's job is files.
-- **A native AppKit/Catalyst app.** Tauri wrapping is the Casual Desktop lane.
+Reopening any locked decision requires new research + a synthesis update in `docs/research/00-synthesis.md`.
 
 ## Required reading before substantive work
 
 1. [`PLAN.md`](./PLAN.md) — phased delivery plan; know which phase we're in.
-2. [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — workspace, storage facade, WOPI sequence, two-origin model, three-token identity model.
-3. [`docs/research/00-synthesis.md`](./docs/research/00-synthesis.md) — locked decisions + cross-brief tension resolutions.
-4. [`docs/ux/01-flows.md`](./docs/ux/01-flows.md) — the 16 v0 user flows.
-5. [`docs/ux/02-surface.md`](./docs/ux/02-surface.md) — visual surface spec, ASCII layouts, state checklists.
-
-Then dip into the topic briefs (`docs/research/01-06.md`) when their domain comes up.
+2. [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — storage facade, encryption layer, version/hash-chain engine, two-origin model, token model, editor embedding.
+3. [`docs/TESTING.md`](./docs/TESTING.md) — the test contract every PR is measured against.
+4. [`docs/research/00-synthesis.md`](./docs/research/00-synthesis.md) — locked decisions + tension resolutions.
+5. [`docs/research/06-security.md`](./docs/research/06-security.md) — threat model + security checklist.
+6. [`docs/ux/01-flows.md`](./docs/ux/01-flows.md) + [`docs/ux/02-surface.md`](./docs/ux/02-surface.md).
 
 ## Hard rules
 
-### Storage goes through the facade — always
+### Every committed version is immutable and hash-chained
+- A version row stores `content_hash = SHA-256(ciphertext)` and `prev_hash` (the previous version's `content_hash`). The chain head is the file's current version. Verification recomputes the chain; a break is a tamper alarm, surfaced, never silently repaired.
+- Version blobs are content-addressed and write-once. "Delete" sets a tombstone and obeys retention/legal-hold; it never removes bytes under hold.
+- The `audit_log` is append-only and itself hash-chained. Never `UPDATE`/`DELETE` a committed audit row.
 
-- Handler code talks to `Arc<Storage>`. Never reaches into `opendal::Operator` directly. The facade exists so the capability gates and `/raw/{token}` fallback work uniformly across backends.
-- New backends added by listing a new `opendal::services::*` builder in `Storage::from_env`. The trait doesn't grow.
+### Storage goes through the facade — always, encrypted
+- Handler code talks to `Arc<Storage>`; never `opendal::Operator` directly. Bytes are encrypted by `dochub-crypto` before they reach the backend and decrypted after they leave it. No plaintext document bytes are ever written to a storage backend.
+- New backends are added by listing a new `opendal::services::*` builder; the trait does not grow.
 
-### WOPI conformance is non-negotiable
-
-- The 7 endpoints, the status-code contract (especially the 409 + `X-WOPI-Lock` response header — mandatory on 409, forbidden on 200), and the lock semantics from `docs/research/01-wopi.md` §1 + §4 are spec. Don't improvise.
-- Access tokens carry `(user_id, file_id, perms, exp, jti)` and are HMAC-SHA256. Validated server-side every call. File-id in URL MUST match file-id in token claim.
-- Lock duration is **30 min** (not 30 s). Client refreshes every ~10 min. Stale locks (`expires_at < now()`) are treated as absent.
-- Proof-key cryptography is NOT in v0 (no MS365 federation). The hook is present; the validation call is `Ok(())`. When/if MS365 federation lands, that hook becomes real.
+### Encryption is not optional
+- No config flips off at-rest encryption. Boot **refuses to start** without a master KEK (or configured KMS). Keys never appear in logs, errors, or responses.
+- Per-workspace DEKs are wrapped, not stored plaintext. Key rotation re-wraps DEKs without rewriting document blobs.
 
 ### Two-origin model is non-negotiable
-
-- App origin (`drive.<host>`) serves SPA, JSON API, WOPI endpoints. Strict CSP. Cookies live here.
-- User-content origin (`usercontent-drive.<host>`) serves `/raw/{token}` only. `CSP: sandbox; default-src 'none'`. No cookies. `Content-Disposition: attachment` for non-previewable types.
+- App origin serves SPA, JSON API, embedded-editor byte streams. Strict CSP. Session cookies live here only.
+- User-content origin serves `/raw/{token}` (share-link + isolated content) only. `CSP: sandbox; default-src 'none'`, no cookies, `Content-Disposition: attachment` for non-previewable types.
 - Boot **refuses to start in production** if `app_origin == usercontent_origin`. Test this.
-- Do not weaken either CSP. Do not move `/raw/{token}` to the app origin. Do not set session cookies on the user-content origin.
 
-### Three tokens, three purposes, never confuse them
+### Tokens: distinct purposes, never confused
+- **Session cookie** (`__Host-` prefixed): the user's browser session; server-side store.
+- **Editor access token**: per-launch, per-document, short TTL, HMAC-signed claim `(user_id, file_id, perms, exp, jti)`; document-id in URL must match the claim.
+- **Share-link token**: per-row, constant-time compared against the DB.
+- **Signed-URL token**: fs/mem `/raw/{token}` HMAC over `(key, exp, method)`.
 
-- **Session cookie** (`__Host-cd_sid`): the admin's browser session. Server-side store.
-- **WOPI access token**: per-launch, per-file, 10-min TTL. HMAC-signed claim. Sent on every WOPI request.
-- **Share-link token**: per-share-link row. Path segment `/s/<token>`. Verified by constant-time compare against the DB row.
-- **(plus) Signed-URL token**: fs/mem only, for the `/raw/{token}` handler. HMAC over `(key, exp, method)`.
-
-Don't reuse one for another's job.
+### Ingest is allowlisted + sniffed
+- Enforce the documents-only MIME allowlist on every upload path (proxy and direct-to-storage), by extension **and** magic-byte sniff. Reject, don't quarantine.
 
 ### Polish bar is enforceable
+The 10 commandments in `docs/research/04-polish-principles.md` gate every UI PR; a break must be called out and justified.
 
-The 10 commandments from `docs/research/04-polish-principles.md`:
+## Working rules
 
-1. One primary action per screen.
-2. Type carries hierarchy.
-3. Snap to the 4/8 grid.
-4. Concentric corners.
-5. Sub-100 ms or it's broken.
-6. Skeletons not spinners.
-7. Keyboard is a first-class surface.
-8. `prefers-reduced-motion` honoured everywhere.
-9. One icon family, one stroke weight.
-10. Copy is warm, direct, present-tense, sentence-case.
-
-Any PR that breaks one of these has to call it out and explain.
-
-### Storage keys are opaque
-
-- Storage keys are `ulid::Ulid::new()` (or UUIDv7). Never derived from user input.
-- Display names are separate metadata, sanitised on store and re-sanitised on render.
-- `fs` adapter canonicalises and root-confines every resolved path. Refuses symlinks escaping the root.
-
-### Security checklist applies to every PR
-
-The v0 must-have list at the bottom of `docs/research/06-security.md` is the gate. New endpoints get reviewed against:
-- magic-byte sniffing on uploads
-- `nosniff` + per-origin CSP
-- rate limit + body cap + quota
-- redaction of `Authorization`, `Cookie`, `X-WOPI-*`, `?access_token=` in logs
-- HMAC constant-time compares for any signed token
-
-## Working rules for Claude
-
-1. **Read before you write.** When implementing a feature, read the relevant flow + surface spec + architecture section first. Cite paths in PRs.
-2. **Match the existing tone.** This repo's docs (and sibling sheet/, document/) use terse, decision-oriented language. No marketing prose. No exclamation marks.
-3. **Cite file paths and line numbers** when referencing existing code: `crates/drive-wopi/src/handlers.rs:142`.
-4. **Default new editor-side code to the sibling repos.** Sheet WOPI client logic goes in `../sheet/apps/server/` and `../sheet/apps/web/`. Document WOPI client logic goes in `../document/backend/internal/host/wopi/` and `../document/docx-editor/`.
-5. **Don't propose unbacked alternatives.** WOPI is the editor handoff. OpenDAL is the storage layer. tower-sessions is the session layer. Argon2id is the password hash. These are locked. Reopening requires new research and a new synthesis update.
-6. **Update docs in the same commit as the code change.** If you change a flow, update `01-flows.md`. If you change the storage facade, update `ARCHITECTURE.md` §"Storage facade". Stale docs poison every future session.
-7. **Don't introduce new runtime dependencies casually.** Adding a crate widens the bus factor and the vuln surface. Justify in the PR.
-8. **Test against the conformance suite.** Storage changes run all four adapter tests. WOPI changes run the proof-key fixtures (even though we don't validate in v0 — we will).
-
-## Style
-
-- Match the tight tone of `../sheet/CLAUDE.md` and `../document/CLAUDE.md` when adding to docs.
-- Don't bloat docs with marketing language.
-- State decisions and tradeoffs.
-- Use the citation format `crates/drive-X/src/file.rs:LINE` when referencing source.
+1. **Read before you write.** Read the relevant flow + surface + architecture section first; cite paths in PRs (`crates/dochub-crypto/src/envelope.rs:142`).
+2. **Match the tone.** Terse, decision-oriented, present-tense, sentence-case. No marketing prose, no exclamation marks. Mirror `../sheet/CLAUDE.md` and `../document/CLAUDE.md`.
+3. **Ship tests in the same PR.** Per `docs/TESTING.md`. A PR that changes behaviour without a test is incomplete.
+4. **Update docs in the same commit as the code.** Change a flow → update `01-flows.md`; change the crypto layer → update `ARCHITECTURE.md`. Stale docs poison every future session.
+5. **Don't propose unbacked alternatives.** The locked stack is locked. Reopening needs research + a synthesis update.
+6. **Depend on `core` for document knowledge.** Text extraction, format parsing, and conversion live in `core`, not re-implemented here.
+7. **Don't add runtime dependencies casually** — especially crypto. Justify in the PR; prefer audited crates.
 
 ## Phase awareness
 
-Always know which phase we're in. The current phase is at the top of `PLAN.md`. As of writing:
-
-- **Phase 0 — spikes** is next. Throwaway code to prove unknowns.
-- Phase 1 walking-skeleton scope is locked but not started.
-- Phase 2 + 3 are described but not committed.
-
-Don't start Phase 1 code until Phase 0 spikes are decided.
+Always know the current phase (top of `PLAN.md`). Phase 0 is the Drive→Doc-Hub rename + scope narrowing + encryption/immutability foundations. Do not start a later phase's code before its predecessors' gates are green.

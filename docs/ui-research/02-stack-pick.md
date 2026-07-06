@@ -1,6 +1,6 @@
-# 02 — Casual Drive SPA: Component Library + Motion Stack Pick (2026)
+# 02 — Doc-Hub SPA: Component Library + Motion Stack Pick (2026)
 
-**Audience:** the frontend engineer wiring Drive's web UI on React 19 + Vite 7 + Tailwind v4 + TS.
+**Audience:** the frontend engineer wiring Doc-Hub's web UI on React 19 + Vite 7 + Tailwind v4 + TS.
 **Purpose:** decide — once — which component library, which motion lib, which form lib, which palette/toast/drawer.
 **Polish bar:** Things 3 / Linear / Raycast (see [`04-polish-principles.md`](../research/04-polish-principles.md)).
 **Inviolable rule:** Lucide SVG icons. Never emoji.
@@ -15,9 +15,9 @@ All version numbers and maintenance claims were cross-checked via WebSearch in J
 - **Don't** use Mantine / Chakra / MUI — full design systems will fight the @theme tokens you already own.
 - **Don't** buy Catalyst at $149 — Catalyst is fine and built by the Tailwind team, but the OSS Radix + shadcn stack now matches it on polish and gives more headroom for a Things-3-shaped product.
 - **Motion layer:** **Motion** (the Framer Motion rebrand, `motion` 12.x) using the `m` + `LazyMotion(domAnimation)` pattern → ~4.6 kB initial render. CSS transitions for hover / focus / press; Motion only for layout, gesture, springs.
-- **List reorder:** **`@formkit/auto-animate`** as the drop-in for file-list reorder; do not reach for `motion/layout` for this.
+- **List reorder:** **`@formkit/auto-animate`** as the drop-in for document-list reorder (on rename / move / sort); do not reach for `motion/layout` for this.
 - **Adjacent picks:** **`vaul` 1.1.x** for mobile sheets, **`sonner` 2.0.x** for toasts, **`cmdk` 1.1.x** for the command palette (with eyes open — upstream is quiet; have a fork plan).
-- **Form layer:** **`react-hook-form` 7.x + zod 4.x**. TanStack Form is great but heavier; Conform is the right call only if Drive moves to RSC server actions, which it isn't.
+- **Form layer:** **`react-hook-form` 7.x + zod 4.x**. TanStack Form is great but heavier; Conform is the right call only if Doc-Hub moves to RSC server actions, which it isn't.
 - **Icons:** **`lucide-react`** (already mandated). Phosphor as the fallback when a glyph is missing.
 
 ---
@@ -26,7 +26,7 @@ All version numbers and maintenance claims were cross-checked via WebSearch in J
 
 ### Trade-off matrix
 
-| Library                | OOTB polish    | TW v4 fit                  | Customization headroom | Coverage of Drive's 11 primitives | TS quality        | Bundle @ ~10 primitives |
+| Library                | OOTB polish    | TW v4 fit                  | Customization headroom | Coverage of Doc-Hub's 11 primitives | TS quality        | Bundle @ ~10 primitives |
 |------------------------|----------------|----------------------------|------------------------|-----------------------------------|-------------------|--------------------------|
 | shadcn/ui (on Radix)   | High           | First-class (v4-ready)     | Full — code lives in your repo | All 11 first-class          | Strong            | ~25-35 kB gz `[unverified]` |
 | Radix Primitives (raw) | None (unstyled)| Native — no CSS-in-JS at all | Total                | All 11 except Toast/Command       | Strong            | ~15-25 kB gz `[unverified]` |
@@ -43,31 +43,31 @@ The library went through a major rewrite for Tailwind v4 + React 19. The CLI now
 
 The "copy components into your project" model is **still right** — and the March 2026 `shadcn` CLI v4 strengthens it. New flags `--dry-run`, `--diff`, `--view` let you inspect a registry payload before it touches disk, and `registry:base` lets a registry distribute an entire design system as one payload (components + deps + CSS vars + fonts + config) ([CLI v4 changelog](https://ui.shadcn.com/docs/changelog/2026-03-cli-v4), [Mar 2026 update writeup](https://dev.to/codedthemes/shadcnui-march-2026-update-cli-v4-ai-agent-skills-and-design-system-presets-1gp1)). April 2026 added shadcn presets (Sera, Luma), Pointer Cursor, Partial Preset Apply, and Component Composition ([changelog](https://ui.shadcn.com/docs/changelog)).
 
-What ships: Accordion, Alert, Alert Dialog, Aspect Ratio, Avatar, Badge, Breadcrumb, Button, Calendar, Card, Carousel, Chart, Checkbox, Collapsible, Command (cmdk), Context Menu, Data Table, Date Picker, Dialog, Drawer (vaul), Dropdown Menu, Form (RHF + Zod), Hover Card, Input, Input OTP, Label, Menubar, Navigation Menu, Pagination, Popover, Progress, Radio Group, Resizable, Scroll Area, Select, Separator, Sheet, Sidebar, Skeleton, Slider, Sonner (toast), Switch, Table, Tabs, Textarea, Toggle, Toggle Group, Tooltip — i.e. every primitive Drive needs, all behind Radix + already wired to the Lucide+ Tailwind+ Inter aesthetic Drive is targeting.
+What ships: Accordion, Alert, Alert Dialog, Aspect Ratio, Avatar, Badge, Breadcrumb, Button, Calendar, Card, Carousel, Chart, Checkbox, Collapsible, Command (cmdk), Context Menu, Data Table, Date Picker, Dialog, Drawer (vaul), Dropdown Menu, Form (RHF + Zod), Hover Card, Input, Input OTP, Label, Menubar, Navigation Menu, Pagination, Popover, Progress, Radio Group, Resizable, Scroll Area, Select, Separator, Sheet, Sidebar, Skeleton, Slider, Sonner (toast), Switch, Table, Tabs, Textarea, Toggle, Toggle Group, Tooltip — i.e. every primitive Doc-Hub needs, all behind Radix + already wired to the Lucide+ Tailwind+ Inter aesthetic Doc-Hub is targeting.
 
-**The shadcn copy-paste model is also the only one that gives Drive the polish headroom it needs.** Every micro-detail from `04-polish-principles.md` (concentric radii, hairline borders, inner-shadow inputs, `cubic-bezier(0.32, 0.72, 0, 1)` ease-out, focus ring at 60% accent) requires reaching *into* the component CSS. With shadcn the CSS is yours. With Mantine/Chakra/MUI it's two layers of overrides.
+**The shadcn copy-paste model is also the only one that gives Doc-Hub the polish headroom it needs.** Every micro-detail from `04-polish-principles.md` (concentric radii, hairline borders, inner-shadow inputs, `cubic-bezier(0.32, 0.72, 0, 1)` ease-out, focus ring at 60% accent) requires reaching *into* the component CSS. With shadcn the CSS is yours. With Mantine/Chakra/MUI it's two layers of overrides.
 
 ### Radix Primitives — yes (under shadcn)
 
-Maintained by WorkOS since the Modulz acquisition. The umbrella `radix-ui` package (1.4.x as of April 2026) re-exports every primitive from one place to avoid `node_modules` bloat ([GitHub](https://github.com/radix-ui/primitives), [Issue #3854](https://github.com/radix-ui/primitives/issues/3854)). ~28-30 primitives covering everything Drive needs except Command/Toast/Drawer ([Radix Primitives](https://www.radix-ui.com/primitives)). Recent additions include a preview `OneTimePasswordField` ([releases](https://github.com/radix-ui/primitives/releases)).
+Maintained by WorkOS since the Modulz acquisition. The umbrella `radix-ui` package (1.4.x as of April 2026) re-exports every primitive from one place to avoid `node_modules` bloat ([GitHub](https://github.com/radix-ui/primitives), [Issue #3854](https://github.com/radix-ui/primitives/issues/3854)). ~28-30 primitives covering everything Doc-Hub needs except Command/Toast/Drawer ([Radix Primitives](https://www.radix-ui.com/primitives)). Recent additions include a preview `OneTimePasswordField` ([releases](https://github.com/radix-ui/primitives/releases)).
 
 Radix is **the foundation layer** for shadcn/ui — Dialog, DropdownMenu, Popover, Tabs, Tooltip, ToggleGroup, ScrollArea, Switch, Slider all come from Radix. Picking shadcn implicitly picks Radix; this is correct.
 
 ### Park UI — pass
 
-Park UI is the shadcn-shaped alternative that swaps Radix for Ark UI / Zag.js and Panda CSS for Tailwind ([park-ui.com](https://park-ui.com/)). Real, currently-maintained, ~2.2k stars in 2026, Tailwind-v4 variant ships ([best-tailwind-libs roundup](https://designrevision.com/blog/best-tailwind-component-libraries), [tailkits entry](https://tailkits.com/components/park-ui/)). Worth knowing only if you've decided to standardize on Ark UI / Panda CSS — which Drive hasn't. Pass.
+Park UI is the shadcn-shaped alternative that swaps Radix for Ark UI / Zag.js and Panda CSS for Tailwind ([park-ui.com](https://park-ui.com/)). Real, currently-maintained, ~2.2k stars in 2026, Tailwind-v4 variant ships ([best-tailwind-libs roundup](https://designrevision.com/blog/best-tailwind-component-libraries), [tailkits entry](https://tailkits.com/components/park-ui/)). Worth knowing only if you've decided to standardize on Ark UI / Panda CSS — which Doc-Hub hasn't. Pass.
 
 ### Tailwind Catalyst — pass (with respect)
 
 Built by the Tailwind team on top of Headless UI; you download the source, you own it, just like shadcn ([Catalyst docs](https://catalyst.tailwindui.com/docs), [LogRocket review](https://blog.logrocket.com/exploring-catalyst-tailwind-ui-kit-react/)). One-time $149 for the Catalyst toolkit license, $299 for All-Access ([Tailwind Plus](https://tailwindcss.com/plus)). Ships Dialog, Dropdown, Select, Input, Listbox, Button, Avatar, Badge, Switch, Table, application layouts — but **no Command Palette, no Toast, no Tooltip primitive of comparable maturity to Radix Tooltip**, no Drawer ([dialog doc](https://catalyst.tailwindui.com/docs/dialog), [dropdown doc](https://catalyst.tailwindui.com/docs/dropdown)).
 
-Catalyst is excellent. Radix + shadcn just happens to give Drive equivalent polish, more primitives, more public momentum, and zero license. Pass.
+Catalyst is excellent. Radix + shadcn just happens to give Doc-Hub equivalent polish, more primitives, more public momentum, and zero license. Pass.
 
 ### Ark UI / Zag — pass
 
 `@ark-ui/react` ~311k weekly downloads in early 2026 ([package](https://www.npmjs.com/package/@ark-ui/react)). 45+ headless primitives, framework-agnostic, each component is a finite state machine in Zag.js ([Ark intro](https://ark-ui.com/docs/overview/introduction), [Ark vs Zag](https://github.com/chakra-ui/ark/discussions/2795)). Documentation refresh January 2026 added live interactive previews per component.
 
-It is technically excellent and probably *more* rigorous than Radix on edge-case state. But it brings no styled components of its own — Drive would need to either pull in Park UI (which means adopting Panda CSS or starting style-from-scratch) or roll a shadcn-equivalent registry by hand. That's months of work for a small accessibility delta that Radix already covers. Pass.
+It is technically excellent and probably *more* rigorous than Radix on edge-case state. But it brings no styled components of its own — Doc-Hub would need to either pull in Park UI (which means adopting Panda CSS or starting style-from-scratch) or roll a shadcn-equivalent registry by hand. That's months of work for a small accessibility delta that Radix already covers. Pass.
 
 ### Mantine / Chakra / MUI — pass, all three
 
@@ -77,15 +77,15 @@ All three are *design systems*, not primitives:
 - **Chakra v3** (Oct 2024 ground-up rewrite) replaced style-props with Panda CSS recipes, integrated Ark UI state machines, dropped Framer Motion in favor of native CSS animations ([Chakra v3 notes](https://adminlte.io/blog/mantine-vs-chakra-ui-vs-mui/)). Same issue — its token system competes with Tailwind v4.
 - **MUI** is Material-Design-shaped; emotion-based; great enterprise moat (data grid, commercial support) — wrong polish bar.
 
-Picking any of these means accepting their visual identity and ~80-150 kB of components you'll never use, plus a wrestling match with Tailwind v4 tokens. The Drive UI we want is a content-led canvas with hidden chrome; design-system suites push back on that.
+Picking any of these means accepting their visual identity and ~80-150 kB of components you'll never use, plus a wrestling match with Tailwind v4 tokens. The Doc-Hub UI we want is a content-led canvas with hidden chrome; design-system suites push back on that.
 
 ### Pick
 
 **Radix Primitives (via `radix-ui` umbrella) + shadcn/ui copy-paste components, on Tailwind v4 + React 19.**
 
 Why this and not the alternatives:
-1. Every Drive primitive (Dialog, DropdownMenu, Popover, Tooltip, ToggleGroup, ScrollArea, Tabs, ContextMenu, Switch, Slider, Toast-via-sonner, Command-via-cmdk) is first-class. Coverage = 100%.
-2. The code lives in Drive's repo; we can edit any component to enforce the 10 Commandments without monkey-patching a vendor lib.
+1. Every Doc-Hub primitive (Dialog, DropdownMenu, Popover, Tooltip, ToggleGroup, ScrollArea, Tabs, ContextMenu, Switch, Slider, Toast-via-sonner, Command-via-cmdk) is first-class. Coverage = 100%.
+2. The code lives in Doc-Hub's repo; we can edit any component to enforce the 10 Commandments without monkey-patching a vendor lib.
 3. Tailwind v4 + React 19 are both first-class; the `@theme` tokens in `04-polish-principles.md` drop in without ceremony.
 4. Public momentum: this is what Linear-shaped products are built on in 2026.
 
@@ -109,34 +109,34 @@ Why this and not the alternatives:
 
 Framer Motion became independent and rebranded as Motion at [motion.dev](https://motion.dev/) ([rebrand notice](https://forums.tumult.com/t/motion-dev-now-becomes-independent-and-uses-vanilla-javascript/24256), [fireup writeup](https://fireup.pro/news/framer-motion-becomes-independent-introducing-motion)). The package name moved from `framer-motion` to `motion` and imports moved from `framer-motion` to `motion/react` ([upgrade guide](https://motion.dev/docs/react-upgrade-guide)). Both names still resolve; `framer-motion` is the legacy alias.
 
-Bundle: the full `motion` component is ~34 kB. With the `m` component + `LazyMotion` pattern Drive can ship **~4.6 kB initial render**, then lazy-load `domAnimation` (+15 kB) for animations/variants/exit/tap-hover-focus or `domMax` (+25 kB) when drag/pan/layout is on the page ([LazyMotion docs](https://motion.dev/docs/react-lazy-motion), [reduce bundle](https://motion.dev/docs/react-reduce-bundle-size)). Drive: wrap the SPA in `<LazyMotion features={domAnimation}>` once, use `m.div` everywhere, escalate to `domMax` only on the drag/upload screen.
+Bundle: the full `motion` component is ~34 kB. With the `m` component + `LazyMotion` pattern Doc-Hub can ship **~4.6 kB initial render**, then lazy-load `domAnimation` (+15 kB) for animations/variants/exit/tap-hover-focus or `domMax` (+25 kB) when drag/pan/layout is on the page ([LazyMotion docs](https://motion.dev/docs/react-lazy-motion), [reduce bundle](https://motion.dev/docs/react-reduce-bundle-size)). Doc-Hub: wrap the SPA in `<LazyMotion features={domAnimation}>` once, use `m.div` everywhere, escalate to `domMax` only on the drag/upload screen.
 
 Latest version 12.27.5 was verified 2026-01-21 ([changelog](https://motion.dev/changelog)). Motion now also ships vanilla and Vue APIs.
 
 ### Motion One — pass
 
-Bundle hero (~3 kB core `animate()`, all on the Web Animations API) ([Motion One bg](https://knaap.dev/posts/a-short-introduction-to-motion-one/), [Motion vs Motion One](https://motion.dev/magazine/should-i-use-framer-motion-or-motion-one)). But it lacks spring physics, layout animations, exit animations, gesture handling — i.e. exactly the things Drive needs for direct-manipulation polish. Motion with LazyMotion gets to ~4.6 kB anyway and gives Drive the spring presets `04-polish-principles.md` already specifies. Pass.
+Bundle hero (~3 kB core `animate()`, all on the Web Animations API) ([Motion One bg](https://knaap.dev/posts/a-short-introduction-to-motion-one/), [Motion vs Motion One](https://motion.dev/magazine/should-i-use-framer-motion-or-motion-one)). But it lacks spring physics, layout animations, exit animations, gesture handling — i.e. exactly the things Doc-Hub needs for direct-manipulation polish. Motion with LazyMotion gets to ~4.6 kB anyway and gives Doc-Hub the spring presets `04-polish-principles.md` already specifies. Pass.
 
 ### @formkit/auto-animate — yes (narrow)
 
-Zero-config, drop-in, single hook (`useAutoAnimate`) on a list container; smoothly animates add / remove / reorder ([site](https://auto-animate.formkit.com/), [npm](https://www.npmjs.com/package/@formkit/auto-animate)). 0.9.x current, ~2 kB. Drive's file list is the canonical use case — when a user creates / moves / renames a file, the row slides into its new slot. Doing the same with Motion's `<Reorder.Group>` is more code for an identical result.
+Zero-config, drop-in, single hook (`useAutoAnimate`) on a list container; smoothly animates add / remove / reorder ([site](https://auto-animate.formkit.com/), [npm](https://www.npmjs.com/package/@formkit/auto-animate)). 0.9.x current, ~2 kB. Doc-Hub's document list is the canonical use case — when a document is added, moved, renamed, or re-sorted, the row slides into its new slot. (A committed version is never optimistically reordered — the list reflows only when the server confirms.) Doing the same with Motion's `<Reorder.Group>` is more code for an identical result.
 
 ### CSS-only transitions — yes (the bulk)
 
-The case for going framework-less: hover, focus, press, color tints, opacity fades, route-level fade-throughs are *trivially* expressed in CSS, run on the compositor, cost zero bytes, and never desync with React state. Motion earns its bundle for **springs, layout shifts, exits, gestures**. Use CSS for everything else. Drive's tokens already define `--ease-out: cubic-bezier(0.32, 0.72, 0, 1)` and `--dur-fast/base/slow/slower` — apply those, not `motion`.
+The case for going framework-less: hover, focus, press, color tints, opacity fades, route-level fade-throughs are *trivially* expressed in CSS, run on the compositor, cost zero bytes, and never desync with React state. Motion earns its bundle for **springs, layout shifts, exits, gestures**. Use CSS for everything else. Doc-Hub's tokens already define `--ease-out: cubic-bezier(0.32, 0.72, 0, 1)` and `--dur-fast/base/slow/slower` — apply those, not `motion`.
 
 ### vaul, sonner, cmdk
 
 These are not motion libraries in the same sense — they're component primitives with motion baked in. Worth covering because the stack pick has to mention them.
 
-- **vaul 1.1.2** — Emil Kowalski's drawer for React, built on Radix Dialog, drag-to-dismiss, used by Vercel in prod, 2,200+ dependents ([GitHub](https://github.com/emilkowalski/vaul), [npm](https://www.npmjs.com/package/vaul)). Last published mid-2025 — not actively churning but stable. Drive uses it for mobile bottom sheets and any drag-to-dismiss surface.
-- **sonner 2.0.7** — Emil Kowalski's toast, shadcn/ui's default Toaster component, 3,672 dependents ([GitHub](https://github.com/emilkowalski/sonner), [npm](https://www.npmjs.com/package/sonner)). Drive uses it for "Created.", "Couldn't reach the server." — the Linear-voice confirmations from §15 of polish-principles.
-- **cmdk 1.1.1** — Paco Coursey's command menu; what Linear, Vercel, Raycast use ([npm](https://www.npmjs.com/package/cmdk)). **Caveat:** the npm package hasn't seen a release in 12+ months; Snyk's analysis flags low maintainer activity ([cmdk on Snyk](https://security.snyk.io/package/npm/cmdk)). Active forks exist (`cmdk-base`, `@udecode/cmdk`). For v0 the upstream is fine — it's a tiny, mostly-feature-complete library — but if Drive ever needs a fix the realistic plan is to fork. Worth saying out loud now.
+- **vaul 1.1.2** — Emil Kowalski's drawer for React, built on Radix Dialog, drag-to-dismiss, used by Vercel in prod, 2,200+ dependents ([GitHub](https://github.com/emilkowalski/vaul), [npm](https://www.npmjs.com/package/vaul)). Last published mid-2025 — not actively churning but stable. Doc-Hub uses it for mobile bottom sheets and any drag-to-dismiss surface.
+- **sonner 2.0.7** — Emil Kowalski's toast, shadcn/ui's default Toaster component, 3,672 dependents ([GitHub](https://github.com/emilkowalski/sonner), [npm](https://www.npmjs.com/package/sonner)). Doc-Hub uses it for "Created.", "Couldn't reach the server." — the Linear-voice confirmations from §15 of polish-principles.
+- **cmdk 1.1.1** — Paco Coursey's command menu; what Linear, Vercel, Raycast use ([npm](https://www.npmjs.com/package/cmdk)). **Caveat:** the npm package hasn't seen a release in 12+ months; Snyk's analysis flags low maintainer activity ([cmdk on Snyk](https://security.snyk.io/package/npm/cmdk)). Active forks exist (`cmdk-base`, `@udecode/cmdk`). For v0 the upstream is fine — it's a tiny, mostly-feature-complete library — but if Doc-Hub ever needs a fix the realistic plan is to fork. Worth saying out loud now.
 
 ### Motion stack pick
 
-- **For Drive use Motion (`motion` 12.x) for** springs, layout animations, exit transitions, drag/gesture (Magic Plus-style affordances), and any direct-manipulation polish. Always behind `LazyMotion` + `m.` components.
-- **Use `@formkit/auto-animate` for** the file list when rows are added, removed, or reordered.
+- **For Doc-Hub use Motion (`motion` 12.x) for** springs, layout animations, exit transitions, drag/gesture (Magic Plus-style affordances), and any direct-manipulation polish. Always behind `LazyMotion` + `m.` components.
+- **Use `@formkit/auto-animate` for** the document list when rows are added, removed, or reordered.
 - **Use CSS transitions for** hover, focus, press, color tints, opacity, route fade-throughs — i.e. the 80% of motion that doesn't need React state.
 - **Use vaul for** mobile sheets, **sonner for** toasts, **cmdk for** the command palette. Plan to fork cmdk if it goes silent for another year.
 
@@ -144,17 +144,17 @@ These are not motion libraries in the same sense — they're component primitive
 
 ## Form Layer
 
-Drive ships exactly one form for v0: the auth form. Don't over-engineer.
+Doc-Hub ships exactly one form for v0: the auth form. Don't over-engineer.
 
 - **`react-hook-form` 7.x + `zod` 4.x + `@hookform/resolvers`** — ~12 kB gz, works with React 19, integrated as `Form` in shadcn/ui, "battle-tested, performant, great ecosystem" ([2026 form-lib comparison](https://www.pkgpulse.com/guides/best-react-form-libraries-2026), [Formisch comparison](https://formisch.dev/blog/react-form-library-comparison/)).
 - **TanStack Form** — first-class TS inference RHF can't match, but heavier and over-engineered for one auth form ([TanStack comparison](https://tanstack.com/form/latest/docs/comparison)).
-- **Conform** — the right answer *only* if Drive moves to Next.js App Router server actions, because Conform optimizes for progressively enhanced server actions with one Zod schema shared client/server ([Conform](https://conform.guide/), [server-actions guide](https://www.robinwieruch.de/next-forms/)). Drive is Vite SPA — not the architecture Conform is built for.
+- **Conform** — the right answer *only* if Doc-Hub moves to Next.js App Router server actions, because Conform optimizes for progressively enhanced server actions with one Zod schema shared client/server ([Conform](https://conform.guide/), [server-actions guide](https://www.robinwieruch.de/next-forms/)). Doc-Hub is Vite SPA — not the architecture Conform is built for.
 
-**Pick: `react-hook-form` + `zod`.** It's the default shadcn `Form` already uses, and Drive's auth form is two fields and a button.
+**Pick: `react-hook-form` + `zod`.** It's the default shadcn `Form` already uses, and Doc-Hub's auth form is two fields and a button.
 
 ---
 
-## Casual Drive SPA dependencies — final pick
+## Doc-Hub SPA dependencies — final pick
 
 ```bash
 # Components / primitives (Radix + shadcn lives in your repo)
@@ -195,7 +195,7 @@ pnpm add class-variance-authority clsx tailwind-merge
 | Command palette  | `cmdk`                                | 1.1.1                    | What Linear/Vercel/Raycast use; have a fork plan             |
 | Icons            | `lucide-react`                        | per polish principles    | 1,800+ glyphs; same family across the app                    |
 | Forms            | `react-hook-form` + `zod`             | 7.x / 4.x                | Smallest + shadcn's `Form` already uses it                   |
-| Don't install    | Mantine / Chakra / MUI / Ark UI / Park UI / Catalyst / Motion One | — | Either visually opinionated or solves a problem Drive doesn't have |
+| Don't install    | Mantine / Chakra / MUI / Ark UI / Park UI / Catalyst / Motion One | — | Either visually opinionated or solves a problem Doc-Hub doesn't have |
 
 ---
 

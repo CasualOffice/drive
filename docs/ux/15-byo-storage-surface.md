@@ -1,19 +1,19 @@
 # 15 — Bring-your-own storage surface
 
-Companion to `docs/research/08-byo-storage.md`. Settings → Storage → Workspace bucket card. Owner-only on Team workspaces.
+Companion to `docs/research/08-byo-storage.md`. Settings → Storage → Project bucket card. Owner-only on team projects.
 
-> **Shipped:** schema + storage registry + 5 owner-only endpoints + `WorkspaceStorageCard` under Settings → Storage. Per-workspace S3/MinIO/R2/B2 with AES-256-GCM secret envelope (`DRIVE_STORAGE_SECRET_KEY`, 64 hex chars) and SSRF guard. New uploads route via the workspace's BYO adapter when configured; existing files keep their `storage_id` pointer.
+> **Shipped:** schema + storage registry + 5 owner-only endpoints + `ProjectStorageCard` under Settings → Storage. Per-project S3/MinIO/R2/B2 through the OpenDAL facade, with the **same mandatory at-rest encryption layer as the server default** — document bytes are sealed by `dochub-crypto` (AES-256-GCM, per-project DEK) *before* they reach the bucket, so a BYO bucket only ever holds ciphertext. The BYO **credentials** are themselves sealed with the secret-envelope scheme (`DOCHUB_STORAGE_SECRET_KEY`, 64 hex chars) and guarded against SSRF. New uploads route via the project's BYO adapter when configured; existing documents keep their `storage_id` pointer.
 
 ## Flow
 
-1. Owner of a Team workspace opens `Settings → Workspace → Storage`.
+1. Owner of a team project opens `Settings → Project → Storage`.
 2. Card shows current storage: either "Server default" or the BYO summary (provider · bucket · region · last-tested badge).
 3. Owner picks "Configure custom storage". Inline form opens.
 4. Form fields: Provider (S3 / MinIO / R2 / Backblaze B2) · Bucket · Region · Endpoint (only when provider ≠ S3) · Access key ID · Secret access key.
 5. Owner clicks "Test connection". Server runs put/stat/delete on a temp key. Result inline: ✓ "Connected in 142 ms" or ✗ "AccessDenied: …".
 6. Owner clicks "Save". Server tests once more, encrypts the secret, writes the row, emits audit. Card flips to "BYO active" state.
-7. **From this point** new uploads in this workspace land on the BYO bucket. Existing files keep their original storage pointer — the card states this explicitly.
-8. Owner can: "Replace credentials" (re-enter secret only, bumps `key_version`), "Remove custom storage" (returns to server default for new files), or "Re-test" (idempotent).
+7. **From this point** new uploads in this project are sealed and land on the BYO bucket as ciphertext. Existing documents keep their original storage pointer — the card states this explicitly.
+8. Owner can: "Replace credentials" (re-enter secret only, bumps `key_version`), "Remove custom storage" (returns to server default for new uploads), or "Re-test" (idempotent).
 
 ## Surface — Server-default state (no BYO)
 
@@ -25,9 +25,10 @@ Companion to `docs/research/08-byo-storage.md`. Settings → Storage → Workspa
 │  ──────────────────────────────────────────────────────────────     │
 │                                                                     │
 │  Bring your own bucket                                              │
-│  Point this workspace at an S3, MinIO, R2, or Backblaze B2 bucket   │
-│  you control. New uploads will land there. Existing files stay      │
-│  where they are.                                                    │
+│  Point this project at an S3, MinIO, R2, or Backblaze B2 bucket     │
+│  you control. Documents are encrypted before they leave the hub,  │
+│  so the bucket only ever holds ciphertext. New uploads land there;  │
+│  existing documents stay where they are.                            │
 │                                                                     │
 │  [ Configure custom storage ]                                       │
 └─────────────────────────────────────────────────────────────────────┘
@@ -73,13 +74,13 @@ Companion to `docs/research/08-byo-storage.md`. Settings → Storage → Workspa
 
 | Method | Path | Body / Result |
 |---|---|---|
-| `GET` | `/api/workspaces/{id}/storage` | Owner-only. `{ kind: "default" \| "byo", config?: {...} }`. Never includes the secret. |
-| `POST` | `/api/workspaces/{id}/storage/test` | Owner-only. Dry-run; does not persist. Body has full creds. Body NEVER logged. Returns `{ ok, latency_ms, error? }`. |
-| `PUT` | `/api/workspaces/{id}/storage` | Owner-only. Body has full creds. Server tests, encrypts secret, writes row, audits. 422 if test fails. |
-| `PATCH` | `/api/workspaces/{id}/storage/credentials` | Owner-only. Replaces only the secret (bumps `key_version`). |
-| `DELETE` | `/api/workspaces/{id}/storage` | Owner-only. Removes BYO; new uploads go to server default. Existing files keep their pointer. |
+| `GET` | `/api/projects/{id}/storage` | Owner-only. `{ kind: "default" \| "byo", config?: {...} }`. Never includes the secret or any key material. |
+| `POST` | `/api/projects/{id}/storage/test` | Owner-only. Dry-run; does not persist. Body has full creds. Body NEVER logged. Returns `{ ok, latency_ms, error? }`. |
+| `PUT` | `/api/projects/{id}/storage` | Owner-only. Body has full creds. Server tests, encrypts secret, writes row, audits. 422 if test fails. |
+| `PATCH` | `/api/projects/{id}/storage/credentials` | Owner-only. Replaces only the secret (bumps `key_version`). |
+| `DELETE` | `/api/projects/{id}/storage` | Owner-only. Removes BYO; new uploads go to server default. Existing documents keep their pointer. |
 
-All four POST/PUT/PATCH/DELETE paths refuse on Personal workspaces with 409.
+All four POST/PUT/PATCH/DELETE paths refuse on the personal locker with 409. Switching the backend never re-encrypts existing blobs and never rewrites the project DEK — the document encryption layer is independent of which bucket holds the ciphertext.
 
 ## States per UI surface
 
@@ -89,29 +90,30 @@ All four POST/PUT/PATCH/DELETE paths refuse on Personal workspaces with 409.
 - **Test failed:** red inline result with the exact provider error string (sanitised — no creds in the message).
 - **Save failed (post-test):** same banner.
 - **Replace credentials open:** only the Secret + Test/Save buttons; other fields are read-only.
-- **Remove confirm:** modal — "Files already uploaded will continue to live on this bucket. New uploads will go to the server default. Continue?"
+- **Remove confirm:** modal — "Documents already uploaded will continue to live (encrypted) on this bucket. New uploads will go to the server default. Continue?"
 
 ## Permissions matrix
 
 | Role | View | Configure | Replace creds | Remove |
 |---|---|---|---|---|
 | Owner | Yes | Yes | Yes | Yes |
-| Member | No (403 — card hidden from UI too) | — | — | — |
-| Personal workspace | Always = server default; whole card hidden | — | — | — |
+| Admin | View only (configuration is Owner-only) | — | — | — |
+| Editor / Viewer | No (403 — card hidden from UI too) | — | — | — |
+| Personal locker | Always = server default; whole card hidden | — | — | — |
 
 ## Audit log entries
 
-Surface them in `Settings → Audit log` and `Admin → Activity`:
+Surface them in `Settings → Audit log` and `Admin → Audit`:
 
 - `Owner configured S3 storage for "Engineering" — bucket my-team-bucket, us-east-1`
 - `Owner tested S3 connection for "Engineering" — ✓ 142 ms`
 - `Owner replaced credentials for "Engineering" — key_version 2`
 - `Owner removed custom storage for "Engineering" — returned to server default`
 
-## Out of scope (v0.2+)
+## Out of scope (later)
 
-- Per-file storage migration UI ("move N files to the new bucket").
-- Multi-target storage (one workspace, several buckets, routed by file type).
+- Per-document storage migration UI ("move N documents to the new bucket") — version blobs are content-addressed and write-once, so a migration copies ciphertext without touching the chain.
+- Multi-target storage (one project, several buckets, routed by document type).
 - IAM-role-based S3 auth (instance metadata). v0 is access-key only.
-- KMS-backed master key rotation.
+- Direct KMS integration for the BYO credential envelope (today it uses `DOCHUB_STORAGE_SECRET_KEY`; document-blob keys already support KMS via the master KEK, see `11-admin-surface.md`).
 - A "Test from your browser" path that uses presigned URLs and skips the server hop.

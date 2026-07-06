@@ -8,34 +8,34 @@ import EyeOff from "./icons/EyeOff.astro";
 
 const features = [
   {
+    icon: Activity,
+    title: "History you can't rewrite",
+    body: "Every save appends a new, hash-chained version. Nothing is overwritten, nothing is hard-deleted — alter a past byte and verification fails.",
+  },
+  {
+    icon: Shield,
+    title: "Encrypted at rest",
+    body: "AES-256-GCM envelope encryption, per-workspace keys you control. A stolen disk or database dump is just ciphertext.",
+  },
+  {
     icon: FileText,
-    title: "Open in browser",
-    body: "Click an .xlsx or .docx — it opens in Casual Sheet or Casual Document via WOPI. No download dance.",
+    title: "Edit natively, in place",
+    body: "Click a .docx or .xlsx — it opens in the embedded Casual Docs or Sheet, with real-time co-editing. Every save lands as a version.",
+  },
+  {
+    icon: Search,
+    title: "Search inside documents",
+    body: "Full-text search reads the content of every document, not just the filename. Ask which file mentions X — and find it.",
   },
   {
     icon: Server,
     title: "Self-host anywhere",
-    body: "Filesystem, S3, MinIO, or in-memory. One env var swaps the backend. A $5 VPS is plenty.",
-  },
-  {
-    icon: Search,
-    title: "Cmd-K everywhere",
-    body: "Global search across every file you own. Keyboard is a first-class surface, not an afterthought.",
-  },
-  {
-    icon: Shield,
-    title: "Two-origin model",
-    body: "The app and your file bytes live on separate origins so a poisoned upload can't reach your session cookie.",
-  },
-  {
-    icon: Activity,
-    title: "Every action audited",
-    body: "Sign-in, share, rename, trash — they're all in a tamper-evident audit log you can read.",
+    body: "Filesystem, S3, MinIO, R2, or B2. One env var swaps the backend. SQLite on a $5 VPS, or Postgres at scale.",
   },
   {
     icon: EyeOff,
     title: "No tracking, ever",
-    body: "Zero analytics. No fingerprinting. No newsletter pop-up. Your file list isn't a marketing funnel.",
+    body: "Zero analytics. No fingerprinting. No newsletter pop-up. Your documents aren't a marketing funnel.",
   },
 ];
 ---
@@ -44,10 +44,10 @@ const features = [
   <div class="container">
     <header class="section-header">
       <p class="section-eyebrow">What it does</p>
-      <h2 class="section-title">A real Drive. Without the corporation.</h2>
+      <h2 class="section-title">A registry, not a folder.</h2>
       <p class="section-lede">
-        Every surface a self-hoster expects — without the surveillance,
-        upsells, or twelve different sign-in screens.
+        A place to keep the documents you can't afford to lose or leak — with
+        a history you can prove and encryption you control. Documents only.
       </p>
     </header>
 

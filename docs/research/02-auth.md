@@ -1,19 +1,21 @@
-# 02 — Authentication & Identity for Casual Drive
+# 02 — Authentication & Identity for Doc-Hub
 
-> Research brief. Casual Drive = Rust/Axum backend + web UI, hands files to sibling editors (Sheets, Editor) via WOPI. Must self-host on a $5 VPS and also scale to multi-user. Sibling editors today have **no auth** (anonymous share-links). Drive adding accounts is a real shift.
+> Research brief. Doc-Hub = Rust/Axum backend + SPA with embedded editors, an encrypted tamper-evident document registry with **projects/teams** (workspaces + members + roles + invitations). Must self-host on a $5 VPS and scale to teams. Editing is embedded (bytes decrypt server-side and stream to the editor over the app origin); **WOPI is demoted to optional interop**, not the primary path.
 
-**Methodology note.** `WebFetch` was blocked in this run despite the user enabling it; all sources below were grounded via `WebSearch` snippets against official docs (Nextcloud, Seafile, Pydio, ownCloud, OWASP, Microsoft Learn, crates.io, GitHub). Where a snippet was ambiguous, the claim is tagged `[unverified]`.
+> Naming in flight: `drive-*`→`dochub-*`, `DRIVE_*`→`DOCHUB_*`.
+
+**Methodology note.** All sources below were grounded via `WebSearch` snippets against official docs (Nextcloud, Seafile, Pydio, ownCloud, OWASP, Microsoft Learn, crates.io, GitHub). Where a snippet was ambiguous, the claim is tagged `[unverified]`.
 
 ---
 
 ## TL;DR
 
-- The five comparable self-hostable Drives all converge on **server-side sessions for the web UI + OIDC for SSO**, not JWT-in-localStorage. oCIS is the outlier: OIDC is mandatory and it ships an embedded IdP (LibreGraph Connect).
-- **WOPI's `access_token` is *not* user auth.** It is a per-file, per-session capability token the editor echoes back on every WOPI call; the Drive mints it after authorising the user. Microsoft recommends ~10 h TTL with `access_token_ttl` advertising expiry in ms-since-epoch.
-- **OWASP 2024 baseline:** Argon2id at `m=19 MiB, t=2, p=1` minimum (or `m=47 MiB, t=1, p=1`); cookies `__Host-`, `HttpOnly; Secure; SameSite=Strict`; never put session tokens in `localStorage`.
-- **Share-links done right:** 128-bit random token (not UUIDv4 — it's 122 bits), optional bcrypt/argon2-hashed password, expiry default, scope = view-only / edit / file-drop, server-side revocation row.
-- **For a Rust/Axum stack the boring stack works:** `argon2`, `tower-sessions` + `axum-login`, `openidconnect` (+ optionally `axum-oidc`) when OIDC is wanted, `tower_governor` for rate limits.
-- **Recommendation for v0: option (b) — single-tenant self-host.** One admin account, server-side session cookie, share-links for the anonymous-editor handoff. It defends `/admin` without inventing a multi-user permission model we'll regret. Migration to (c) is additive — no URL breakage if file IDs and share-link IDs are stable from day one.
+- The comparable self-hostable Drives all converge on **server-side sessions for the web UI + OIDC for SSO**, not JWT-in-localStorage. oCIS is the outlier: OIDC is mandatory and it ships an embedded IdP (LibreGraph Connect).
+- **The editor access token is *not* user auth.** It is a per-launch, per-document capability the embedded editor presents on every byte-stream call; the Doc-Hub mints it after authorising the user. Same shape backs the optional WOPI interop path (Microsoft tolerates up to ~10 h `access_token_ttl`); we go shorter because sessions are interactive.
+- **OWASP 2024 baseline:** Argon2id at `m=19 MiB, t=2, p=1` minimum (or `m=47 MiB, t=1, p=1`); cookies `__Host-`, `HttpOnly; Secure`; never put session tokens in `localStorage`. Doc-Hub uses **`SameSite=Lax`** (00-synthesis tension #5) so the optional WOPI interop redirect still works; Lax + CSRF token + Origin check is the standard belt-and-braces.
+- **Share-links done right:** 128-bit random token (not UUIDv4 — it's 122 bits), optional Argon2id-hashed password, expiry default, view/download scope, server-side revocation row, served on the isolated user-content origin.
+- **For a Rust/Axum stack the boring stack works:** `argon2`, `tower-sessions` (skip `axum-login`), `openidconnect` (Auth Code + PKCE) for SSO, `jsonwebtoken` for HMAC editor-access + signed-URL tokens, `tower_governor` for rate limits.
+- **Recommendation: real accounts with projects/teams from day one.** Doc-Hub is a compliance-oriented registry — roles (Owner/Admin/Member), magic-link invitations, and per-workspace ownership are core scope, not deferred. A single-admin personal locker is just a workspace of one, so the same model serves the $5-VPS solo user and a team without a schema fork.
 
 ---
 
@@ -38,7 +40,7 @@
 
 - **Auth methods:** local accounts + **LDAP** + **SAML 2.0 / OAuth / OpenID / WS-Federation via SimpleSAMLphp** (delegates the heavy lifting to a separate PHP IdP shim). ([docs.filerun.com][fr-auth], [docs.filerun.com][fr-saml])
 - **Install:** PHP extensions (`mysqlnd`, `curl`, `zip`, `xml`, `mbstring`, `imagick`) plus the **ionCube Loader** (closed-source bytecode protection). ([docs.filerun.com][fr-php])
-- **Lesson:** outsourcing federated auth to a sidecar (SimpleSAMLphp) keeps the core lean — same pattern as standing an external IdP in front of Casual Drive. We do **not** want ionCube-style closed-source dependencies.
+- **Lesson:** outsourcing federated auth to a sidecar (SimpleSAMLphp) keeps the core lean — same pattern as standing an external IdP in front of Doc-Hub. We do **not** want ionCube-style closed-source dependencies.
 
 ### Pydio Cells (Go, MySQL/MariaDB required, optional MongoDB)
 
@@ -51,7 +53,7 @@
 - **Auth methods:** **OIDC is mandatory.** oCIS ships an embedded IdP (LibreGraph Connect / `lico`) on port 9130, backed by the IDM service. For real deployments the embedded IdP is meant to be replaced with Keycloak/Authelia/authentik. ([owncloud.dev][ocis-idp], [doc.owncloud.com][ocis-idp-doc])
 - **Sessions:** OIDC tokens (proxy validates); single-binary Go process. ([github.com][ocis-readme])
 - **Install:** single Go binary, Go 1.25+ to build; otherwise drop-in. ([github.com][ocis-readme])
-- **Lesson:** "force OIDC, ship a built-in IdP for small installs" is a powerful design but it bakes a federated-auth dependency into every install. Too much for v0 of a Drive whose siblings have no accounts.
+- **Lesson:** "force OIDC, ship a built-in IdP for small installs" is a powerful design but it bakes a federated-auth dependency into every install. Too heavy for Doc-Hub, where OIDC is optional and a solo self-hoster should not need to run Keycloak to open their own locker.
 
 | Product | Lang | DB | Default web auth | OIDC | Share-link primitives |
 |---|---|---|---|---|---|
@@ -63,19 +65,19 @@
 
 ---
 
-## 2. The three v0 options for Casual Drive
+## 2. Identity model — resolved: accounts + projects/teams
 
-**(a) Anonymous share-links only.** No accounts. Every file lives behind an unguessable URL. Matches sibling editors today.
-- **Pros:** zero auth UI, zero state-shift for Sheets/Editor users, trivially deployable.
-- **Cons:** no "my files" page, no per-user quota, no `/admin` protection, file enumeration risk if URLs leak (no second factor). Multi-user is impossible without re-keying every URL.
+The historical framing weighed three options. Doc-Hub's compliance posture (audit, retention, legal hold, provenance) needs accountable identity — "who created version 7, who restored it, who put it under legal hold" — so the anonymous and single-admin-only options are insufficient. The model is **real accounts organised into workspaces**:
 
-**(b) Single-tenant self-host (one admin per container).** One account (env-seeded), server-side session cookie protects the file listing and `/admin`. Files inside are user-owned (the one user). Share-links are still the public-handoff mechanism.
-- **Pros:** smallest possible auth surface; defends the dashboard; matches the "personal $5 VPS" target; lets us write the session+cookie+CSRF code once.
-- **Cons:** "users" is a list of length 1; multi-tenant comes later as a schema/UX expansion.
+**(a) Anonymous share-links only.** *(rejected as the primary model)* No accounts, every document behind an unguessable URL. Kept only as the *sharing* surface (§5), never as the account model — a registry with no accountable actor can't audit anything.
 
-**(c) Multi-user accounts.** Real signup/login (or OIDC), per-user file ownership, ACLs, quotas.
-- **Pros:** the actual long-term shape.
-- **Cons:** the long pole — password reset, email, account recovery, OIDC plumbing, admin UI to manage users, RBAC. Substantial scope.
+**(b) Single-tenant self-host (one admin).** *(subsumed)* A solo self-hoster is served by a **personal locker = a workspace of one**. No separate code path — the same accounts/roles/workspace schema degenerates cleanly to one user.
+
+**(c) Accounts + projects/teams.** *(chosen)* Real sign-in (local password and/or OIDC), workspaces with **Owner/Admin/Member** roles, magic-link invitations, atomic ownership transfer, per-workspace encryption keys. This is the actual product shape.
+- **Pros:** accountable identity for the audit trail; teams and personal lockers share one model; per-workspace DEKs map naturally onto workspaces.
+- **Cons/scope owned up front:** roles, invitations, and the workspace schema are Phase-0/1 scope, not deferred. Password reset/recovery and full multi-IdP federation remain later work.
+
+The design goal is that the solo $5-VPS user and a compliance team run **the same code** — the team just has more members in the workspace.
 
 ---
 
@@ -99,7 +101,7 @@ OWASP Session Management Cheat Sheet is explicit:
 > "Do not store authentication tokens, session IDs, JWTs, refresh tokens, or any credential in `localStorage` or `sessionStorage`. Instead, use `HttpOnly; Secure; SameSite=Strict` cookies (preferred) or a Backend-for-Frontend (BFF) pattern."
 > Recommended canonical form: `Set-Cookie: __Host-SID=<token>; path=/; Secure; HttpOnly; SameSite=Strict`. ([cheatsheetseries.owasp.org][owasp-sess])
 
-**Rust:** [`tower-sessions`][crate-tower-sess] (storage-pluggable) + [`axum-login`][crate-axum-login] for the `AuthSession`/`AuthnBackend` traits. axum-login uses tower-sessions under the hood; the `session_auth_hash` field is the documented way to auto-invalidate sessions on password change.
+**Rust:** [`tower-sessions`][crate-tower-sess] (storage-pluggable; SQLite/Postgres-backed store, Redis when scaled) + a ~30-line custom extractor. **Skip [`axum-login`][crate-axum-login] for v0** (00-synthesis tension #7): `tower-sessions` + the extractor is the dominant pattern; add axum-login only if friction emerges. Auto-invalidate sessions on password change by binding a `session_auth_hash` (derived from the password hash) into the session and checking it per request.
 
 ### OAuth / OIDC
 
@@ -116,7 +118,7 @@ OWASP CSRF Cheat Sheet:
 - For stateless: **double-submit cookie**.
 - **`SameSite=Strict` is defense in depth, not a substitute** — combine with a token. ([cheatsheetseries.owasp.org][owasp-csrf])
 
-For an Axum SPA: `SameSite=Strict` on the session cookie + a CSRF token bound to the session, sent via custom header (`X-CSRF-Token`) on mutating requests. Reject requests missing the header for any non-`GET`/`HEAD` route.
+For the Doc-Hub SPA: **`SameSite=Lax`** on the session cookie (Strict would block the optional WOPI interop editor→Doc-Hub redirect) + a CSRF token bound to the session, sent via custom header (`X-CSRF-Token`) on mutating requests, plus an `Origin`/`Referer` check. Reject requests missing the header for any non-`GET`/`HEAD` cookie-auth route.
 
 ### Rate limiting
 
@@ -135,27 +137,24 @@ OWASP Forgot Password Cheat Sheet + Auth Cheat Sheet baseline:
 
 ---
 
-## 4. WOPI auth model — what the access_token actually is
+## 4. Editor access tokens — the primary path (and WOPI as optional interop)
 
-Critical separation:
+Editing in Doc-Hub is **embedded**: the SPA hosts native Sheet/Docs/PDF/Markdown editors, the server decrypts document bytes in memory and streams them to the editor over the authenticated app origin, and save re-encrypts and appends a hash-chained version. The capability that gates that byte stream is the **editor access token** — decoupled from the session cookie exactly as WOPI's `access_token` was, and reused verbatim on the optional external-Office WOPI interop path.
 
-> "The host uses [`access_token`] to determine whether the request is authorized." (CheckFileInfo, Microsoft Learn) ([learn.microsoft.com][wopi-cfi])
+Critical separation (the token is a capability, not user auth):
 
-> "Access tokens should expire (become invalid) automatically after a period of time, and hosts can use the `access_token_ttl` property to specify when an access token expires. … hosts shouldn't revoke access tokens as a standard part of their operations." ([learn.microsoft.com][wopi-concepts])
+> "Access tokens should expire (become invalid) automatically after a period of time … `access_token_ttl` … Microsoft recommends … 10 hours." ([learn.microsoft.com][wopi-concepts])
 
-> "`access_token_ttl` … is represented as the number of milliseconds since January 1, 1970 UTC … Microsoft recommends … 10 hours." ([learn.microsoft.com][wopi-concepts])
+In practice for Doc-Hub:
 
-In practice for Casual Drive:
+1. User opens a document in the SPA. The Doc-Hub validates their **session cookie** and their workspace role.
+2. The app origin mints a **fresh, per-launch, per-document editor access token**: HMAC-SHA256 over `{user_id | "share:<id>", file_id, perms, exp, jti}`. It is **not** the session cookie and must not be reusable across documents.
+3. The embedded editor presents the token on every byte-stream call. The server validates it, checks `(URL file_id) == (token file_id)` and `(required perms) ⊆ (granted)` (view-only blocks save), decrypts, and streams bytes.
+4. Save re-encrypts, appends a new hash-chained version, writes an audit event, and enqueues reindex. Token is per-launch — close-and-reopen mints a new one; revocation is by short TTL.
 
-1. User opens `/files/<id>` in the Drive UI. The Drive validates their **session cookie**.
-2. Drive constructs the editor launch URL with `WOPISrc=<our WOPI endpoint>&access_token=<mint>&access_token_ttl=<unix-ms+10h>`.
-3. The mint is a **fresh, per-file, per-session capability** signed by the Drive (HMAC over `{file_id, user_id, perms, exp}` or a random row in a `wopi_tokens` table). It is **not** the user's session cookie and must not be reusable across files.
-4. The editor sends `access_token` back on every WOPI call (`CheckFileInfo`, `GetFile`, `PutFile`). Drive validates it server-side, looks up `perms` (view-only blocks `PutFile`), and serves bytes.
-5. Token is per-launch — close-and-reopen mints a new one. Revocation is by short TTL; only revoke mid-session if perms actually changed.
+This decoupling is what lets a share-link viewer (no account) open a document read-only: they get a token scoped `read` with a shorter TTL, and the editor never needs to know whether a session user or a share consumer opened it.
 
-This decoupling is what lets share-link viewers (no user account) still open files in WOPI: the share-link consumer gets a WOPI token scoped `view-only` with a shorter TTL.
-
-**Proof keys** (`X-WOPI-Proof` headers) are a *separate* defense: the editor signs requests with a key whose public half is in `/hosting/discovery`; the WOPI host verifies. ([collaboraonline.com][cool-sec], [learn.microsoft.com][wopi-proof])
+**Optional WOPI interop.** For operators who want to open documents in external Office clients, the same token shape drives a WOPI host module. There, **proof keys** (`X-WOPI-Proof`) are a separate defence — the client signs requests with a key whose public half is in `/hosting/discovery`; the host verifies ([collaboraonline.com][cool-sec], [learn.microsoft.com][wopi-proof]). Proof-key validation is only required when federating to MS365; for the embedded-editor primary path it is not used.
 
 ---
 
@@ -166,56 +165,60 @@ Cribbing from Nextcloud's share UI ([docs.nextcloud.com][nc-share]) and Seafile'
 - **Token:** 128 random bits from a CSPRNG, base64url-encoded (22 chars). **Do not use UUIDv4** — it carries only 122 bits of entropy (6 are fixed for variant/version), which is below the NIST SP 800-90A bar. ([neilmadden.blog][nm-uuid])
 - **Optional password:** stored Argon2id-hashed, same params as user passwords. Enforce a minimum length (Seafile defaults to admin-set, Nextcloud has a "force password" policy).
 - **Expiry:** default ON with a sane default (7 d). Admin can enforce a maximum. Expiration evaluated server-side from a `expires_at TIMESTAMPTZ` column.
-- **Permissions:** model as a small enum — `view`, `view_download`, `edit`, `file_drop` (matches Nextcloud's vocabulary). Anything edit-grade still mints a per-session WOPI token; view-only forbids `PutFile`.
+- **Permissions:** a small enum — `view`, `view_download` (documents only; no `file_drop`/write-back into someone else's hub, which would violate accountable authorship). Anything view-grade mints a per-launch editor access token scoped `read`; there is no share-grade write path.
+- **Isolation:** share bytes serve on the **user-content origin** via `/raw/{token}` (sandbox CSP, `attachment` for non-previewable types, no cookies), never on the app origin.
 - **Revocation:** a row in `share_links`; delete row → 404. Track `created_at`, `last_accessed_at`, `access_count` for the owner's "shared by me" UI.
 - **No enumeration:** never disclose whether a token doesn't exist vs is wrong-password — return the same "Enter password" / 404 page either way.
 
 ---
 
-## 6. Migration path between (a) → (b) → (c) without breaking URLs
+## 6. Stable URL contract
 
-The whole reason to think about this now is that a Drive's URLs **are** its contract. Get the IDs stable on day one.
+A registry's URLs **are** its contract. Get the IDs stable on day one so the audit trail and share links stay valid forever.
 
-- **Stable URL shape from v0:**
-  - File handoff: `/files/<file_id>` (auth-gated when in mode b/c).
-  - Public share: `/s/<share_token>` (never auth-gated; always 128-bit random).
-  - WOPI bootstrap: `/wopi/files/<file_id>?access_token=...` (per-launch token, not a URL the user sees).
-- **(a) → (b):** add a `users` table with exactly one seeded row, gate `/files/*` behind a session cookie. `/s/<token>` keeps working unchanged. Existing share-tokens are still valid because they're row-keyed, not user-keyed.
-- **(b) → (c):** add a `user_id` FK on `files` and `share_links`. Backfill = "all rows → the single admin." Add signup/login routes. The OIDC trait was already there from §3, so flipping on `user_oidc` is a config change. Share-link URLs are unaffected.
+- **Stable URL shape:**
+  - Document open (embedded editor): `/api/files/<file_id>/edit` (auth-gated; mints a per-launch editor access token, not a URL the user sees).
+  - Public share bytes: `/raw/<share_token>` on the **user-content origin** (never auth-gated; always 128-bit random).
+  - Optional WOPI interop bootstrap: `/wopi/files/<file_id>?access_token=...` (only when the interop path is enabled).
+- **Scaling a workspace from one to many:** the account/role/workspace schema exists from Phase 0, so adding members is data, not a migration — a `user_id`/`workspace_id` FK is already on `files` and `share_links`. OIDC (§3, brief 12) slots in as config. Share-link URLs are unaffected because they're row-keyed, not user-keyed.
 
 The hard mistakes to avoid:
-- Encoding the user in the file URL (`/u/sachin/files/123`) — locks you to (c)'s namespace forever.
-- Reusing the WOPI `access_token` as a session token. Don't.
-- Making share-tokens guessable now ("we'll regenerate them in v1") — you won't, and the old ones live forever in chat history.
+- Encoding the user in the document URL (`/u/sachin/files/123`) — locks the namespace to one identity model forever.
+- Reusing an editor access token or WOPI `access_token` as a session token. Don't.
+- Making share-tokens guessable now ("we'll regenerate them in v1") — you won't, and the old ones live forever in chat history and audit logs.
 
 ---
 
-## 7. Recommendation for v0
+## 7. Recommendation
 
-**Pick (b): single-tenant self-host.**
+**Real accounts with projects/teams, from Phase 0 — a solo user is just a workspace of one.**
 
 Why:
-- **Defends `/admin` and the file list** — share-links-only (option a) means anyone who can `GET /` sees every file. Unacceptable past a demo.
-- **No multi-user UX debt** — we don't need signup, password reset, account recovery, user-admin UI, RBAC, or OIDC for v0. We need *one* cookie-gated login form against one env-seeded Argon2id hash (`CASUAL_DRIVE_ADMIN_USER`, `CASUAL_DRIVE_ADMIN_PASSWORD_HASH`).
-- **Preserves the anonymous-share UX** the sibling editors already have — `/s/<token>` works without a session, and the WOPI handoff stays decoupled.
-- **Stays $5-VPS-shaped** — no external IdP, no Keycloak, no MySQL for an auth DB. SQLite is enough. Single Rust binary.
-- **Migration to (c) is purely additive** per §6.
+- **Accountable identity for compliance** — audit, retention, legal hold, and provenance all name an actor. Anonymous or single-admin-only models can't attribute "who restored version 7."
+- **One model, two audiences** — the $5-VPS solo user (personal locker = workspace of one) and a team (workspace with Owner/Admin/Member) run the same code. No schema fork later.
+- **Per-workspace encryption maps naturally** — each workspace owns a DEK (`dochub-crypto`); adding members shares the workspace, not the key material in plaintext.
+- **Preserves the share UX** — `/raw/<token>` on the user-content origin works without a session; the editor handoff stays decoupled via the editor access token.
+- **Stays $5-VPS-shaped** — no external IdP required (OIDC optional), SQLite default, single Rust binary.
 
-### Concrete v0 stack
+### Concrete stack
 
 | Concern | Choice |
 |---|---|
 | Password hash | `argon2` crate, `Params::new(19456, 2, 1, None)` (OWASP minimum) |
-| Session store | `tower-sessions` + `axum-login`, SQLite-backed |
-| Cookie | `__Host-cd_sid=...; Path=/; Secure; HttpOnly; SameSite=Strict` |
-| CSRF | session-bound token; required `X-CSRF-Token` header on non-GET |
-| Rate limit | `tower_governor` on `/login` (5/min/IP), `/s/*` (60/min/IP), `/wopi/*` (per-token) |
-| WOPI tokens | HMAC-SHA256 over `{file_id, user_id|"share:<id>", perms, exp}`, 10 h TTL, key in env |
-| Share-links | 128-bit token, optional Argon2id-hashed password, default 7 d expiry, perms enum |
-| OIDC | **deferred**; keep the `AuthnBackend` trait so `openidconnect` slots in for v1 |
-| Magic-link / reset | **deferred** to v1 — single admin uses env password rotation |
+| Session store | `tower-sessions`, SQLite/Postgres-backed (Redis when scaled); **no `axum-login`** |
+| Cookie | `__Host-dochub_sid=...; Path=/; Secure; HttpOnly; SameSite=Lax` |
+| CSRF | session-bound token; required `X-CSRF-Token` header + Origin check on non-GET cookie-auth routes |
+| Rate limit | `tower_governor` on `/login` (10/min/IP), `/raw/*` (60/min/IP), upload (30/min/IP) |
+| Editor access tokens | HMAC-SHA256 over `{user_id\|"share:<id>", file_id, perms, exp, jti}`, ~10 min TTL, key in `DOCHUB_EDITOR_HMAC_SECRET` |
+| Signed share URLs | HMAC-SHA256 over `{key, exp, method}`, `DOCHUB_SIGNED_URL_HMAC_SECRET`, 5 min TTL, constant-time verify |
+| Share-links | 128-bit token, optional Argon2id-hashed password, default 7 d expiry, `view`/`view_download` |
+| Roles | Owner / Admin / Member per workspace; magic-link invitations; atomic ownership transfer |
+| OIDC | Authorization Code + PKCE via `openidconnect` (brief 12); sessions stay Doc-Hub-side |
+| WOPI | **optional interop only** — same token shape; proof-keys only if federating to MS365 |
 
-The single decision that makes this work: **WOPI access tokens are minted per launch from whatever identity opened the page** — a session user *or* a share-link consumer. Both flows produce the same token shape, so the editor never needs to know which one it is. That separation is what lets v0 stay tiny while v1 (multi-user) drops in cleanly.
+The single decision that makes this work: **editor access tokens are minted per launch from whatever identity opened the document** — a session user *or* a share-link consumer. Both flows produce the same token shape, so the embedded editor (and the optional WOPI host) never needs to know which one it is.
+
+Env seed for the first admin (bootstrap of the first workspace): `DOCHUB_ADMIN_USER`, `DOCHUB_ADMIN_PASSWORD_HASH`.
 
 ---
 

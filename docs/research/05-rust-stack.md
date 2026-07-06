@@ -1,18 +1,23 @@
-# 05 — Rust Web Stack for Casual Drive (2026)
+# 05 — Rust Web Stack for Doc-Hub (2026)
 
-State-of-the-ecosystem brief for the Casual Drive backend: a single Rust binary serving a WOPI host, a Drive-style file browser SPA, and four pluggable storage backends (fs / memory / S3 / MinIO). Target deploy: one container on a $5 VPS; must also scale up cleanly.
+State-of-the-ecosystem brief for the Doc-Hub backend: a single Rust binary serving an encrypted, tamper-evident document registry — the SPA with embedded editors, the JSON API, encrypted document byte streams, a `core`-backed content index, and an optional AI layer. Target deploy: one container on a $5 VPS (SQLite + fs); must also scale up cleanly (Postgres + S3/MinIO/R2/B2).
 
-All version numbers, maintenance claims and crate URLs were cross-checked against crates.io / docs.rs / GitHub via WebSearch in June 2026. Where a fact could not be confirmed from a fetched source it is tagged `[unverified]`.
+> Naming in flight: `drive-*`→`dochub-*`, `DRIVE_*`→`DOCHUB_*`. The crate tree may still read `drive-*` until the Phase 0 rename lands.
+
+All version numbers, maintenance claims and crate URLs were cross-checked against crates.io / docs.rs / GitHub via WebSearch in 2026. Where a fact could not be confirmed from a fetched source it is tagged `[unverified]`.
 
 ## TL;DR
 
-- **Axum 0.8.x** is the framework. Tokio-team owned, tower/hyper-native, ergonomic, currently the de-facto default and growing fastest in downloads/ecosystem. Actix is fine but socially isolated; Rocket is dormant; Poem is niche.
+- **Axum 0.8.x** is the framework. Tokio-team owned, tower/hyper-native, ergonomic, the de-facto default. Actix is fine but socially isolated; Rocket is dormant; Poem is niche.
 - **Core stack:** axum 0.8, tokio 1.4x, tower 0.5, tower-http 0.6, hyper 1.x, serde 1.0.228, tracing 0.1.41, thiserror 2.0.18 + anyhow 1.x.
-- **Auth:** `tower-sessions` 0.15 + cookie auth for v0; `oauth2` 5.0 / `openidconnect` 4.0 once IdP shows up; `argon2` 0.5 only if we ever hash local passwords; `jsonwebtoken` 10.x for WOPI access tokens. **Skip `axum-login`** — `tower-sessions` + a custom extractor is now the dominant pattern.
-- **Storage trait:** native `async fn` in traits (AFIT, stable since 1.75) + `Arc<dyn Storage>` via `#[async_trait]` for the dyn-compatible variant. Streams via `impl Stream<Item = Result<Bytes>>`.
-- **WOPI in Rust:** essentially greenfield. Only `beatgammit/wopi-rs` exists, last touched in 2017 [unverified beyond search-engine metadata] — treat as nonexistent and build our own handlers.
-- **SPA embedding:** `rust-embed` 8.x (single binary). Split service is overkill at v0.
-- **Build/deploy:** `cargo-chef` multi-stage Dockerfile, debian-slim runtime, strip + lto in release profile. Workspace with `drive-core` / `drive-storage` / `drive-wopi` / `drive-http` crates.
+- **Storage:** **OpenDAL** behind a thin `Storage` facade wrapping `opendal::Operator` (fs / memory / S3 / MinIO / R2 / B2), with a **mandatory at-rest encryption layer** — no handler ever touches the raw operator or plaintext bytes at rest.
+- **Crypto (`dochub-crypto`):** AES-256-GCM envelope encryption via `aws-lc-rs`/`ring`; per-workspace DEK wrapped by a master KEK or external KMS; SHA-256 hash chains for versions + audit; Ed25519 (`ed25519-dalek`) for provenance signing. No homebrew primitives.
+- **DB:** **SQLx** over SQLite (default) + Postgres (production); every migration portable.
+- **Auth:** `tower-sessions` 0.15 + cookie auth; `argon2` for local passwords; `openidconnect` for OIDC (Auth Code + PKCE); `jsonwebtoken` for HMAC editor-access and signed-URL tokens. **Skip `axum-login`.**
+- **Index (`dochub-index`):** `core` extracts text from every allowed format; **Tantivy** holds the full-text index in-process (single binary, no external search service).
+- **AI (`dochub-ai`, optional):** a pluggable LLM provider — default Claude via the Anthropic API, local-model adapter for air-gapped installs — for semantic search, summaries, PII detection, cross-doc Q&A. Read-only.
+- **`core` is a dependency, not re-implemented.** Text extraction, format parsing, and conversion live in the shared `core` engine.
+- **SPA embedding:** `rust-embed` 8.x (single binary). **Build/deploy:** `cargo-chef` multi-stage Dockerfile, `debian:trixie-slim` runtime, strip + lto in release.
 
 ---
 
@@ -27,273 +32,246 @@ All version numbers, maintenance claims and crate URLs were cross-checked agains
 
 ### Maintenance and ecosystem fit
 
-- **axum 0.8** (Jan 2025) brought `{name}` / `{*rest}` path syntax via matchit 0.8 — breaking but stabilising. 0.8.x patch line is current. Tower/hyper/tokio share one cabal of maintainers, so middleware (`tower-http`), sessions (`tower-sessions`), auth (`axum-login`), and observability all snap together.
-- **actix-web 4.x** is fast and stable but ships its own actor-ish runtime model and its own middleware trait. Every Rust ecosystem narrative since 2023 has shifted toward tower; new auth/observability crates target axum first. Real-world perf delta vs axum is single-digit-% and irrelevant for a Drive workload.
-- **Rocket** never resumed cadence after 0.5 GA in November 2023. The news feed shows nothing newer; this is "maintained, not developed." Avoid for greenfield work in 2026.
-- **Poem** is a real, currently-maintained framework with a nice ergonomic surface and built-in OpenAPI, but the bus factor is low and few of the ecosystem crates we want (`tower-sessions`, `tower-http` middlewares, `axum-login`) are first-class there.
+- **axum 0.8** (Jan 2025) brought `{name}` / `{*rest}` path syntax via matchit 0.8 — breaking but stabilising. Tower/hyper/tokio share one cabal of maintainers, so middleware (`tower-http`), sessions (`tower-sessions`), OIDC helpers, and observability all snap together.
+- **actix-web 4.x** is fast and stable but ships its own runtime model and middleware trait. Every ecosystem narrative since 2023 has shifted toward tower; new crates target axum first. Real-world perf delta vs axum is single-digit-% and irrelevant for a document-hub workload.
+- **Rocket** never resumed cadence after 0.5 GA. "Maintained, not developed." Avoid for greenfield in 2026.
+- **Poem** is real and maintained, with built-in OpenAPI, but the bus factor is low and the crates we want (`tower-sessions`, `tower-http` middlewares) are not first-class there.
 
 ### Pick
 
-**Axum 0.8.x.** Justification beyond "strong prior":
-1. Drive needs streaming uploads/downloads, sessions, and middleware composition — all best in axum because they're all built on `tower::Service`.
-2. WOPI handlers map cleanly to axum extractors (typed path/query, typed headers like `X-WOPI-Lock`, body as bytes/stream).
-3. We can later put `tonic` (gRPC) or `tower-sessions` next to it without re-architecting.
-4. AFIT support is fluent; the storage trait below works without macros for static dispatch.
+**Axum 0.8.x.** Justification:
+1. Doc-Hub needs streaming encrypted uploads/downloads, sessions, and middleware composition (two-origin CSP layers, rate limiting) — all best in axum because they're all `tower::Service`.
+2. Editor byte-stream, content-search, and admin handlers map cleanly to axum extractors (typed path/query/headers, body as bytes/stream).
+3. We can later put `tonic` (gRPC) or a Redis session store next to it without re-architecting.
+4. AFIT support is fluent; the storage/crypto traits below work without macros for static dispatch.
 
 Sources: [crates.io/axum](https://crates.io/crates/axum), [crates.io/actix-web](https://crates.io/crates/actix-web), [crates.io/rocket](https://crates.io/crates/rocket), [crates.io/poem](https://crates.io/crates/poem), [tokio.rs axum 0.8 release](https://tokio.rs/blog/2025-01-01-announcing-axum-0-8-0), [rust-web-framework-comparison](https://github.com/flosse/rust-web-framework-comparison).
 
 ## 2. Axum baseline crate stack
 
-Confirmed against crates.io / docs.rs in June 2026:
+Confirmed against crates.io / docs.rs in 2026:
 
 ```toml
 [dependencies]
 axum                = "0.8"            # 0.8.8 latest
-tokio               = { version = "1", features = ["full"] }   # 1.5x LTS line, 1.47 / 1.51 LTS active
+tokio               = { version = "1", features = ["full"] }   # 1.5x LTS line
 tower               = "0.5"            # 0.5.3
-tower-http          = { version = "0.6", features = ["trace", "cors", "limit", "compression-gzip", "fs"] }   # 0.6.11
+tower-http          = { version = "0.6", features = ["trace", "cors", "limit", "compression-gzip", "set-header"] }   # 0.6.11
 hyper               = "1"              # 1.8.1
 serde               = { version = "1", features = ["derive"] } # 1.0.228
 serde_json          = "1"              # 1.0.149
 tracing             = "0.1"            # 0.1.41
 tracing-subscriber  = { version = "0.3", features = ["env-filter", "json"] }
 anyhow              = "1"              # 1.x
-thiserror           = "2"              # 2.0.18 — note 2.x is the current major
+thiserror           = "2"              # 2.0.18 — 2.x is the current major
 bytes               = "1"
 futures             = "0.3"
 ```
 
-Notable: `thiserror` is at **2.x** now (since late 2024); don't pin 1.x out of habit. `hyper` is firmly on the **1.x** line; everything depends on it via `hyper-util`.
+Notable: `thiserror` is at **2.x** now; don't pin 1.x out of habit. `hyper` is firmly on the **1.x** line.
 
-Sources: [crates.io/tokio](https://crates.io/crates/tokio), [crates.io/tower](https://crates.io/crates/tower), [crates.io/tower-http](https://crates.io/crates/tower-http), [crates.io/hyper](https://crates.io/crates/hyper), [crates.io/serde](https://crates.io/crates/serde), [crates.io/tracing](https://crates.io/crates/tracing), [crates.io/thiserror](https://crates.io/crates/thiserror), [crates.io/anyhow](https://crates.io/crates/anyhow).
+Sources: [crates.io/tokio](https://crates.io/crates/tokio), [crates.io/tower](https://crates.io/crates/tower), [crates.io/tower-http](https://crates.io/crates/tower-http), [crates.io/hyper](https://crates.io/crates/hyper), [crates.io/serde](https://crates.io/crates/serde), [crates.io/tracing](https://crates.io/crates/tracing), [crates.io/thiserror](https://crates.io/crates/thiserror).
 
-## 3. State management
+## 3. Crate workspace
 
-Standard pattern: one `AppState` cloned cheaply (everything is `Arc`-wrapped) and handed to `Router::with_state`. Extractors pull what they need via `State<T>` or `FromRef`.
+Doc-Hub is a workspace, not one crate. Dependency direction is strictly downward: `http` → {`auth`, `storage`, `crypto`, `index`, `ai`, `db`} → `core`.
+
+```
+crates/
+  dochub-core/      Domain types, Config, error taxonomy. No I/O.
+  dochub-db/        SQLx repos + migrations. SQLite + Postgres portable.
+  dochub-crypto/    Envelope encryption, key wrap/rotate, hash chains, provenance signing.
+  dochub-storage/   OpenDAL facade + mandatory encryption layer + BYO-bucket sealing.
+  dochub-index/     core-backed text extraction → Tantivy full-text index (background worker).
+  dochub-ai/        Optional LLM layer: semantic search, summaries, PII, Q&A.
+  dochub-auth/      Sessions, Argon2id, OIDC, share links.
+  dochub-http/      Axum router, two-origin middleware, every API + editor byte stream.
+  dochub-bin/       Binary entry point; boot-time invariant checks.
+```
+
+`core` (the pure-Rust document engine, shared with the desktop suite) is a **vendored dependency**, not re-implemented here (CLAUDE working rule #6). `dochub-index` and `dochub-ai` call `core` for extraction; nothing else parses document formats.
+
+### AppState
+
+One `AppState` cloned cheaply (everything `Arc`-wrapped), handed to `Router::with_state`. Extractors pull what they need via `State<T>` / `FromRef`.
 
 ```rust
 #[derive(Clone)]
 pub struct AppState {
-    pub storage: Arc<dyn Storage>,           // dyn-compatible adapter (see §5)
+    pub storage: Arc<dyn Storage>,           // OpenDAL facade + encryption layer (§5)
+    pub crypto:  Arc<KeyService>,            // KEK/DEK wrap-unwrap, hash-chain verify
+    pub db:      Arc<Db>,                     // SQLx pool (sqlite or postgres)
+    pub index:   Arc<dyn SearchIndex>,       // Tantivy-backed (§7)
+    pub ai:      Option<Arc<dyn AiProvider>>,// optional (§8)
     pub sessions: SessionManagerLayer<…>,    // tower-sessions
-    pub wopi_keys: Arc<WopiKeySet>,          // for HMAC signing access tokens
-    pub config: Arc<Config>,
+    pub tokens:  Arc<TokenKeys>,             // HMAC editor-access + signed-URL keys
+    pub config:  Arc<Config>,
 }
 
 let app = Router::new()
-    .route("/wopi/files/{file_id}",          get(wopi::check_file_info))
-    .route("/wopi/files/{file_id}/contents", get(wopi::get_file).post(wopi::put_file))
     .route("/api/files",                     get(api::list).post(api::upload))
+    .route("/api/files/{id}/versions",       get(api::history))
+    .route("/api/files/{id}/edit",           post(editor::mint_access))   // embedded editor byte stream
+    .route("/api/search",                    get(search::query))
     .nest_service("/", spa_service)          // embedded SPA
     .with_state(state);
 ```
-
-Extractors:
-
-```rust
-async fn check_file_info(
-    State(s): State<AppState>,
-    Path(file_id): Path<String>,
-    TypedHeader(token): TypedHeader<WopiAccessToken>,  // custom typed header
-) -> Result<Json<CheckFileInfo>, AppError> { … }
-```
-
-`FromRef` lets handlers depend on just one field (e.g. `State<Arc<dyn Storage>>`) without copying the whole AppState shape into the signature.
 
 ## 4. Authentication crates
 
 | Crate | Latest | Maintenance | Use |
 |---|---|---|---|
-| `tower-sessions` | **0.15.0** (Feb 2026) | Active, Max Countryman | **Yes.** Cookie sessions as a tower layer; pluggable stores (memory for dev, redis/sqlite for prod). |
-| `axum-login`     | **0.18.0**            | Active                 | Optional. Provides a richer `AuthSession<Backend>` extractor + `login_required!` macro. Many teams now skip it and write the ~30-line extractor themselves on top of `tower-sessions`. **Skip for v0.** |
-| `argon2`         | **0.5.3** (RustCrypto) | Active                 | Only if we ever store local password hashes. For OIDC-only deployments: don't add. |
-| `oauth2`         | **5.0.0** (ramosbugs) | Active                 | Plain OAuth2 (e.g. GitHub login). MSRV 1.65. |
-| `openidconnect`  | **4.0.1** (ramosbugs) | Active                 | OIDC discovery, ID-token verification (Google, Keycloak, Authentik). Built on `oauth2`. **Preferred for SSO.** |
-| `jsonwebtoken`   | **10.4.0** (Keats)    | Active                 | Issue + verify our **own** short-lived tokens (WOPI access tokens, signed download URLs). Pick the `aws_lc_rs` or `rust_crypto` backend feature. |
+| `tower-sessions` | **0.15.0** (Feb 2026) | Active, Max Countryman | **Yes.** Cookie sessions as a tower layer; pluggable stores (SQLite/Postgres for prod, Redis when scaled). |
+| `axum-login`     | **0.18.0**            | Active                 | Optional. Many teams skip it and write the ~30-line extractor on top of `tower-sessions`. **Skip for v0.** |
+| `argon2`         | **0.5.3** (RustCrypto) | Active                 | Local password hashes. `Params::new(19456, 2, 1, None)` (OWASP minimum). |
+| `openidconnect`  | **4.0.1** (ramosbugs) | Active                 | OIDC discovery, ID-token verification (Auth Code + PKCE). Built on `oauth2`. **Preferred for SSO.** |
+| `oauth2`         | **5.0.0** (ramosbugs) | Active                 | Lower-level OAuth2; pulled transitively by `openidconnect`. |
+| `jsonwebtoken`   | **10.4.0** (Keats)    | Active                 | Issue + verify our own short-lived tokens — **editor access tokens** and signed download URLs. `aws_lc_rs` backend. |
 
-Recommendation for v0:
+Recommendation:
 
-- Browser sessions: **`tower-sessions`** (cookie-backed, MemoryStore in dev, swap for SqliteStore / RedisStore in prod).
-- SSO when we add it: **`openidconnect`** with the auth-code + PKCE flow.
-- Signed URLs and WOPI access tokens: **`jsonwebtoken`** (HS256 with a server secret is plenty; rotate via key id).
-- Don't add `axum-login` until we feel actual friction; the boilerplate is small.
+- Browser sessions: **`tower-sessions`** (SQLite/Postgres-backed; Redis when the operator scales past one replica).
+- SSO: **`openidconnect`** with Auth Code + PKCE (see brief 12).
+- Editor access tokens and signed URLs: **`jsonwebtoken`** (HS256 with a server secret; rotate via key id).
+- **Passwords:** `argon2id`, always — Doc-Hub has real accounts, projects, and roles, so local password hashing is not optional the way it was for the anonymous-Drive era.
 
 Sources: [crates.io/tower-sessions](https://crates.io/crates/tower-sessions), [crates.io/axum-login](https://crates.io/crates/axum-login), [crates.io/argon2](https://crates.io/crates/argon2), [crates.io/oauth2](https://crates.io/crates/oauth2), [crates.io/openidconnect](https://crates.io/crates/openidconnect), [crates.io/jsonwebtoken](https://crates.io/crates/jsonwebtoken).
 
-## 5. Async storage trait patterns
+## 5. Storage facade + encryption (`dochub-storage` + `dochub-crypto`)
 
-Status check on async-in-traits as of mid-2026:
+### The facade is OpenDAL, and it is always encrypted
 
-- **AFIT** (`async fn` in traits) — stable since **Rust 1.75** (Dec 2023). Works fine for **static dispatch** (`impl<S: Storage> Handler<S>`).
-- **`dyn Trait` with async fn** — still not object-safe in 2026. To get `Arc<dyn Storage>` you either:
-  - keep `#[async_trait]` on the trait (returns `Pin<Box<dyn Future + Send>>`, one heap alloc per call — fine for our scale), or
-  - hand-roll an "erased" wrapper trait, or use experimental crates like `dynify`/`trait-variant`.
-- For Drive: one heap alloc per storage call is irrelevant next to the actual IO. **Use `#[async_trait]` and `Arc<dyn Storage>`.** Move to native AFIT only if we ever pick a single backend at compile time.
+03-storage settled the facade on **OpenDAL** (capability parity across backends, retry/tracing layers, Apache TLP governance) rather than a hand-rolled `aws-sdk-s3` trait. Doc-Hub adds a **non-negotiable at-rest encryption layer** in front of the operator:
 
-Streams: settle on `impl Stream<Item = Result<Bytes, StorageError>> + Send + 'static` for downloads; uploads accept the same shape and the adapter forwards to the backend. `bytes::Bytes` is the universal currency for axum, hyper, and the AWS SDK.
+```
+write(key, plaintext)  →  crypto.seal(workspace_dek, plaintext)  →  operator.write(key, ciphertext)
+read(key)              →  operator.read(key) → crypto.open(workspace_dek, ciphertext) → plaintext
+```
 
-Trait sketch (satisfies fs / memory / S3 / MinIO cleanly — MinIO is just S3-protocol via a custom endpoint):
+- No handler holds an `opendal::Operator`; they hold `Arc<dyn Storage>`. Plaintext document bytes never reach a backend — enforced by construction and by a spy-backend property test.
+- Storage keys are opaque ULIDs, never derived from user input. New backends are one more `opendal::services::*` builder; the trait does not grow.
+
+AFIT status (mid-2026): native `async fn` in traits is stable since Rust 1.75 for **static** dispatch but still **not object-safe**. For `Arc<dyn Storage>` use **`#[async_trait]`** — one heap alloc per call, irrelevant next to I/O + AES.
 
 ```rust
-use async_trait::async_trait;
-use bytes::Bytes;
-use futures::stream::BoxStream;
-
-pub type ByteStream = BoxStream<'static, Result<Bytes, StorageError>>;
-
-#[derive(Debug, Clone)]
-pub struct ObjectMeta {
-    pub key: String,
-    pub size: u64,
-    pub etag: Option<String>,
-    pub modified: time::OffsetDateTime,
-    pub content_type: Option<String>,
-}
-
 #[async_trait]
 pub trait Storage: Send + Sync + 'static {
     async fn head(&self, key: &str) -> Result<ObjectMeta, StorageError>;
     async fn get(&self, key: &str) -> Result<(ObjectMeta, ByteStream), StorageError>;
-    async fn put(
-        &self,
-        key: &str,
-        body: ByteStream,
-        content_type: Option<&str>,
-    ) -> Result<ObjectMeta, StorageError>;
-    async fn delete(&self, key: &str) -> Result<(), StorageError>;
+    async fn put(&self, key: &str, body: ByteStream) -> Result<ObjectMeta, StorageError>;
+    async fn delete(&self, key: &str) -> Result<(), StorageError>;  // tombstone path; obeys retention/legal-hold above this layer
     async fn list(&self, prefix: &str) -> Result<Vec<ObjectMeta>, StorageError>;
-
-    // WOPI lock semantics — opaque blob, 1024 ASCII chars, ~30 min TTL per spec.
-    async fn lock(&self, key: &str, lock: &str) -> Result<(), LockError>;
-    async fn refresh_lock(&self, key: &str, lock: &str) -> Result<(), LockError>;
-    async fn unlock(&self, key: &str, lock: &str) -> Result<(), LockError>;
 }
 ```
 
-`StorageError` is the `thiserror` enum; `From<aws_sdk_s3::Error>` etc. live in the S3 adapter.
+Note there are **no `lock`/`unlock` methods** — WOPI locking is demoted to the optional interop crate and does not shape the core storage trait. Streams settle on `impl Stream<Item = Result<Bytes, StorageError>> + Send + 'static`; `bytes::Bytes` is the currency for axum, hyper, and OpenDAL.
 
-## 6. File upload patterns
+### `dochub-crypto` primitives
 
-Axum exposes `axum::extract::Multipart` (re-exposed from `multer`). Two things to remember:
+| Concern | Crate | Notes |
+|---|---|---|
+| AEAD | **`aws-lc-rs`** (or `ring`) | AES-256-GCM, random 96-bit nonce per blob, stored `nonce ‖ ciphertext ‖ tag`. No homebrew. |
+| Key wrapping | `aws-lc-rs` AES-KW / GCM | Per-workspace DEK wrapped by the master KEK (`DOCHUB_MASTER_KEY`) or an external KMS. Only wrapped DEKs persist. |
+| Hash chain | `sha2` (SHA-256) | `content_hash = SHA-256(ciphertext)`, `prev_hash` links versions and audit rows. `verify_chain` recomputes end-to-end. |
+| Provenance signing | **`ed25519-dalek`** | Ed25519 signatures for issued/registered documents and optional chain-head anchoring. |
+| KMS adapters | `aws-sdk-kms` (optional, feature-gated) | Envelope KEK held in a cloud KMS for operators who want it. |
 
-- Default body limit is **2 MB**. For Drive uploads, set `DefaultBodyLimit::disable()` on the upload route and gate size in the handler (or `RequestBodyLimitLayer` for a hard cap).
-- `Multipart` consumes the body, so it must be the **last** extractor in the handler signature.
+Boot **refuses to start** without a master KEK or configured KMS. Keys never appear in logs, errors, or responses. Key rotation re-wraps DEKs without rewriting document blobs.
 
-Streaming pattern (no full buffering):
+## 6. Database (`dochub-db` — SQLx)
+
+- **`sqlx`** with the `sqlite` + `postgres` features, compile-time-checked queries, and a portable migration set. SQLite is the default and only required engine for a $5-VPS install; Postgres is the production target.
+- Portability rules (enforced in review + CI): TEXT ULID ids, ISO-8601 UTC timestamps, INTEGER 0/1 bools. **No** JSONB, native enums, or native UUID columns.
+- Core tables: `users`, `sessions`, `workspaces` (+`workspace_members`, `workspace_invitations`, `workspace_storage`), `folders`, `files` (+`file_versions`), `audit_log`, `share_links`, `retention_policies`, `legal_holds`, `oidc_*`.
+- The `file_versions` and `audit_log` tables are **append-only** at the application layer; repos expose no `UPDATE`/`DELETE` for committed rows.
+
+CI runs the full test matrix against both engines via `testcontainers` (Postgres) and an ephemeral SQLite file, so both portability targets stay green.
+
+## 7. Content index (`dochub-index` — `core` + Tantivy)
+
+Search reads document *content*, not just names. This only works because the encryption model is server-trusted: the server can decrypt, extract, and index.
+
+- **Extraction:** `core` turns each allowed format (docx/xlsx/pdf/md/txt/csv/json/yaml — PDF via text layer, OCR fallback later) into normalised text. Never re-implemented here.
+- **Index:** **Tantivy** (Rust, Lucene-shaped) holds the full-text index **in-process** — no external OpenSearch/Elasticsearch service to run. This keeps the single-binary, $5-VPS promise intact while still indexing content.
+- **Worker:** a lazy background worker (mirroring the retired thumbnail-worker pattern) driven by a `files.index_state` column (`pending|ready|unsupported|failed`). On a new version it re-extracts and re-indexes; on tombstone it removes the document from the index.
+- Search unions Tantivy content hits with SQL metadata and returns snippets + highlights.
+
+Crates: `tantivy` (index), plus `core` for extraction. No `aws-sdk`/OpenSearch client.
+
+## 8. AI layer (`dochub-ai`, optional)
+
+`dochub-ai` sits beside search and is entirely optional — an install can run without it.
+
+- **Capabilities:** semantic search (embeddings + rerank alongside Tantivy, never replacing exact retrieval for compliance-critical queries), document/section summaries, entity + PII detection (suggestions, human-approved), cross-document Q&A.
+- **Read-only by construction:** it never mutates documents or history; every AI action is audited.
+- **Provider is pluggable** behind an `AiProvider` trait. Default: **Claude via the Anthropic API** (`anthropic` SDK) — Haiku for extraction/classification, Sonnet/Opus for reasoning/Q&A. A **local-model adapter** (e.g. llama.cpp/ONNX via a Rust binding) serves air-gapped installs. Provider choice is `Config`-driven; the trait keeps handlers provider-agnostic.
 
 ```rust
-async fn upload(
-    State(s): State<AppState>,
-    mut mp: Multipart,
-) -> Result<Json<UploadResp>, AppError> {
+#[async_trait]
+pub trait AiProvider: Send + Sync {
+    async fn embed(&self, chunks: &[&str]) -> Result<Vec<Embedding>, AiError>;
+    async fn summarize(&self, text: &str, scope: Scope) -> Result<Summary, AiError>;
+    async fn detect_pii(&self, text: &str) -> Result<Vec<PiiSpan>, AiError>;
+    async fn answer(&self, question: &str, ctx: &[Passage]) -> Result<Answer, AiError>;
+}
+```
+
+## 9. File upload + editor byte streams
+
+Axum exposes `axum::extract::Multipart` (from `multer`). Two rules: raise the default 2 MB body limit with `DefaultBodyLimit::disable()` on the upload route (gate size in the handler / `RequestBodyLimitLayer` for a hard cap), and keep `Multipart` **last** in the handler signature since it consumes the body.
+
+The ingest handler enforces the **documents-only allowlist** — by extension *and* magic-byte sniff — before anything is sealed and written. Disallowed types are rejected, not quarantined.
+
+```rust
+async fn upload(State(s): State<AppState>, mut mp: Multipart) -> Result<Json<UploadResp>, AppError> {
     while let Some(field) = mp.next_field().await? {
         if field.name() == Some("file") {
-            let name = field.file_name().unwrap_or("untitled").to_owned();
-            let content_type = field.content_type().map(str::to_owned);
-            // Field implements Stream<Item = Result<Bytes, _>>:
-            let stream: ByteStream = Box::pin(field.map_err(StorageError::from));
-            let meta = s.storage.put(&name, stream, content_type.as_deref()).await?;
-            return Ok(Json(UploadResp::from(meta)));
+            let bytes = field.bytes().await?;                       // small docs; stream for large
+            allowlist::check(&filename, &bytes)?;                   // extension + magic-byte sniff
+            let version = s.commit_new_version(&bytes).await?;      // seal → write-once → hash-chain → audit → enqueue reindex
+            return Ok(Json(version.into()));
         }
     }
     Err(AppError::missing_field("file"))
 }
 ```
 
-For the S3 adapter, pipe the stream into `ByteStream::from_body_1_x(...)` so the AWS SDK does the multipart-S3 upload in chunks — no double buffering.
+For **editing**, the primary path is embedded, not WOPI: the app origin mints a short-TTL HMAC **editor access token** `(user_id, file_id, perms, exp, jti)`; the server decrypts bytes in memory and streams them to the embedded editor over the authenticated app origin; save re-seals, appends a hash-chained version, audits, and enqueues reindex. WOPI stays available as **optional interop** for external Office clients in a separate `dochub-wopi` interop module — not on the hot path.
 
-**tus.io** (resumable upload protocol): worth knowing about but not for v0. `fileloft` (multi-framework, Axum adapter, fs/S3/GCS/Azure stores) is the most production-shaped Rust option in 2026; `ztus` is a client; `tus-rust` is an older library. If we want resumable browser uploads later, slot `fileloft`'s axum adapter onto `/files/tus`.
+Sources: [axum::extract::Multipart docs](https://docs.rs/axum/latest/axum/extract/multipart/index.html), [axum streaming upload discussion #1638](https://github.com/tokio-rs/axum/discussions/1638).
 
-Sources: [axum::extract::Multipart docs](https://docs.rs/axum/latest/axum/extract/multipart/index.html), [axum streaming upload discussion #1638](https://github.com/tokio-rs/axum/discussions/1638), [tus.io](https://tus.io/), [crates.io/fileloft-axum](https://crates.io/crates/fileloft-axum).
-
-## 7. Existing WOPI implementations in Rust
-
-Searched crates.io and GitHub. Result:
-
-- **`beatgammit/wopi-rs`** — the only hit. Targets WOPI spec v9.0. Search-engine metadata suggests no meaningful activity in years (last indexed circa 2017 per snippet; [unverified beyond that]). Not on crates.io as far as the searches showed.
-- No other WOPI host crate exists in the Rust ecosystem.
-
-For reference, mature implementations live in other languages:
-- **petrsvihlik/WopiHost** (.NET) — most complete; useful as a behavioural reference.
-- **cs3org/wopiserver** (Python, vendor-neutral gateway).
-- **nagi1/laravel-wopi** (PHP), **coatsy/wopi-node** / **mikeebowen/node-wopi-server** (Node), **OfficeDev/PnP-WOPI** (sample).
-
-**Plan: write our own.** Build a `drive-wopi` crate with typed structs for `CheckFileInfo`, headers (`X-WOPI-Lock`, `X-WOPI-Override`, `X-WOPI-ItemVersion`, …), and the lock/unlock/refresh-lock state machine. Use WopiHost (.NET) as the canonical "this is what the response actually has to look like for Office Online" reference.
-
-Sources: [github.com/beatgammit/wopi-rs](https://github.com/beatgammit/wopi-rs), [github.com/topics/wopi](https://github.com/topics/wopi), [github.com/petrsvihlik/WopiHost](https://github.com/petrsvihlik/WopiHost), [github.com/cs3org/wopiserver](https://github.com/cs3org/wopiserver).
-
-## 8. Observability
-
-Minimum to ship:
+## 10. Observability
 
 ```rust
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
-
 tracing_subscriber::registry()
-    .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,drive=debug,tower_http=info".into()))
-    .with(fmt::layer().json())          // structured logs out of the box
+    .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,hub=debug,tower_http=info".into()))
+    .with(fmt::layer().json())
     .init();
 
-// in routes:
 let app = Router::new()
-    .route(...)
+    .route(/* … */)
     .layer(tower_http::trace::TraceLayer::new_for_http());
 ```
 
-That's enough for structured per-request logs with method, path, status, latency. Add `#[tracing::instrument(skip(state, body))]` on storage adapter methods.
-
-OpenTelemetry is **optional** and **off by default**:
-
-- `opentelemetry` + `opentelemetry_sdk` + `opentelemetry-otlp` + `tracing-opentelemetry` (last release activity Jan 2026).
-- Gate behind a `otel` cargo feature so the $5-VPS build doesn't pay for it.
-- Export OTLP to whatever the operator runs (Tempo, Jaeger, Honeycomb).
+Structured per-request logs (method, path, status, latency). Redact `Authorization`, `Cookie`, editor-access tokens, and — critically — **never log document bytes, plaintext, or keys**. OpenTelemetry is optional and off by default behind an `otel` cargo feature so the $5-VPS build doesn't pay for it.
 
 Sources: [crates.io/tracing-opentelemetry](https://crates.io/crates/tracing-opentelemetry), [opentelemetry.io/docs/languages/rust](https://opentelemetry.io/docs/languages/rust/).
 
-## 9. Testing
+## 11. Testing
 
-Three layers:
+Layers (full contract in `docs/TESTING.md`):
 
-1. **Unit / handler tests** — call async handler functions directly with hand-built `State<T>` and check the `Result`.
-2. **Router integration tests** — `tower::ServiceExt::oneshot` on the configured `Router`:
+1. **Unit** — crypto primitives, hash-chain math, config parsing, path confinement, token signing, repo query builders.
+2. **Property (`proptest`)** — `open(seal(x)) == x`; chain verification; append-only immutability; restore-is-additive; key rotation is lossless.
+3. **Integration** — crates against real SQLite + Postgres and real OpenDAL backends via `testcontainers`; a spy backend asserts ciphertext-at-rest.
+4. **Router integration** — `tower::ServiceExt::oneshot` on the configured `Router` (`.with_state(state)` first).
+5. **End-to-end** — Playwright against the built binary, one test per named use-case (onboard, upload+reject, edit→version, restore, co-edit, content search, share, audit/retention, provenance, AI).
 
-   ```rust
-   use tower::ServiceExt;
-   #[tokio::test]
-   async fn check_file_info_ok() {
-       let app = drive::router(test_state().await);
-       let resp = app
-           .oneshot(Request::get("/wopi/files/abc")
-               .header("X-WOPI-Token", "test")
-               .body(Body::empty()).unwrap())
-           .await.unwrap();
-       assert_eq!(resp.status(), StatusCode::OK);
-   }
-   ```
+Coverage gate ≥ 85% (`cargo llvm-cov`); new crypto/immutability code targets 100% branch coverage.
 
-   Trait bounds quirk: `oneshot` needs `Router<()>`, so call `.with_state(state)` before the test if you parameterised `Router<AppState>`.
+Sources: [axum testing example](https://github.com/tokio-rs/axum/blob/main/examples/testing/src/main.rs), [docs.rs — testcontainers-modules](https://docs.rs/testcontainers-modules/latest/).
 
-3. **Backend integration tests** — `testcontainers` + `testcontainers-modules` (feature `minio`) spin up a real MinIO on a random port for the S3 adapter tests. Reuse a single container per test module via `OnceCell` to keep CI snappy.
-
-Sources: [axum testing example](https://github.com/tokio-rs/axum/blob/main/examples/testing/src/main.rs), [testcontainers-modules MinIO](https://docs.rs/testcontainers-modules/latest/testcontainers_modules/minio/struct.MinIO.html).
-
-## 10. Build & deploy
-
-Workspace layout:
-
-```
-drive/
-├─ Cargo.toml                # [workspace] members = ["crates/*"]
-├─ crates/
-│  ├─ drive-core/            # domain types, errors, config
-│  ├─ drive-storage/         # Storage trait + fs/memory/s3 adapters
-│  ├─ drive-wopi/            # WOPI types + handlers (axum router fragment)
-│  ├─ drive-http/            # router assembly + middleware + SPA mount
-│  └─ drive-bin/             # main.rs, CLI, settings loading
-├─ web/                      # SPA source (vite/whatever)
-├─ Dockerfile
-└─ docs/
-```
+## 12. Build & deploy
 
 Release profile (root `Cargo.toml`):
 
@@ -305,7 +283,7 @@ strip = "symbols"
 panic = "abort"
 ```
 
-Multi-stage Dockerfile with `cargo-chef` (≈5x faster rebuilds, per LukeMathWalker's benchmarks):
+Multi-stage Dockerfile with `cargo-chef` (≈5x faster rebuilds):
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
@@ -321,30 +299,24 @@ FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json   # cached layer: deps only
 COPY . .
-RUN cargo build --release --bin drive
+RUN cargo build --release --bin hub
 
 FROM debian:trixie-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/drive /usr/local/bin/drive
+COPY --from=builder /app/target/release/hub /usr/local/bin/hub
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/drive"]
+ENTRYPOINT ["/usr/local/bin/hub"]
 ```
 
-Key rule (from cargo-chef docs): the planner, builder, and any cached image must use the **same Rust toolchain version**, or cache reuse silently breaks.
+Planner, builder, and cached image must share the **same Rust toolchain version** or cache reuse silently breaks.
 
 Sources: [cargo-chef README](https://github.com/LukeMathWalker/cargo-chef/blob/main/README.md), [Luca Palmieri — 5x faster rust docker builds](https://lpalmieri.com/posts/fast-rust-docker-builds/).
 
-## 11. Frontend served by Drive
+## 13. SPA embedding
 
-Three options:
-
-- **`rust-embed` 8.x** — proc-macro that embeds a directory at compile time in release and reads from disk in dev. First-class axum example in the repo. SPA-friendly fallback is one match arm. **Pick this.**
-- **`include_dir`** — simpler macro, no dev-mode hot reload, fewer features (no auto-MIME, no compression). Fine for tiny embeds; weak for an SPA.
-- **`axum-embed`** — convenience wrapper over `rust-embed` that gives you a `Service` directly. Optional sugar.
-- **Split service (nginx / reverse proxy)** — adds an operational moving part for a $5 VPS for zero benefit at v0. Defer until we actually need CDN edge caching.
-
-For v0: `rust-embed = "8"` (8.11 latest), build the SPA into `web/dist/`, embed, and SPA-fallback to `index.html`:
+- **`rust-embed` 8.x** — embeds `web/dist/` at compile time in release, reads from disk in dev. SPA-fallback is one match arm. **Pick this.**
+- `include_dir` (simpler, no dev hot-reload) and `axum-embed` (convenience `Service` wrapper) are alternatives; a split reverse-proxy service is overkill for a $5-VPS at v0.
 
 ```rust
 #[derive(rust_embed::Embed)]
@@ -365,22 +337,21 @@ async fn spa(uri: Uri) -> impl IntoResponse {
 
 Sources: [crates.io/rust-embed](https://crates.io/crates/rust-embed), [crates.io/include_dir](https://crates.io/crates/include_dir), [crates.io/axum-embed](https://crates.io/crates/axum-embed).
 
-## 12. Drive starter blueprint
+## 14. Doc-Hub starter blueprint
 
-`Cargo.toml` (binary crate; trim once split into workspace):
+Root `Cargo.toml` workspace + representative deps:
 
 ```toml
-[package]
-name    = "drive"
-version = "0.0.1"
-edition = "2024"
+[workspace]
+members = ["crates/*"]
 
+# dochub-http (representative)
 [dependencies]
 # http stack
 axum                = { version = "0.8", features = ["multipart", "macros"] }
 tokio               = { version = "1",  features = ["full"] }
 tower               = "0.5"
-tower-http          = { version = "0.6", features = ["trace", "cors", "limit", "compression-gzip"] }
+tower-http          = { version = "0.6", features = ["trace", "cors", "limit", "compression-gzip", "set-header"] }
 hyper               = "1"
 
 # data
@@ -389,6 +360,28 @@ serde_json          = "1"
 bytes               = "1"
 futures             = "0.3"
 time                = { version = "0.3", features = ["serde", "formatting"] }
+ulid                = "1"
+
+# db
+sqlx                = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "migrate", "macros"] }
+
+# storage + crypto
+opendal             = { version = "0.5x", features = ["services-fs", "services-memory", "services-s3"] }  # [unverified exact version]
+async-trait         = "0.1"
+aws-lc-rs           = "1"
+sha2                = "0.10"
+ed25519-dalek       = "2"
+aws-sdk-kms         = { version = "1", optional = true }   # behind `kms` feature
+
+# index + ai
+tantivy             = "0.22"                               # full-text index (in-process)
+# core                = { path = "../core" }               # vendored extraction engine
+
+# auth
+tower-sessions      = "0.15"
+argon2              = "0.5"
+jsonwebtoken        = { version = "10", default-features = false, features = ["aws_lc_rs"] }
+openidconnect       = { version = "4", optional = true }   # behind `oidc` feature
 
 # error / log
 anyhow              = "1"
@@ -396,144 +389,66 @@ thiserror           = "2"
 tracing             = "0.1"
 tracing-subscriber  = { version = "0.3", features = ["env-filter", "json"] }
 
-# auth
-tower-sessions      = "0.15"
-jsonwebtoken        = { version = "10", default-features = false, features = ["aws_lc_rs"] }
-openidconnect       = { version = "4", optional = true }   # behind `oidc` feature
-argon2              = { version = "0.5", optional = true } # only if local pw login
-
-# storage
-async-trait         = "0.1"
-aws-config          = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-s3          = "1"   # 1.135 latest
-tokio-util          = { version = "0.7", features = ["io"] }
-
 # spa
 rust-embed          = { version = "8", features = ["mime-guess"] }
 mime_guess          = "2"
 
 [dev-dependencies]
+proptest                = "1"
 testcontainers          = "0.27"
-testcontainers-modules  = { version = "0.13", features = ["minio"] }   # [unverified exact version]
-tower                   = { version = "0.5", features = ["util"] }     # ServiceExt::oneshot
+testcontainers-modules  = { version = "0.13", features = ["postgres", "minio"] }
+tower                   = { version = "0.5", features = ["util"] }   # ServiceExt::oneshot
 http-body-util          = "0.1"
 
 [features]
 default = []
 oidc    = ["dep:openidconnect"]
+kms     = ["dep:aws-sdk-kms"]
+ai      = []      # gates dochub-ai wiring
 otel    = []
 ```
 
-Module layout (inside one crate, ready to split into workspace later):
-
-```
-src/
-├─ main.rs                  # tokio::main, settings, layers, axum::serve
-├─ config.rs                # figment/serde Config struct
-├─ error.rs                 # AppError + IntoResponse impl
-├─ state.rs                 # AppState
-├─ http/
-│  ├─ mod.rs                # Router assembly
-│  ├─ spa.rs                # rust-embed SPA fallback
-│  └─ api/                  # GET /api/files, POST /api/files, signed URLs
-├─ wopi/
-│  ├─ types.rs              # CheckFileInfo, lock headers
-│  ├─ handlers.rs           # GetFile, PutFile, Lock, Unlock, RefreshLock
-│  └─ token.rs              # JWT access tokens
-├─ storage/
-│  ├─ mod.rs                # Storage trait + StorageError
-│  ├─ fs.rs                 # filesystem adapter
-│  ├─ memory.rs             # in-memory (dev/tests)
-│  └─ s3.rs                 # AWS SDK; works for S3 and MinIO via endpoint override
-└─ auth/
-   ├─ session.rs            # tower-sessions glue
-   └─ oidc.rs               # behind `oidc` feature
-```
-
-`main.rs` sketch:
+`main.rs` sketch (`dochub-bin`), boot invariants first:
 
 ```rust
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    drive::observability::init();
-    let cfg = drive::config::load()?;
-    let storage = drive::storage::from_config(&cfg).await?;   // Arc<dyn Storage>
-    let state   = drive::state::AppState::new(cfg.clone(), storage).await?;
+    hub::observability::init();
+    let cfg = hub::config::load()?;
 
-    let app = drive::http::router(state)
+    // Fail-fast boot invariants (asserted + tested):
+    hub::crypto::require_master_key(&cfg)?;           // refuse to start without a KEK/KMS
+    hub::http::require_distinct_origins(&cfg)?;       // refuse prod if app_origin == usercontent_origin
+    let db      = hub::db::connect_and_migrate(&cfg).await?;
+    let storage = hub::storage::from_config(&cfg).await?;   // Arc<dyn Storage>, encryption layer wired
+
+    let state = hub::state::AppState::new(cfg.clone(), db, storage).await?;
+    let app   = hub::http::router(state)
         .layer(tower_http::trace::TraceLayer::new_for_http())
-        .layer(tower_http::compression::CompressionLayer::new())
-        .layer(tower_http::cors::CorsLayer::permissive());
+        .layer(tower_http::compression::CompressionLayer::new());
 
     let listener = tokio::net::TcpListener::bind(cfg.bind).await?;
-    tracing::info!(addr = %cfg.bind, "drive listening");
+    tracing::info!(addr = %cfg.bind, "hub listening");
     axum::serve(listener, app).await?;
     Ok(())
 }
 ```
 
-This blueprint compiles down to a single static binary (linked via `aws_lc_rs` to avoid an OpenSSL system dep) that ships in a ~20–40 MB Debian-slim image and runs comfortably on a $5 VPS, while leaving every seam (storage backend, session store, identity provider, OTLP exporter) swappable for scale-up.
+This compiles to a single static binary (linked via `aws_lc_rs`, no OpenSSL system dep) that ships in a ~20–40 MB Debian-slim image and runs comfortably on a $5 VPS, while leaving every seam — storage backend, KMS, session store, IdP, AI provider — swappable for scale-up.
 
 ---
 
 ## Sources (fetched)
 
-- [crates.io — axum](https://crates.io/crates/axum)
-- [crates.io — axum versions](https://crates.io/crates/axum/versions)
-- [crates.io — actix-web](https://crates.io/crates/actix-web)
-- [docs.rs — actix-web 4.13.0](https://docs.rs/crate/actix-web/latest)
-- [crates.io — rocket](https://crates.io/crates/rocket)
-- [docs.rs — rocket 0.5.1](https://docs.rs/crate/rocket/latest)
-- [crates.io — poem](https://crates.io/crates/poem)
-- [github.com/poem-web/poem](https://github.com/poem-web/poem)
-- [tokio.rs — Announcing axum 0.8.0](https://tokio.rs/blog/2025-01-01-announcing-axum-0-8-0)
-- [github — rust-web-framework-comparison](https://github.com/flosse/rust-web-framework-comparison)
-- [crates.io — tokio](https://crates.io/crates/tokio)
-- [crates.io — tower](https://crates.io/crates/tower)
-- [docs.rs — tower 0.5.3](https://docs.rs/crate/tower/latest)
-- [crates.io — tower-http](https://crates.io/crates/tower-http)
-- [docs.rs — tower-http 0.6.8](https://docs.rs/crate/tower-http/latest)
-- [crates.io — hyper](https://crates.io/crates/hyper)
-- [crates.io — serde](https://crates.io/crates/serde)
-- [docs.rs — serde 1.0.228](https://docs.rs/crate/serde/latest/source/crates-io.md)
-- [docs.rs — serde_json 1.0.149](https://docs.rs/crate/serde_json/latest)
-- [crates.io — tracing](https://crates.io/crates/tracing)
-- [crates.io — tracing-opentelemetry](https://crates.io/crates/tracing-opentelemetry)
-- [opentelemetry.io — Rust](https://opentelemetry.io/docs/languages/rust/)
-- [crates.io — anyhow](https://crates.io/crates/anyhow)
-- [crates.io — thiserror](https://crates.io/crates/thiserror)
-- [docs.rs — thiserror 2.0.18](https://docs.rs/crate/thiserror/latest)
-- [crates.io — tower-sessions](https://crates.io/crates/tower-sessions)
-- [docs.rs — tower-sessions 0.15.0](https://docs.rs/crate/tower-sessions/latest)
-- [github.com/maxcountryman/tower-sessions](https://github.com/maxcountryman/tower-sessions)
-- [crates.io — axum-login](https://crates.io/crates/axum-login)
-- [docs.rs — axum-login 0.18.0](https://docs.rs/crate/axum-login/latest)
-- [crates.io — argon2](https://crates.io/crates/argon2)
-- [docs.rs — argon2 0.5.3](https://docs.rs/crate/argon2/latest)
-- [crates.io — oauth2](https://crates.io/crates/oauth2)
-- [docs.rs — oauth2 5.0.0](https://docs.rs/crate/oauth2/latest)
-- [crates.io — openidconnect](https://crates.io/crates/openidconnect)
-- [docs.rs — openidconnect 4.0.1](https://docs.rs/crate/openidconnect/latest)
-- [crates.io — jsonwebtoken](https://crates.io/crates/jsonwebtoken)
-- [docs.rs — jsonwebtoken 10.4.0](https://docs.rs/crate/jsonwebtoken/latest)
-- [rust-lang blog — async fn and RPIT in traits (1.75)](https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits/)
-- [async fundamentals — async fn in dyn trait](https://rust-lang.github.io/async-fundamentals-initiative/explainer/async_fn_in_dyn_trait.html)
-- [crates.io — async-trait](https://crates.io/crates/async-trait)
-- [docs.rs — axum::extract::Multipart](https://docs.rs/axum/latest/axum/extract/multipart/index.html)
-- [axum discussion #1638 — streaming upload/download](https://github.com/tokio-rs/axum/discussions/1638)
-- [tus.io — resumable upload protocol](https://tus.io/protocols/resumable-upload)
-- [crates.io — fileloft-axum](https://crates.io/crates/fileloft-axum)
-- [github.com/beatgammit/wopi-rs](https://github.com/beatgammit/wopi-rs)
-- [github.com — topics/wopi](https://github.com/topics/wopi)
-- [github.com/petrsvihlik/WopiHost](https://github.com/petrsvihlik/WopiHost)
-- [github.com/cs3org/wopiserver](https://github.com/cs3org/wopiserver)
-- [axum testing example](https://github.com/tokio-rs/axum/blob/main/examples/testing/src/main.rs)
-- [docs.rs — testcontainers-modules MinIO](https://docs.rs/testcontainers-modules/latest/testcontainers_modules/minio/struct.MinIO.html)
-- [github.com/LukeMathWalker/cargo-chef](https://github.com/LukeMathWalker/cargo-chef)
-- [Luca Palmieri — 5x faster Rust Docker builds](https://lpalmieri.com/posts/fast-rust-docker-builds/)
-- [crates.io — rust-embed](https://crates.io/crates/rust-embed)
-- [docs.rs — rust-embed 8.11.0](https://docs.rs/crate/rust-embed/latest)
-- [crates.io — include_dir](https://crates.io/crates/include_dir)
-- [crates.io — axum-embed](https://crates.io/crates/axum-embed)
-- [crates.io — aws-sdk-s3](https://crates.io/crates/aws-sdk-s3)
-- [docs.rs — aws-sdk-s3 1.122.0](https://docs.rs/crate/aws-sdk-s3/latest)
+- [crates.io — axum](https://crates.io/crates/axum) · [axum versions](https://crates.io/crates/axum/versions) · [tokio.rs — Announcing axum 0.8.0](https://tokio.rs/blog/2025-01-01-announcing-axum-0-8-0)
+- [crates.io — actix-web](https://crates.io/crates/actix-web) · [rocket](https://crates.io/crates/rocket) · [poem](https://crates.io/crates/poem) · [rust-web-framework-comparison](https://github.com/flosse/rust-web-framework-comparison)
+- [crates.io — tokio](https://crates.io/crates/tokio) · [tower](https://crates.io/crates/tower) · [tower-http](https://crates.io/crates/tower-http) · [hyper](https://crates.io/crates/hyper) · [serde](https://crates.io/crates/serde) · [tracing](https://crates.io/crates/tracing) · [thiserror](https://crates.io/crates/thiserror) · [anyhow](https://crates.io/crates/anyhow)
+- [crates.io — tower-sessions](https://crates.io/crates/tower-sessions) · [axum-login](https://crates.io/crates/axum-login) · [argon2](https://crates.io/crates/argon2) · [oauth2](https://crates.io/crates/oauth2) · [openidconnect](https://crates.io/crates/openidconnect) · [jsonwebtoken](https://crates.io/crates/jsonwebtoken)
+- [apache/opendal](https://github.com/apache/opendal) · [crates.io — opendal](https://crates.io/crates/opendal) · [crates.io — sqlx](https://crates.io/crates/sqlx)
+- Crypto: [crates.io — aws-lc-rs](https://crates.io/crates/aws-lc-rs) · [ring](https://crates.io/crates/ring) · [sha2](https://crates.io/crates/sha2) · [ed25519-dalek](https://crates.io/crates/ed25519-dalek) · [aws-sdk-kms](https://crates.io/crates/aws-sdk-kms)
+- Index/AI: [crates.io — tantivy](https://crates.io/crates/tantivy) · [`core` engine](https://github.com/schnsrw/core) · [Anthropic API](https://docs.anthropic.com/)
+- [async fn / RPIT in traits (1.75)](https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits/) · [async fn in dyn trait](https://rust-lang.github.io/async-fundamentals-initiative/explainer/async_fn_in_dyn_trait.html) · [crates.io — async-trait](https://crates.io/crates/async-trait)
+- [docs.rs — axum::extract::Multipart](https://docs.rs/axum/latest/axum/extract/multipart/index.html) · [axum discussion #1638](https://github.com/tokio-rs/axum/discussions/1638)
+- [crates.io — rust-embed](https://crates.io/crates/rust-embed) · [include_dir](https://crates.io/crates/include_dir) · [axum-embed](https://crates.io/crates/axum-embed)
+- [github.com/LukeMathWalker/cargo-chef](https://github.com/LukeMathWalker/cargo-chef) · [Luca Palmieri — 5x faster Rust Docker builds](https://lpalmieri.com/posts/fast-rust-docker-builds/)
+- [axum testing example](https://github.com/tokio-rs/axum/blob/main/examples/testing/src/main.rs) · [docs.rs — testcontainers-modules](https://docs.rs/testcontainers-modules/latest/)

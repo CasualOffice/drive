@@ -1,54 +1,71 @@
 # 10 — Direct-to-storage upload
 
-Pipeline §13.6. Lets the client `PUT` bytes straight at the configured storage backend (S3, MinIO, R2, B2) without proxying through the Drive process. For everything else (filesystem, in-memory, or workspaces with no native-presign capability) the existing multipart proxy stays the path.
+Pipeline §13.6. Lets the client `PUT` an **already-encrypted** document straight at the configured storage backend (S3, MinIO, R2, B2) without proxying the bytes through the Doc-Hub process. For everything else (filesystem, in-memory, or workspaces with no native-presign capability) the existing multipart proxy stays the path.
+
+The hard constraint that shapes this whole design: **no plaintext document bytes may ever land in a backend** (`CLAUDE.md`), and **every ingest path enforces the documents-only allowlist by extension and magic-byte sniff** (Testing invariant #8). A naive presigned PUT would violate both — the client would push raw plaintext the server never inspects. So the direct path here is *encrypt-then-PUT* plus a *post-finalize decrypt-and-sniff*, reconciled below.
 
 ## Why
 
-- **Throughput.** A 2 GB video pushed through `axum::Multipart` ties up a Drive worker for the duration. Direct PUT lets the client and the bucket talk over the user's own bandwidth.
-- **Cost.** Cuts egress + CPU on the Drive host. Operators running on a $5 VPS care.
-- **Failure isolation.** A truncated multipart used to dirty the request body; a failed direct PUT just leaves a half-uploaded object in the bucket that we clean up on `abort` or never finalize.
+- **Offload CPU + egress from the host.** Proxying a large PDF or spreadsheet through `axum::Multipart` *and* sealing it in-process ties up a Doc-Hub worker for the whole transfer. Direct PUT lets the client and the bucket talk over the client's own bandwidth; the client does the AES-256-GCM sealing. Operators on a $5 VPS care.
+- **Failure isolation.** A truncated multipart used to dirty the request body; a failed direct PUT just leaves a half-uploaded object we clean up on `abort` or never finalize (and never chain into a version).
+- Still bounded to documents. This is not a media-upload fast path — the allowlist (`docx, xlsx, xlsm, pptx, pdf, md, txt, csv, json, yaml`) applies exactly as on the proxy path.
 
-Out of scope: multipart (chunked) upload protocol — the bucket's native multipart isn't exposed in v0. Single-PUT object size is bounded by the provider (5 GB on S3 without chunking). Resumable is `⏸ v0.2+` per pipeline §6.7.
+Out of scope: multipart (chunked) upload protocol — the bucket's native multipart isn't exposed in v0. Single-PUT object size is bounded by the provider (5 GB on S3 without chunking); hub documents sit far below that. Resumable is `⏸ v0.2+` per pipeline §6.7.
+
+## Reconciling direct upload with no-plaintext-at-rest + sniffing
+
+The hub is **server-trusted, not zero-knowledge** — the server holds the workspace DEK. That is exactly what makes the direct path safe:
+
+1. **Encrypt-then-PUT (primary).** At presign, the server hands the client a short-lived **content key** — a random per-upload key wrapped under the workspace DEK — alongside the presigned PUT URL. The client seals the document client-side with AES-256-GCM and PUTs the ciphertext (`nonce ‖ ciphertext ‖ tag`). Only ciphertext ever touches the bucket. Because the server can unwrap the content key (it holds the DEK), the bytes are fully recoverable server-side — this is not E2E, and it must not be.
+2. **Decrypt-and-sniff at finalize (mandatory, not deferred).** On `complete`, the server reads the first ~4 KiB of the object via the storage adapter, decrypts it with the unwrapped content key, and runs the magic-byte sniff (`infer`) + extension allowlist. If the sniffed type isn't in the allowlist, the object is deleted and the row rejected. This replaces the old plan's "trust the client-asserted MIME" — the server *does* see the bytes, just after they land, and rejects before the row becomes a committed version.
+3. **Gateway encryption (alternative).** Where a trusted encrypting gateway fronts the bucket, the client PUTs plaintext over TLS to the gateway, which sniffs, seals with the workspace DEK, and writes ciphertext. This keeps the sniff pre-write but reintroduces a hop; it's the fallback for clients that can't run WebCrypto. Primary is client-side encrypt-then-PUT.
+
+Net: the bucket only ever holds ciphertext, and no document becomes a version until the server has decrypted its head and confirmed it's an allowed document type.
 
 ## When the direct path activates
 
-Only when **all three** are true:
+Only when **all** are true:
 
-1. The workspace's effective storage adapter is one of `s3`, `minio`, `r2`, `b2` (native `presign_write` is available). `fs` and `memory` always use the proxy.
-2. The file is **≥ 8 MiB** at the SPA boundary (smaller files don't benefit; the proxy round-trip is cheaper than the extra metadata roundtrip).
-3. The client opts in via a feature flag (`VITE_DIRECT_UPLOAD=1`) for the first release. After two weeks of beta it flips on by default.
+1. The workspace's effective storage adapter is one of `s3`, `minio`, `r2`, `b2` (native `presign_write`). `fs` and `memory` always use the proxy.
+2. The client can seal client-side (WebCrypto `AES-GCM` available) — otherwise fall back to proxy (or gateway) so no plaintext is PUT.
+3. The document is **≥ 8 MiB** at the SPA boundary (smaller documents don't benefit; the proxy round-trip is cheaper than the extra metadata + key-grant roundtrip). Large scanned PDFs and big spreadsheets are the realistic case.
+4. The client opts in via a feature flag (`VITE_DIRECT_UPLOAD=1`) for the first release; flips on by default after a beta window.
 
-Below those thresholds the SPA uses the existing `POST /api/files` multipart path.
+Below those thresholds the SPA uses the existing `POST /api/files` multipart path, which seals in-process.
 
-## File lifecycle (with status)
+## Document lifecycle (with status)
 
-Today a `files` row is either present (ready) or trashed. Direct upload introduces a third state for the window between presign and finalize:
+A committed document is a hash-chained version. Direct upload introduces a pending state for the window between presign and finalize, before the first version is chained:
 
 ```
-                          ┌─ proxy upload (single multipart) ──────┐
-                          │   POST /api/files                      │
-                          │      → row created with status='ready' │
-                          └────────────────────────────────────────┘
+                          ┌─ proxy upload (single multipart) ──────────────┐
+                          │   POST /api/files                              │
+                          │      → seal in-process → write-once blob       │
+                          │      → append version v1 (content_hash)        │
+                          │      → row status='ready'                      │
+                          └────────────────────────────────────────────────┘
 
-   ┌─ direct upload ──────────────────────────────────────────────────┐
-   │ POST /api/files/upload-url                                       │
-   │    → row created with status='uploading', expected_size set      │
-   │    → returns presigned PUT URL + file_id + required_headers      │
-   │                                                                  │
-   │ Client PUT bytes → bucket                                        │
-   │                                                                  │
-   │ POST /api/files/{id}/complete                                    │
-   │    → server stats the object, fills size + etag + content_type,  │
-   │       flips status='ready'                                       │
-   │    OR                                                            │
-   │ POST /api/files/{id}/abort                                       │
-   │    → row + object deleted (we trust the client to call this)     │
-   └──────────────────────────────────────────────────────────────────┘
+   ┌─ direct upload ──────────────────────────────────────────────────────────┐
+   │ POST /api/files/upload-url                                               │
+   │    → row created status='uploading', expected_size set                  │
+   │    → returns presigned PUT URL + file_id + required_headers             │
+   │      + wrapped content key (client seals with this)                     │
+   │                                                                          │
+   │ Client seals document (AES-256-GCM) → PUT ciphertext → bucket           │
+   │                                                                          │
+   │ POST /api/files/{id}/complete                                            │
+   │    → server stats the object; reads first ~4 KiB; DECRYPTS; sniffs      │
+   │    → allowlist check (magic-byte + extension); reject+delete if failed  │
+   │    → computes content_hash = SHA-256(ciphertext); appends version v1    │
+   │    → status='ready'                                                     │
+   │    OR                                                                    │
+   │ POST /api/files/{id}/abort  → row + object deleted                       │
+   └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Filtering.** Every existing list/search/preview path must exclude `status != 'ready'` rows. Quota math counts uploading rows against the workspace cap (committed at presign) so two parallel direct uploads can't both squeeze under the limit.
+**Filtering.** Every list/search/editor path excludes `status != 'ready'` rows — an `uploading` object has no committed version yet. Quota math counts uploading rows against the workspace cap (committed at presign) so two parallel uploads can't both squeeze under the limit.
 
-**Stale uploads.** A background janitor (already scheduled hourly by `sessions::delete_expired`) extends to sweep `status='uploading' AND created_at < now() - 1h`, deleting the row + best-effort the object. v0 ships the janitor as a no-op (the SPA always calls `complete` or `abort`); the hook is in place for future toughening.
+**Stale uploads.** A background janitor (already scheduled hourly by `sessions::delete_expired`) sweeps `status='uploading' AND created_at < now() - 1h`, deleting the row + best-effort the object. The hook is in place; v0 ships it active because a failed sniff or dropped client leaves orphans that must not linger.
 
 ## Schema (migration 0009)
 
@@ -58,19 +75,19 @@ ALTER TABLE files ADD COLUMN expected_size INTEGER;
 CREATE INDEX files_status_idx ON files(status);
 ```
 
-Backward compatible: all existing rows materialise as `status='ready'`. Migration code never has to touch them.
+Backward compatible: existing rows materialise as `status='ready'`. The wrapped content key is ephemeral (returned once at presign, never persisted); the committed version's blob is self-describing (`nonce ‖ ciphertext ‖ tag`) and decrypts under the workspace DEK like any other.
 
 ## Endpoints
 
 ### `POST /api/files/upload-url` — presign
 
-Owner-scoped (workspace member). Body:
+Workspace-member scoped. Body:
 
 ```json
 {
-  "name": "video.mp4",
-  "size": 412345678,
-  "content_type": "video/mp4",
+  "name": "annual-report.pdf",
+  "size": 41234567,
+  "content_type": "application/pdf",
   "parent_id": null,
   "workspace_id": "wsp_…"
 }
@@ -79,12 +96,12 @@ Owner-scoped (workspace member). Body:
 Server:
 
 1. Resolve workspace via `resolve_active_workspace` (membership-gated).
-2. Validate name (existing `sanitise_display_name`).
-3. Reject if extension is in the blocklist (existing `check_upload_extension`). Defense-in-depth — the bucket doesn't sniff but the row metadata still records the extension.
+2. Validate name (`sanitise_display_name`).
+3. **Extension allowlist check** (documents-only). Reject at presign if the extension isn't `docx/xlsx/xlsm/pptx/pdf/md/txt/csv/json/yaml` — defense-in-depth ahead of the finalize sniff.
 4. Quota check: `used_bytes(workspace) + sum(expected_size where status='uploading') + size <= quota`.
-5. Resolve storage adapter via `StorageRegistry::for_workspace` (returns BYO when set, default otherwise). Return **409** if adapter is `fs`/`memory` — surface to SPA so it falls back to proxy.
-6. Generate file id (ULID), insert row with `status='uploading'`, `expected_size = size`, `size = 0`, `content_type = body.content_type`, `etag = NULL`, `storage_id` matching the resolved adapter.
-7. Mint signed PUT via `Storage::signed_put(key, ttl=15min)`.
+5. Resolve storage adapter via `StorageRegistry::for_workspace` (BYO when set, default otherwise). Return **409** if adapter is `fs`/`memory` — SPA falls back to proxy.
+6. Generate file id + **opaque ULID storage key** (never derived from the name), insert row `status='uploading'`, `expected_size = size`, `size = 0`, `content_type = body.content_type`, `storage_id` matching the resolved adapter.
+7. Mint a per-upload **content key**, wrap it under the workspace DEK (`dochub-crypto`), and mint the signed PUT via `Storage::signed_put(key, ttl=15min)`.
 8. Emit `files.upload_url_minted` audit event.
 9. Return:
 
@@ -92,112 +109,120 @@ Server:
 {
   "file_id": "01H…",
   "upload_url": "https://my-bucket.s3.amazonaws.com/01H…?X-Amz-…",
-  "expires_at": "2026-06-08T05:30:00Z",
+  "expires_at": "2026-07-06T05:30:00Z",
   "method": "PUT",
-  "required_headers": { "Content-Type": "video/mp4" }
+  "required_headers": { "Content-Type": "application/octet-stream" },
+  "encryption": { "alg": "AES-256-GCM", "wrapped_key": "base64…" }
 }
 ```
 
-Errors: `400` validation, `403` non-member, `409` adapter doesn't presign, `413` quota exceeded.
+The bucket receives `Content-Type: application/octet-stream` — it stores an opaque ciphertext blob, not a document. Errors: `400` validation / disallowed extension, `403` non-member, `409` adapter doesn't presign, `413` quota exceeded.
 
 ### `POST /api/files/{id}/complete` — finalize
 
-Owner-scoped on the file's workspace. Body empty.
+Workspace-member scoped. Body empty.
 
-1. Look up the row; must be `status='uploading'` and the caller must be a workspace member.
+1. Look up the row; must be `status='uploading'` and caller a workspace member.
 2. `storage.stat(key)` against the resolved adapter.
-   - If 404 → row stays `uploading` + return 404 to SPA (client retries the PUT).
-   - If stat succeeds → update row: `size = stat.size`, `etag = stat.etag`, `content_type = stat.content_type ?? row.content_type`, `status = 'ready'`. Bump `modified_at`. Clear `expected_size` (set NULL).
-3. Emit `files.upload_completed` audit event.
-4. Return the standard `FileDto` shape (matches the existing multipart response).
+   - 404 → row stays `uploading`, return 404 (client retries the PUT).
+3. **Decrypt-and-sniff (mandatory).** Read the first ~4 KiB via the adapter, unwrap the content key, decrypt, run `infer` magic-byte sniff + extension allowlist. On mismatch → delete the object, mark the row rejected (or delete it), emit `files.upload_rejected`, return `415`.
+4. Compute `content_hash = SHA-256(ciphertext)` (streaming read) and **append version v1** to `file_versions` (`prev_hash = NULL`, the chain root). Update the row: `size = stat.size`, `etag = stat.etag`, `content_type` = sniffed type, `status = 'ready'`, clear `expected_size`.
+5. Emit `files.upload_completed` audit event.
+6. Return the standard `FileDto`.
 
 ### `POST /api/files/{id}/abort` — cancel
 
-Owner-scoped. Deletes the row and best-effort deletes the object. Idempotent (404 on already-gone rows is silent).
+Workspace-member scoped. Deletes the row and best-effort deletes the object. Idempotent (404 on already-gone rows is silent). No version is ever chained for an aborted upload.
 
 ## Storage facade changes
 
-`Storage::signed_put` already returns `SignedUrl::Native { url, expires_at }` for S3/MinIO and `SignedUrl::Token { token, expires_at }` for fs/memory. The presign handler returns 409 when it sees the Token variant — the SPA's branch logic shouldn't hit this in practice (it only opts in when the workspace's BYO is native-presign), but defense-in-depth.
+`Storage::signed_put` already returns `SignedUrl::Native { url, expires_at }` for S3/MinIO/R2/B2 and `SignedUrl::Token { token, expires_at }` for fs/memory. The presign handler returns 409 on the Token variant — the SPA shouldn't hit this (it only opts in for native-presign BYO), but defense-in-depth.
 
-New helper:
+New helpers:
 
 ```rust
 impl StorageRegistry {
-    /// Returns true when the adapter can serve a direct upload (i.e.
-    /// `signed_put` returns Native). Asks OpenDAL once per cache hit.
+    /// True when the adapter can serve a direct upload (signed_put returns Native).
     pub fn supports_direct_upload(&self, /* …adapter ref… */) -> bool;
+}
+
+impl dochub_crypto::Envelope {
+    /// Mint a per-upload content key wrapped under the workspace DEK, for client-side sealing.
+    pub fn grant_content_key(&self, workspace_id: &str) -> Result<WrappedKey, CryptoError>;
+    pub fn unwrap_content_key(&self, workspace_id: &str, wrapped: &WrappedKey) -> Result<ContentKey, CryptoError>;
 }
 ```
 
-In practice the SPA learns this via `/api/me` or a new `/api/me/upload-policy` endpoint — see §"SPA branching" below.
+The SPA learns its policy via `/api/me/upload-policy` (native-presign? client-seal supported?).
 
 ## SPA branching
 
-`uploadFile` in `api/client.ts` becomes:
+`uploadFile` in `api/client.ts`:
 
 ```ts
-export async function uploadFile(file, parentId, thumb, workspaceId) {
+export async function uploadFile(file, parentId, workspaceId) {
   if (shouldDirectUpload(file)) {
     try {
-      return await directUpload(file, parentId, thumb, workspaceId);
+      return await directUpload(file, parentId, workspaceId);
     } catch (e) {
-      // Most likely 409 (adapter doesn't presign) or a CORS / network
-      // hiccup during the PUT. Fall back so the file still lands.
+      // 409 (adapter doesn't presign), no-WebCrypto, or CORS/network hiccup.
+      // Fall back so the document still lands — sealed in-process on the proxy path.
       console.warn("direct upload fell back to proxy:", e);
     }
   }
-  return proxyUpload(file, parentId, thumb, workspaceId);
+  return proxyUpload(file, parentId, workspaceId);
 }
 
 function shouldDirectUpload(file) {
   if (!import.meta.env.VITE_DIRECT_UPLOAD) return false;
+  if (!window.crypto?.subtle) return false;          // must be able to seal client-side
   return file.size >= 8 * 1024 * 1024;
 }
 ```
 
 `directUpload`:
 
-1. `POST /api/files/upload-url` with metadata + workspace.
-2. `fetch(upload_url, { method: "PUT", headers: required_headers, body: file })` — uses the browser's native streaming `Body` so no `arrayBuffer()` materialisation.
-3. `POST /api/files/{id}/complete` → returns the same `FileDto` the proxy path would have.
-4. On any failure between 1 and 3: best-effort `POST /api/files/{id}/abort`, then surface the error.
-
-The thumbnail is uploaded with `complete` (not posted to the bucket separately).
+1. `POST /api/files/upload-url` → `{ upload_url, file_id, encryption.wrapped_key }`.
+2. Seal the document with WebCrypto `AES-GCM` using the granted key → `nonce ‖ ciphertext ‖ tag`.
+3. `fetch(upload_url, { method: "PUT", headers: required_headers, body: sealed })`.
+4. `POST /api/files/{id}/complete` → returns the same `FileDto` the proxy path would (after the server's decrypt-and-sniff).
+5. On any failure between 1–4: best-effort `POST /api/files/{id}/abort`, then surface the error.
 
 ## Audit
 
 | Action | Metadata |
 |---|---|
 | `files.upload_url_minted` | `size`, `content_type`, `workspace_id` |
-| `files.upload_completed` | `size`, `etag`, `direct=true` |
+| `files.upload_completed` | `size`, `etag`, `content_hash`, `sniffed_type`, `direct=true` |
+| `files.upload_rejected` | `reason` (`disallowed_type` / `sniff_mismatch`) |
 | `files.upload_aborted` | `reason` (best-effort string from the SPA) |
-| `files.upload_stale_swept` | (background janitor — v0.2+) |
+| `files.upload_stale_swept` | (background janitor) |
+
+Content keys never appear in audit metadata or logs (per the security checklist).
 
 ## CORS implications
 
 The bucket needs `PUT` allowed from the SPA origin. Operators self-configure:
 
-- AWS S3: bucket CORS rule with `AllowedMethod: PUT`, `AllowedOrigin: <drive origin>`.
-- MinIO: similar via `mc anonymous` or the admin console.
-- Cloudflare R2: dashboard CORS settings.
-- Backblaze B2: bucket CORS rules.
+- AWS S3 / MinIO / Cloudflare R2 / Backblaze B2: bucket CORS rule with `AllowedMethod: PUT`, `AllowedOrigin: <hub app origin>`, and `AllowedHeader` covering `Content-Type`.
 
-The install doc gets a snippet for each provider. Without CORS, the browser blocks the PUT and the SPA falls back to proxy (with a console warning + a one-time toast suggesting the docs).
+The install doc ships a snippet per provider. Without CORS the browser blocks the PUT and the SPA falls back to proxy (console warning + one-time toast pointing at the docs).
 
 ## Security checklist (per CLAUDE.md)
 
+- ✅ **No plaintext at rest.** The client seals before PUT (or the gateway seals before write); the bucket only ever holds ciphertext. Same invariant as the proxy path, verified by the spy-backend test on the proxy path and by a decrypt round-trip on finalize.
+- ✅ **Documents-only allowlist enforced on the direct path** — extension check at presign *and* magic-byte sniff at finalize (server decrypts the head). This is now v0, not deferred; the direct path is not exempt from Testing invariant #8.
 - ✅ Workspace membership gate at presign + complete + abort.
 - ✅ Quota committed at presign — parallel uploads can't both fit.
-- ✅ Magic-byte sniffing — **not in v0** for direct uploads because the server never sees the bytes. Mitigation: the row records the client-asserted MIME, the `/raw/{token}` user-content origin still forces `Content-Disposition: attachment` for non-previewable types + ships its own sandboxed CSP. v0.2+: add a server-side post-finalize sniff that downloads the first 4 KB via the storage adapter, runs `infer`, and updates `content_type` (rejects executables). Tracked in §13.6a.
-- ✅ Rate limit: the existing `upload_limiter` token bucket gates `/api/files/upload-url` (1 mint per upload slot) instead of the PUT (which the SPA + bucket handle).
-- ✅ Audit on every state transition (mint, complete, abort).
-- ✅ Storage key remains `ulid::Ulid::new()` (never derived from input).
-- ✅ Presigned URL TTL: **15 min** (cap on `signed_put`) — long enough for a flaky mobile connection on a 2 GB file, short enough that a leaked URL stops working before the next coffee.
+- ✅ Immutability preserved — the object becomes version v1 only after sniff passes; `content_hash` computed on finalize; aborted/rejected uploads never chain.
+- ✅ Storage key is `ulid::Ulid::new()` (never derived from input); bucket blobs are opaque.
+- ✅ Rate limit: `upload_limiter` token bucket gates `/api/files/upload-url`.
+- ✅ Audit on every state transition (mint, complete, reject, abort).
+- ✅ Presigned URL + content-key grant TTL: **15 min** — long enough for a flaky connection on a big PDF, short enough that a leaked URL/grant expires before it's useful.
 
 ## Out of scope (v0.2+)
 
-- **§13.6a** — post-finalize magic-byte sniff (download first 4 KB via adapter, run `infer`, reject if executable). Adds one storage round-trip per finalize; worth doing before a multi-tenant production deploy.
-- Multipart / chunked upload protocol (5 GB+ files).
+- Multipart / chunked upload protocol (very large documents).
 - Resumable uploads (tus.io).
-- Progress reporting beyond the PUT's native `progressEvent` (which isn't exposed by `fetch`; would require XHR).
-- A janitor that sweeps stale `uploading` rows (the hook is in place; the cron is a v0.2 follow-up).
+- Progress reporting beyond the PUT's native `progressEvent`.
+- Gateway-encryption deployment as a first-class shipped component (the client-side path is primary; the gateway is documented as an alternative, not packaged in v0).

@@ -18,12 +18,12 @@ Green.
 
 ## What worked
 
-- **Tailwind v4's CSS-only `@theme` directive** is exactly right for this token system. The polish brief's tokens drop in as `:root` CSS variables, then `@theme` exposes a curated subset as Tailwind utilities. No `tailwind.config.js`, no PostCSS plugin chain, no `tailwind.css` separately. The whole config + tokens are a single file.
+- **Tailwind v4's CSS-only `@theme` directive** is exactly right for this token system. The polish brief's tokens drop in as `:root` CSS variables, then `@theme` exposes a curated subset as Tailwind utilities. No `tailwind.config.js`, no PostCSS plugin chain, no separate `tailwind.css`. The whole config + tokens are a single file.
 - **Inter Variable via `@fontsource-variable/inter`** ships the font with the bundle (no Google Fonts hop, no FOIT). Vite's asset hashing picks up all 7 subsets automatically.
 - **Theme switching** via `data-theme` attribute + `prefers-color-scheme` media query handles all three states (light / dark / system) with zero JS at runtime once mounted. The CSS-var swap is instant; no flash of mismatched theme.
 - **`prefers-reduced-motion`** universal no-op in `styles.css` honours commandment #8 with a single media-query block.
-- **Lucide React icons** — `<Cloud>`, `<FolderOpen>`, `<Upload>`, `<Sun>`, `<Moon>` — are tree-shakeable and render cleanly at 16/20/56 px sizes per surface spec.
-- **Inline `style={{ ... }}` for token bindings** turns out to be cleaner than memorising the Tailwind utility name for each design token. Token name in CSS == prop name in JSX. Phase 1's web/ will harden this with a typed token helper, but for the spike the directness was a win.
+- **Lucide React icons** — `<ShieldCheck>`, `<FileText>`, `<Upload>`, `<Sun>`, `<Moon>` — are tree-shakeable and render cleanly at 16/20/56 px sizes per surface spec. The hub's glyph vocabulary leans on documents + provenance (`file-text`, `shield-check`, `history`, `lock`), not storage/cloud clichés.
+- **Inline `style={{ ... }}` for token bindings** turns out cleaner than memorising the Tailwind utility name for each design token. Token name in CSS == prop name in JSX. Phase 1's web/ will harden this with a typed token helper, but for the spike the directness was a win.
 
 ## What surprised
 
@@ -35,26 +35,28 @@ Green.
 
 - The token set is **directly usable** — copy `styles.css`'s `:root` block into `web/src/styles.css` in Phase 1, switch from React stubs to real components, ship.
 - The light/dark theme toggle in `App.tsx` is the production pattern; Phase 1 promotes it into a settings page entry alongside the avatar menu.
-- The empty-state component is one of the 15 surfaces in `02-surface.md`. The other 14 follow this exact shape: inline tokens, Lucide glyphs, Radix Primitives for any interactive surface (modal/dropdown/etc — added in Phase 1).
+- The empty-state component is one of the surfaces in `02-surface.md`. The rest follow this exact shape: inline tokens, Lucide glyphs, Radix Primitives for any interactive surface (modal/dropdown/etc — added in Phase 1).
 - Bundle size for an empty React app + Inter is ~62 KB gzipped — leaves plenty of headroom for shadcn/ui + Radix + Motion + cmdk + vaul + sonner in Phase 1. Target shell budget: < 150 KB gzipped before route-split chunks.
 
 ## What's out of this spike (and where it goes)
 
 | Out | Where |
 |---|---|
-| Sidebar + top-bar full layout | Phase 1 `crates/drive-http`'s SPA mount + `web/src/components/Shell.tsx` |
+| Sidebar + top-bar full layout (three-pane: projects → document list → detail drawer) | Phase 1 `crates/dochub-http`'s SPA mount + `web/src/components/Shell.tsx` |
 | Radix Primitives integration (Dialog, DropdownMenu, Tooltip, ToggleGroup) | Phase 1 (per surface spec) |
 | shadcn/ui setup | Phase 1 (`pnpm dlx shadcn@latest init`) |
 | cmdk command palette | Phase 1 §"Command palette" |
-| File-list virtualised table | Phase 1 (`@tanstack/react-virtual`) |
+| Document table (virtualised; version / updated / encryption / lock columns) | Phase 1 (`@tanstack/react-virtual`) — see `ui-research/04-file-table.md` |
+| Version-history timeline + provenance panel | Phase 1 (per version/immutability surface) |
+| Embedded `<Editor>` mount | Phase 2 |
 | Motion / Framer Motion | Phase 1 — only when needed; the spike doesn't need any animation library beyond CSS transitions |
 | Mobile / narrow-viewport layout | Phase 3 |
 
 ## Recommended revisions to docs
 
 - Note in `04-polish-principles.md` that Tailwind v4 + Vite plugin is the production setup (today the brief mentions shadcn/Radix/etc but doesn't pin Tailwind version).
-- Add the `vite-env.d.ts` snippet to ARCHITECTURE.md §"Frontend served by Drive" — small enough to be easy to forget, expensive enough to debug.
+- Add the `vite-env.d.ts` snippet to ARCHITECTURE.md §"Embedded editing" / frontend notes — small enough to be easy to forget, expensive enough to debug.
 
 ## Decision
 
-**Greenlit.** Token system + Tailwind v4 setup + Lucide + Inter is the production stack for `web/`. Phase 1 starts by copying this spike's `package.json`/`tsconfig.json`/`vite.config.ts`/`styles.css` into `web/` and growing the component tree against the 15 surface specs.
+**Greenlit.** Token system + Tailwind v4 setup + Lucide + Inter is the production stack for `web/`. Phase 1 starts by copying this spike's `package.json`/`tsconfig.json`/`vite.config.ts`/`styles.css` into `web/` and growing the component tree against the surface specs, starting with the three-pane shell and the document table.

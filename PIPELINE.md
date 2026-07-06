@@ -1,203 +1,119 @@
-# Casual Drive — Pipeline
+# Doc-Hub — Pipeline
 
-**What this is:** the forward-looking work queue. Everything in here is *missing or upcoming* — what has shipped lives in [`CHANGELOG.md`](./CHANGELOG.md) and `git log`. Each item carries the brief that owns it, the trigger that says "start now," and the priority.
+**What this is:** the delivery/status tracker for the Drive→Doc-Hub revamp. It mirrors the phases in [`PLAN.md`](./PLAN.md) — what has shipped, what is in flight, and what is deferred. Read it alongside [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) and [`docs/TESTING.md`](./docs/TESTING.md).
 
-**Priority bands**
+**Posture:** every phase ships green on the full test contract before the next begins. The inviolable rules in [`CLAUDE.md`](./CLAUDE.md) — append-only history, everything tested — gate every row here.
 
-- **P0** — blocks the next minor release.
-- **P1** — high-value; pick up as soon as P0 is empty.
-- **P2** — nice-to-have; queued.
-- **P3** — vision / "future" work; needs more research before it can move.
+**Status legend**
 
-**Trigger** — the concrete condition that flips a row from "queued" to "do this next." Some are user-facing ("first operator outgrows in-process"), some are calendar ("before the first multi-tenant prod deploy"), some are dependency ("after §X lands").
+- **Shipped** — merged, tested, on `main`.
+- **In progress** — actively being built in the current phase.
+- **Queued** — scoped, not started; waiting on its phase.
+- **Deferred** — explicit non-goal for the foreseeable future.
 
----
-
-## Theme: Scale & infra
-
-Single-binary stays the default. These items light up once a deployment grows past one instance or ~50 concurrent users.
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| S1 | Redis: optional rate-limit / session / presence / cache-invalidation backend behind a trait | [`16-scale-infra`](./docs/research/16-scale-infra.md) | P1 | First operator reports >1 replica OR `/api/admin/system` shows rate-limit buckets > 1000 sustained |
-| S2 | OpenSearch: optional search backend behind a trait (file + note name/body indexing) | [`16-scale-infra`](./docs/research/16-scale-infra.md) | P1 | Search responses miss user intent on a Drive with > ~10k files OR an operator opts in via env |
-| S3 | Indexer worker: incremental, idempotent, debounced bulk-API push | [`16-scale-infra`](./docs/research/16-scale-infra.md) §"Re-indexing" | P1 | Same as S2 |
-| S4 | OpenSearch Phase 2: extracted file contents (text/CSV/markdown direct; PDF/Office via sandboxed extractor) | [`16-scale-infra`](./docs/research/16-scale-infra.md) §"Phase 2" | P2 | After S2 + S3 are stable in the wild |
-| S5 | Health probe + circuit breaker surfaced in Admin → System | [`16-scale-infra`](./docs/research/16-scale-infra.md) §"Health-check" | P1 | Ships alongside S1/S2 |
-
-## Theme: Search UX
-
-Floor is in place (`GET /api/search` over file names, 50-result cap, no filters). The refinement turns it into a tool a team uses every day. **The "Search foundation" rows (SR1–SR8) ship together as one P0 pass** — pagination + filters + sort are interlocking and shipping any one alone leaves the surface feeling half-built. The remaining rows (SR9–SR15) are layered polish that can land in subsequent passes.
-
-### Search foundation (ship together, one P0 pass)
-
-Phase A + Owner chip landed (backend + chip toolbar + Owner autocomplete + infinite scroll + count chip). Remaining polish:
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| SR7 | Audit pass shipped — file / folder kebab, right-click, shift-+-cmd-click multi-select, SelectionBar, bulk-trash, bulk-download all share the same code path in browse and search mode (`filteredEntries` is the source of truth in both); `refresh()` regression fixed; note hits now carry a kebab with **Copy link** (deep-links via `?note=<id>` that Shell hydrates on mount). Remaining: rename / move / trash for note hits — pending a Notes-tab actions surface those operations can re-use, then the SR7 row closes. | [`12-search-surface`](./docs/ux/12-search-surface.md) §"Per-result actions" + §"Bulk actions" | P2 | After the Notes-tab actions surface lands |
-
-### Search polish (layered, subsequent passes)
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| SR9  | Focused-empty suggestion grid (Recently opened / Edited by others / Pinned) | [`12-search-surface`](./docs/ux/12-search-surface.md) §"Suggested-when-empty" | P1 | After SR1–SR8 land |
-| SR10 | Type-ahead query autocomplete (separate `/api/search/autocomplete` endpoint, 80 ms debounce). Recents popover (SR11) is the host UI — this drops server suggestions in alongside the localStorage entries. | [`12-search-surface`](./docs/ux/12-search-surface.md) §"Type-ahead" | P1 | After SR1–SR8 land |
-| SR12 | No-results recovery panel. **Filter-relaxation half shipped** — `NoResultsRecovery.tsx` renders one-click relaxations (drop Type / drop Owner / widen Modified / widen Created / drop Size / drop share-link / include trash / search across all workspaces). Computes the list from active filters; no-op when nothing's actionable. Each relaxation mutates `searchFilters` in place; the existing search effect re-fires. **Remaining**: did-you-mean — needs OpenSearch's `phrase_suggester` (S2-blocked) or a Levenshtein-1 sqlite fallback. | [`12-search-surface`](./docs/ux/12-search-surface.md) §"No-results recovery" | P1 | Did-you-mean ships with S2 |
-| SR13 | Full-text snippets + `<mark>` highlights | [`12-search-surface`](./docs/ux/12-search-surface.md) §"Full-text matching" | P1 | Requires S2 (OpenSearch) |
-| SR15 | Performance budget. **Instrumentation + CI assertion shipped + budget actually met** — `lib/searchMetrics.ts` tracks keystroke→paint via `performance.mark` + `performance.measure`, PerformanceObserver buffer 100 samples, stats on `window.__cd_search_perf`. Search debounce dropped from 200 ms → 50 ms (Notion-style) so the 200 ms spec budget is reachable: local p95 settled at 207 ms (was 417 ms). E2E asserts `p95 < 500 ms` — 2× headroom over the local baseline for CI variance. **Remaining**: (a) tighten the ceiling further toward 200 ms after a few weeks of green CI; (b) type-ahead < 80 ms once SR10 lands; (c) OpenSearch round-trip < 150 ms once S2 lands. | [`12-search-surface`](./docs/ux/12-search-surface.md) §"Performance budget" | P1 | SR10 / S2 unblock the remaining sub-budgets |
-| SR16 | Saved searches (server-side persistence + sharing) | — (Phase 4; needs brief) | P3 | Real user demand surfaces in feedback |
-| SR17 | Boolean operators in the query (`"exact"`, `-not`, `OR`, `from:`, `before:`) | — (Phase 4; needs brief) | P3 | Power-user feedback after SR10 lands |
-
-## Theme: Real-time / presence
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| RT1 | `PresenceHub` (in-process), SSE endpoint, heartbeat, leave. **Phases 1a + 1b + 1c shipped** — `crates/drive-http/src/presence.rs` holds per-workspace state behind a broadcast bus; `GET /api/presence/{ws}` SSE stream pushes initial-burst + live events; **`broadcast_action` helper** publishes `Action` events for `files.upload` / `files.rename` / `files.trash` / `folders.create` / `folders.rename` alongside the existing audit emit. 12/12 unit tests covering hub mechanics, cross-workspace isolation, subscriber-receives-Present/Left/Action, broadcast-to-inactive-workspace is no-op, tint determinism. **Remaining**: 1d (deferred polish) — per-user concurrent-stream cap of 5 + heartbeat rate limit (1/10 s upper bound); broadcast wiring for `notes.*` mutations + `files.restore` + folder moves. | [`14-presence`](./docs/research/14-presence.md) | P1 | RT2 / RT3 SPA wiring unblocked — pick up next |
-| RT5 | Redis-backed presence hub for multi-instance | [`16-scale-infra`](./docs/research/16-scale-infra.md) + [`14-presence`](./docs/research/14-presence.md) | P2 | After RT1 + S1 |
-
-## Theme: Editor integration (SDK-first)
-
-Editor handoff in Drive runs through the Casual Sheet + Casual Document **SDKs** (browser-only) by default. A WOPI server-side path is opt-in for real-time co-editing — see [`10-sdk-integration-plan`](./docs/ux/10-sdk-integration-plan.md).
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| ED1 | SDK-embed handoff for `.xlsx` (sheet/) and `.docx` (document/) — browser-only. Phase 1 shipped (Preview-modal hosting, AutosaveStatus, lazy chunks, co-edit env opt-in); Phase 1.5 shipped (real `<CasualSheets>` against SDK 0.4 + fullscreen `/file/<id>` route — d4d67c8). **Remaining gaps** under the [[unified-editor-lifecycle]] directive (2026-06-10): **(a)** `GET /api/files/{id}` metadata endpoint so the fullscreen route survives cold direct loads (today it relies on `history.state` seeded by PreviewModal); **(b)** sandboxed PNG thumbnails for `.docx` / `.xlsx` (today they get `FileMiniIcon`) — same `drive-thumb-worker` lane that PDF + diagram thumbnails will use; **(c)** lift the modal editor-host code into a reusable `EditorShell` so ED4 + future formats inherit the chrome wholesale (less urgent now that the fullscreen route component exists as a second consumer). | [`10-sdk-integration-plan`](./docs/ux/10-sdk-integration-plan.md) + [[unified-editor-lifecycle]] | P1 | (a) one small Axum handler; (b) ships with TH1 + the new docx/xlsx lanes; (c) refactor sprint when ED4 starts |
-| ED2 | Co-edit opt-in: detect editor server URL + bridge to existing WOPI host | [`01-wopi`](./docs/research/01-wopi.md) | P1 | Operator with > 1 team member opts in |
-| ED3 | MS365 / Office Online federation (proof-key RSA hook wakes up) | [`13-ms365-federation`](./docs/research/13-ms365-federation.md) | P3 | Deprioritised — SDK is the primary integration path. Wake when an operator specifically needs MS365 |
-| ED4 | **Excalidraw editor for `.excalidraw` files** — third format under the [[unified-editor-lifecycle]] (one `EditorShell`, three swappable editor components). Format-specific bits: new MIME `application/vnd.excalidraw+json`, `inferKind` `excalidraw` bucket, `<Excalidraw />` component (~1.5 MB lazy chunk), `exportToBlob` lane in `drive-thumb-worker`, `theme` prop fed by `prefers-color-scheme`. **Image pipeline** (refined 2026-06-10): on insert, the SPA intercepts the binary, runs canvas → `toBlob({type:"image/webp", quality:0.85})`, then feeds the WebP data URL into Excalidraw's `addFiles`. SVGs pass through as-is (don't raster a vector). Everything stays inline in the native `.excalidraw` JSON's `files` key — one self-contained file. The `onChange` save handler MUST capture all three args `(elements, appState, files)`; load rehydrates via `excalidrawAPI.addFiles()` or `initialData.files`. Everything else (Sidebar New entry, Preview-modal chrome + AutosaveStatus + Cmd-S, fullscreen route, co-edit via `VITE_DRIVE_COLLAB_BACKEND_URL`, share-link PNG, audit events) inherits from the shared shell — no parallel implementation. Brief: `docs/research/19-excalidraw.md` (TODO). | — (needs brief — see [[excalidraw-integration]] + [[unified-editor-lifecycle]]) | P2 | After ED1's lifecycle refactor (a)+(c). Sibling collab-server repo decision blocks the co-edit half. |
-
-## Theme: Editor & Preview UX (premium quality bar)
-
-User feedback 2026-06-17: the editor + preview surface still feels patched, not premium. The bar is "best-in-class Google-Workspace/Apple-Numbers polish — single-click → preview, double-click → editor, right-click → details with metadata + access + change log, custom video player, large view on every preview, editor route that feels native (save status, share, kebab, presence, native rename)". Captured from the live demo at drive.schnsrw.live. No more patches — every fix lands as a coherent design pass.
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| UX-EDITOR-1 | **Sheet editor has no real toolbar.** At `/file/<id>` for `.xlsx`, only the formula bar renders (A1 ref + fx). Users can't bold/format from the UI — Univer's `toolbar:true` silently wedges the workbench mount because the SDK doesn't bundle the IRPCChannelService-dependent ribbon plugins. Fix: either (a) bundle the missing RPC + ribbon plugins (sort/filter/find-replace/conditional-formatting/data-validation/hyperlink/note/table/thread-comment/drawing — ~3 MB JS) OR (b) author a Drive-side custom toolbar in the SDK consumer using the FUniver API (cleaner, smaller, design-controlled). Pick (b) for v0.6, ship a Google-Sheets-shaped row of formatting controls. | — needs brief: `docs/ux/20-sheet-toolbar.md` | **P0** | Currently shipped at drive.schnsrw.live — user-visible regression versus the apps/web reference |
-| UX-EDITOR-2 | **Doc editor forces dark mode on dark-OS users.** The doc SDK's `embed.html` mounts with `data-theme="auto"` which respects `prefers-color-scheme:dark`. Drive itself is light-only today, so the iframe diverges. Fix: drive-side `copy-embed.mjs` (or wrapper component) overrides `data-theme="light"` until Drive ships its own dark mode and can sync the iframe via `command.set.theme`. Sheet has no equivalent issue. | — | **P0** | Reported on the live demo, OS in dark mode |
-| UX-EDITOR-3 | **Doc toolbar polish — highlight button + icon sizing.** The `[A]` font-color + `[pen]` highlight buttons have a chunky color/yellow strip underneath that's visually heavy and inconsistent with the rest of the row. The Editing pill (right) sits in a separate gap from the panel-rail. Icon sizes drift between 14–18 px. Fix: audit each toolbar button against the canonical Google Docs layout, ship a single CSS pass that normalises sizing/spacing/borders. SDK-side change because the chrome lives inside the iframe. | — | **P0** | Visible in screenshots A2 |
-| UX-EDITOR-4 | **Editor route is missing save status, presence, share dialog wiring** | shipped as `cf8bb1a` (save pill) + `57a7013` (Share button, kebab, inline rename). Remaining: live presence avatars (RT3 already plumbs the data), Cmd+S → forced save tick, version-history surface (depends on backend `/api/files/{id}/versions`). | — | P1 | After UX-EDITOR-1/2/3 close — chrome is irrelevant if the canvas is broken |
-| UX-EDITOR-5 | **Preview modal renders SDK parse errors to end users.** Demo seeded files have empty blob content; the SDK's parse failure prints a wall of red stack-trace text into the preview canvas (`A3-sheet-preview`) or a "Failed to Load Document" message (`A4-doc-preview`). Users see a broken-looking product on the marketing demo. Fix: Drive's `<PreviewStage>` wraps the SDK iframe in an error boundary that swaps in a friendly "No preview available — open in editor to view" card whenever the iframe surfaces an error envelope. The SDK already emits `casual.error` over the wire — Drive listens. | — | **P0** | Public-facing visual bug; first impression on every demo visitor |
-| UX-EDITOR-6 | **PreviewModal "Expand" button** | shipped as `0c3977e` — Maximize2 icon next to Close, routes through `openInFullscreen()`. Every preview kind now has a large-view affordance. | — | ✅ | Shipped |
-| UX-EDITOR-7 | **Custom video / audio player (vidstack)** | in-flight as `1033ccd` follow-up — `DrivenMediaPlayer` wraps `@vidstack/react`'s default layout for both `video` and `audio` previews. Replaces the browser's native `<video controls>` / `<audio controls>`. | — | P1 | Ships with the v0.2 demo cut |
-| UX-EDITOR-8 | **Details panel — Info / People / History tabs.** PreviewModal's current Details section shows only Type/Size/Modified/Location. Needs a real three-tab panel (Info: MIME, owner, version, parent path, checksum; People: existing share links, per-link permissions, expiry, last accessed; History: versions with time/actor/byte-delta and click-to-preview the snapshot). Same panel reachable from right-click → Details, kebab → Details, `/file/<id>` header → Details pill. Depends on `share_links` listing (SH1 backend) + a versions API (new). | — | P1 | After UX-EDITOR-5 closes (the modal stops showing trash to users) |
-| UX-EDITOR-9 | **Strict visual gate for the editor + preview chrome.** `_visual-final.spec.ts` covers xlsx + docx editor canvases. Extend to assert: Share/kebab/filename testids on `/file/<id>`, Expand button visible on PreviewModal, SaveStatusPill testid present, no `pageerror` / `console.error` across all 4 surfaces. | — | P1 | Lands alongside each of UX-EDITOR-1/2/3/5 to lock the fix |
-
-### Quality bar (locked)
-
-Every editor + preview surface must clear:
-
-1. **Zero console errors** on the strict Playwright gate (already enforced for the 5 `_iframe-verify` paths).
-2. **No SDK trash leaked to end users.** Parse errors, RPC errors, locale errors → friendly fallback card with a single recovery action (Open in editor / Download / Try again).
-3. **Native chrome at `/file/<id>`** — back arrow, inline-rename filename, save-status pill, share button, kebab "more", presence avatars (when collab is on), Esc → back.
-4. **Honour system theme deliberately** — never force dark on a light-host or vice versa. Match Drive's theme; iframe sends `command.set.theme` from the host.
-5. **Single-click → preview, double-click → editor** — already shipped (`1033ccd`). Right-click → context menu with Details.
-6. **Expand → fullscreen on every preview type** — already shipped (`0c3977e`).
-7. **Custom video/audio player** — vidstack default-layout, never the browser's bare `<video controls>`.
-
-## Theme: Multi-user / RBAC
-
-The OIDC floor is in. Filling out the team-collaboration story:
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| MU2 | Role tiers beyond Owner / Member (Viewer, Editor, Admin) | — (needs brief) | P2 | After MU1 |
-| MU3 | Server-mediated email (transactional: invite / share / quota-request) | — (needs brief) | P2 | After MU1 |
-| MU4 | OIDC group → role mapping (admin group, per-workspace group claims) | [`12-oidc`](./docs/research/12-oidc.md) §"admin_group" extension | P2 | After MU1 + MU2 |
-
-## Theme: Thumbnails
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| TH1 | pdfium-render PDF page-1 thumbnails in `drive-thumb-worker`. Under the [[unified-editor-lifecycle]] this row absorbs three sibling lanes: PNG thumbnails for `.docx` + `.xlsx` (LibreOffice CLI or a tiny canvas renderer) and `.excalidraw` (`exportToBlob`). All four share the worker's threat model + rlimits + (eventually) seccomp filter from TH2. | [`15-sandboxed-thumb-worker`](./docs/research/15-sandboxed-thumb-worker.md) §"PDF" + [[unified-editor-lifecycle]] | P1 | Promoted to P1 because the office-format lanes block ED4 + the unified lifecycle; PDF lane still gated on operator demand but ships in the same worker upgrade |
-| TH2 | Linux seccomp syscall filter in the worker | [`15-sandboxed-thumb-worker`](./docs/research/15-sandboxed-thumb-worker.md) §"seccomp" | P2 | Before the first multi-tenant prod deploy |
-| TH3 | HEIC / RAW image support (likely via `libheif` in the worker) | — (mentioned in `15-sandboxed-thumb-worker` out-of-scope) | P3 | iPhone uploads become common in feedback |
-| TH4 | CDN-cacheable thumbnail URLs (versioned key + far-future cache header) | — (briefly noted in `11-server-thumbnails`) | P2 | After TH1 |
-
-## Theme: Uploads
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| UP2 | Resumable uploads (tus.io protocol or S3 multipart with checkpoint) | — (needs brief; `10-direct-upload` lists as out-of-scope) | P2 | First operator hits the wall on a > 1 GB upload |
-| UP3 | EXIF / metadata strip on image uploads | — (needs brief) | P2 | Before the first public share-link feature with image embeds |
-| UP4 | Per-workspace upload quotas (today: per-user only) | — (needs brief) | P2 | After MU1 (workspace-scoped accounting matters once teams exist) |
-
-## Theme: Sharing
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| SH1 | Folder-level share links (today: per-file) | — (extends `05-sharing-surface`) | P1 | First user reports they need to share a folder |
-| SH2 | Share-link descriptions + indexed in search | [`12-search-surface`](./docs/ux/12-search-surface.md) | P2 | Ships with SR3 |
-| SH3 | Per-share download caps (max-N or expire-after-N-downloads) | — (extends `05-sharing-surface`) | P2 | Operator with sensitive shares asks |
-| SH4 | Authenticated shares (require a Drive account to open) | — (needs brief; depends on MU1) | P2 | After MU1 |
-
-## Theme: Notes / Wiki
-
-The current Notes app is shaped for developers (markdown source pane + literal `[[link]]` syntax). For Drive to be the file home of a real team, Notes needs the experience Obsidian Live Preview / macOS Notes / Mem / Bear have converged on: live-render markdown, no source ever visible, slash + `@` + `+` as discovery aids, premium aesthetic restraint.
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| NT1 | **Live-render Tiptap editor** — Phase 1 (foundation) + Phase 2 (wiki-link picker inserts a real Tiptap Link mark with `href="cd-note://<id>"`; MarkdownEditor's `handleClick` intercepts and fires `cd:open-note`; markdown round-trips as `[Title](cd-note://id)`). Older notes that stored `[[Title]]` as plain text still render as text and upgrade lazily on edit. Remaining: `[[` as a parity trigger for users who prefer Obsidian's syntax (multi-char trigger needs a custom PM plugin). | [`17-notes-general-user-ux`](./docs/research/17-notes-general-user-ux.md) | P2 | `[[` parity is the last piece |
-| NT2 | Floating formatting toolbar — Phase 1 shipped (Bold / Italic / Strike / Code / H1-H3 / Bullet / Numbered / Quote). Phase 2 link dialog shipped (⌘K opens a Radix dialog; URL field auto-prepends `https://`, rejects `javascript:` / `data:` / `file:`; Remove button when caret is inside an existing link; mobile toolbar gains a Link button). Remaining: "Turn into → ..." sub-menu. | [`17-notes-general-user-ux`](./docs/research/17-notes-general-user-ux.md) §"Floating formatting" | P2 | "Turn into" is the last piece |
-| NT3 | Slash menu (`/`) — Phase 1 shipped (H1-H3 / Bullet / Numbered / Quote / Code block / Divider with keyboard nav). Phase 2 "Link to note" shipped — slash item hands off to the existing `+` note-link picker. Remaining: "Embed file from Drive" — needs a file-picker component (workspace tree + thumbnail preview) that doesn't exist yet; ships once we surface a reusable file-picker for the @ mention parity work too. | [`17-notes-general-user-ux`](./docs/research/17-notes-general-user-ux.md) §"Slash menu" | P2 | "Embed file" ships with the workspace-wide file picker |
-| NT4 | `@` people-mention + `+` note-link pickers — Phase 1 shipped (member fetch via `/api/workspaces/{id}/members`, note picker reads tree from parent, "Create page «query»" footer, keyboard-first navigation). Phase 2 adds the `[[` parity trigger (needs a custom multi-char ProseMirror plugin) + a semantic mention node tied to notifications. | [`17-notes-general-user-ux`](./docs/research/17-notes-general-user-ux.md) §"@ for people, [[ or + for notes" | P2 | `[[` parity after user feedback; semantic mention node alongside notifications brief |
-| NT6 | Mobile sticky bottom toolbar — Phase 1 shipped (Bold / Italic / List / Heading cycle / Link placeholder / `/` opens slash menu; sits above the keyboard with safe-area padding). Phase 2 adds the long-press block sheet (mobile analogue of NT5's drag-handle menu — shares design surface). | [`17-notes-general-user-ux`](./docs/research/17-notes-general-user-ux.md) §"Mobile" | P2 | Long-press sheet after NT5 ships |
-| NT7 | Note attachments (drag-drop image / file → embed) | — (extends `09-notes-wiki`) | P2 | After SR1 — search should index attached file names alongside note bodies |
-| NT8 | Note-to-PDF / note-to-public-web export | — (needs brief) | P2 | Operator asks |
-| NT9 | Real-time collab on notes (Tiptap + Yjs) | — (needs brief; out-of-scope for [`17-notes-general-user-ux`](./docs/research/17-notes-general-user-ux.md)) | P3 | After NT1 + ED2 — Tiptap pivot makes Yjs achievable |
-| NT10 | AI block actions (`/ask AI`, summarise, translate) | — **path-only, not work** | P3 | Integration seam: NT3 slash menu's command list. No brief, no provider pick, no implementation until explicitly prioritised. See [Path-only AI](#path-only-ai-integration-seams) below |
-
-## Theme: Marketing site / docs
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| MK1 | Domain flip + final CNAME (`drive.schnsrw.live` → final apex) | [`07-marketing-site`](./docs/research/07-marketing-site.md) | P1 | Calendar / DNS decision; nothing technical blocks it |
-| MK2 | Pagefind docs search | [`07-marketing-site`](./docs/research/07-marketing-site.md) | P2 | After the first user can't find a doc page on their own |
-| MK3 | i18n (start with the marketing site, then docs, then SPA) | — (needs brief) | P3 | First non-English contributor opens an issue |
-
-## Theme: Observability
-
-| # | Item | Brief | Priority | Trigger |
-|---|---|---|---|---|
-| OB2 | Prometheus metrics endpoint (`/metrics` on the app origin, mTLS or token-gated) | — (needs brief) | P2 | First operator asks for Grafana integration |
-| OB3 | OpenTelemetry traces for the request lifecycle | — (needs brief) | P3 | After OB2 |
-| OB4 | Audit-event export to S3 (rolling daily JSONL) | — (needs brief) | P2 | Compliance ask from an operator |
+**Current phase: Phase 0 — Rename, narrow, and lay the hub foundations.** Nothing after Phase 2 starts until each predecessor's acceptance tests are green.
 
 ---
 
-## Path-only AI integration seams
+## Shipped — the inherited spine (from Casual Drive)
 
-AI is **deliberately not work** at the current stage of the project — the value Drive delivers is "file home for a real team," and AI is icing on a cake that hasn't fully baked. Briefs and PIPELINE rows may *name* where an AI hook would integrate, in one sentence, so future contributors don't have to re-derive the seams. They must not turn into work without explicit user green-light.
+Built and tested before the revamp; kept as the foundation the hub is built on.
 
-The documented seams across surfaces (for orientation only, not as a queue):
-
-| Surface | Where AI would plug in | What it would do |
+| # | Item | Status |
 |---|---|---|
-| Notes editor | Slash-menu command list (NT3) | `/ask AI` → block-level summarise / translate / continue-writing / extract-tasks |
-| Search | `GET /api/search` query rewriter ahead of the OpenSearch call (SR3) | Natural-language → structured filter inference ("PDFs Alex shared last week") |
-| File upload | Post-finalize hook alongside the magic-byte sniff (UP1) | Auto-tag / auto-describe newly uploaded images + PDFs |
-| Sharing | Share-link creation form | Auto-summarise the file's contents into the share description (SH2) |
-| Activity | Audit-event renderer | Natural-language daily digest of "what happened in this workspace" |
+| SP1 | Rust workspace (crates), OpenDAL storage facade behind an `Arc<Storage>` trait | Shipped |
+| SP2 | SQLite + Postgres portable migrations (TEXT ULID, ISO-8601 UTC, INTEGER bools) | Shipped |
+| SP3 | Append-only `audit_log` | Shipped |
+| SP4 | Projects/workspaces + members + roles + magic-link invitations; atomic ownership transfer | Shipped |
+| SP5 | Argon2id passwords, `tower-sessions` + `__Host-` cookie, OIDC (Auth Code + PKCE) | Shipped |
+| SP6 | Share links (password + expiry) on the isolated user-content origin | Shipped |
+| SP7 | Two-origin security model; boot refuses equal origins in production | Shipped |
+| SP8 | AES-256-GCM secret-envelope sealing for BYO-storage credentials (the crypto primitive we generalise to document bytes) | Shipped |
+| SP9 | React SPA foundation; Astro marketing site | Shipped |
 
-None of these have a brief, a provider pick, a prompt design, or any code. They are markers for the future. Adding any of them to the active queue requires the user saying "build it."
+## Phase 0 — Rename, narrow, foundations
+
+Turns the storage Drive into a document registry. Current phase.
+
+| # | Item | Status | Acceptance |
+|---|---|---|---|
+| P0-1 | Rename `drive-*`→`dochub-*`, `DRIVE_*`→`DOCHUB_*`, product Casual Drive → Doc-Hub (mechanical, test-guarded) | In progress | Build + tests green under new names |
+| P0-2 | Documents-only MIME allowlist (`docx, xlsx, csv, xlsm, pptx, pdf, md, txt, json, yaml`) on every ingest path, by extension + magic-byte sniff | In progress | Disallowed type rejected on proxy and direct paths (test) |
+| P0-3 | `dochub-crypto`: envelope encryption for document bytes, per-workspace DEK wrapped by master KEK/KMS; boot refuses to start without a key | In progress | No plaintext reaches a spy backend; boot aborts without a key (test) |
+| P0-4 | Version + hash-chain engine: `file_versions`, `content_hash`/`prev_hash`, write-once blobs, restore-as-new, chain verification; hash-chain the `audit_log` | In progress | N edits → N chained versions; tamper fails `verify_chain`; restore is additive (property tests) |
+| P0-5 | Retire WOPI to optional interop; stub embedded-editor byte-serving as the primary path | Queued | — |
+
+**Non-goals this phase:** search, AI, new editor UI, retention policy UI.
+
+## Phase 1 — Encrypted hub + immutable history, end to end
+
+| # | Item | Status | Acceptance |
+|---|---|---|---|
+| P1-1 | Key management: DEK generate/wrap/unwrap, KEK rotation that re-wraps without rewriting blobs, KMS adapter | Queued | Post-rotation, every document still decrypts (property test) |
+| P1-2 | Version UI: per-document history timeline, diff, restore | Queued | Restore v*k* yields v*N+1* byte-equal to *k*, chain preserved (e2e) |
+| P1-3 | Provenance export (who/when/why/hash), offline-verifiable | Queued | Export verifies offline against the chain |
+| P1-4 | Retention + legal hold enforced in the delete/tombstone path | Queued | A held document cannot be tombstoned or purged by any path (test) |
+
+## Phase 2 — Native embedded editing + co-editing
+
+| # | Item | Status | Acceptance |
+|---|---|---|---|
+| P2-1 | Embed Casual Sheet / Docs / PDF via their SDKs; bytes decrypt server-side and stream over the app origin | Queued | open→edit→save round-trips `.docx`/`.xlsx` with fidelity parity (e2e) |
+| P2-2 | Save path commits a new encrypted, hash-chained version + audit event | Queued | Each save lands as an ordered version |
+| P2-3 | Real-time co-editing through the `collab` server (Yjs/Hocuspocus); presence | Queued | Two clients co-edit; both saves land as ordered versions (e2e) |
+
+**Dependencies:** sibling editor SDK embed paths (`sheet` `SDK_ARCHITECTURE.md`, `document` `@casualoffice/docs`).
+
+## Phase 3 — Content search
+
+| # | Item | Status | Acceptance |
+|---|---|---|---|
+| P3-1 | `dochub-index`: `core`-backed extraction (docx/xlsx/pdf/md/txt/csv/json/yaml) → Tantivy full-text index; lazy background worker; `index_state` column | Queued | A phrase inside a `.docx`/`.pdf`/`.xlsx` is found by content (e2e) |
+| P3-2 | Search surface: content snippets, highlights, type/project/date filters, "which document mentions X" | Queued | Snippet + highlight returned; reindex on new version; removal on tombstone |
+
+## Phase 4 — Compliance + governance
+
+| # | Item | Status | Acceptance |
+|---|---|---|---|
+| P4-1 | Document signing/provenance (Ed25519); issuer/registrar model (DigiLocker-style verified documents) | Queued | A registrar issues a signed document a recipient verifies offline |
+| P4-2 | Retention policies + legal hold admin UI | Queued | Policy enforced across the tombstone path |
+| P4-3 | Exportable audit + retention reports; optional transparency-log anchoring of chain heads | Queued | Exported report is complete and hash-verifiable |
+
+## Phase 5 — AI layer
+
+AI is **read-only** and never mutates documents or history. Every AI action is audited.
+
+| # | Item | Status | Acceptance |
+|---|---|---|---|
+| P5-1 | `dochub-ai`: semantic search (embeddings + rerank alongside Tantivy, never replacing it for compliance-critical retrieval) | Queued | Semantic query surfaces a doc keyword search misses |
+| P5-2 | Document/section summaries; entity + PII detection (suggestions, human-approved); cross-document Q&A | Queued | PII scan flags known fixtures; no document/history mutation |
+| P5-3 | Pluggable provider (default Claude via the Anthropic API — Haiku for extraction/classification, Sonnet/Opus for reasoning; local-model option for air-gapped installs) | Queued | Provider swap leaves behaviour green |
 
 ---
 
-## What's not in this pipeline
+## Deferred / non-goals
 
-If a row is not here, one of three things is true:
+Explicit non-goals for the foreseeable future — do not queue without new research + a synthesis update.
 
-1. It's already shipped — see [`CHANGELOG.md`](./CHANGELOG.md).
-2. It's explicitly out of scope for the foreseeable future (see the "out of scope" sections in each research brief).
-3. It's a real gap we haven't recognised yet — open an issue.
+| Item | Why |
+|---|---|
+| Zero-knowledge E2E encryption | The server holds keys by design so it can index + reason over content. Encryption defends stolen storage/DB, not a compromised trusted server. |
+| Server thumbnails / media previews / sandboxed thumb-worker | Documents-only hub; no media rendering surface. Removed in the revamp. |
+| Video / images-as-primary / arbitrary-file storage | Off the ingest allowlist. The narrow scope is what lets us encrypt, index, and version everything. |
+| MS365 / Office-Online federation | Embedded native editors are the primary path; WOPI is optional interop only. |
+| Sync clients, mailbox/calendar | Out of scope for a document registry. |
+| Native desktop app | Casual Desktop lane, not this repo. |
+| Full multi-IdP federation | OIDC (Auth Code + PKCE) against one compliant IdP is the floor; broader federation is unscoped. |
 
 ---
+
+## Test gates (every phase)
+
+`cargo fmt --check` · `cargo clippy --workspace -- -Dwarnings` · `cargo test --workspace` (unit + integration) · property tests for crypto/hash-chain/immutability · `pnpm --dir web test` + Playwright use-cases for touched surfaces · `cargo audit`/`cargo deny` · coverage ≥ 85%. See [`docs/TESTING.md`](./docs/TESTING.md).
 
 ## How to add a row
 
-Each row should answer four questions in this order:
-
 1. **What** — one short noun phrase.
-2. **Which brief** — link the doc that owns the design. If the brief doesn't exist yet, mark as "needs brief" and queue writing one first.
-3. **Priority** — P0–P3 per the bands above.
-4. **Trigger** — the concrete signal that says "start now." A trigger like "first operator asks" is fine; a trigger like "before the first multi-tenant prod deploy" is better.
+2. **Which phase** — map it to a `PLAN.md` phase; don't smuggle later-phase work forward.
+3. **Status** — Shipped / In progress / Queued / Deferred.
+4. **Acceptance** — the concrete test that says "done."

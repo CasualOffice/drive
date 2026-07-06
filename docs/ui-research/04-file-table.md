@@ -1,78 +1,86 @@
-# 04 — Premium File-Manager / Data-Table List Surface Patterns (2026)
+# 04 — Premium Document-Table / Registry List Surface Patterns (2026)
 
-**Audience:** the frontend engineer building Casual Drive's main file pane.
-**Purpose:** capture the 2026 state of the art for "list of files / list of records" surfaces (Linear, Vercel, Stripe, Figma, Dropbox, Drive, Notion, Finder, Arc), distill the cross-cutting rules, then **replace surface §5 (file list) and §8 (selection bar) in [`../ux/02-surface.md`](../ux/02-surface.md)** with an implementable spec.
+**Audience:** the frontend engineer building Doc-Hub's main document pane.
+**Purpose:** capture the 2026 state of the art for "list of records" surfaces (Linear, Vercel, Stripe, GitHub, Notion, 1Password, Finder, Arc — plus the consumer file managers Figma/Dropbox/Google Drive as *contrast*), distill the cross-cutting rules, then **replace surface §5 (document list) and §8 (selection bar) in [`../ux/02-surface.md`](../ux/02-surface.md)** with an implementable spec.
+**Direction:** Doc-Hub is a **document registry** — documents-only, encrypted at rest, versioned forever. The table shows **type glyphs + metadata**, never thumbnails or media previews. Columns carry the registry's facts: version, updated, kind, encryption, lock. It is not a Drive/Dropbox clone.
 **Constraint:** WebSearch only; WebFetch denied on product hosts. Numbers from design-system mirrors / write-ups are flagged `[unverified]` and should be confirmed against the live UI.
 
 ---
 
 ## TL;DR
 
-- **Row metric:** 32 px × 13 px Inter / 500 is the Linear-derived SaaS benchmark of 2026 ([Linear DS mirror](https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1), [getdesign.md Linear](https://getdesign.md/linear.app/design-md)). Vercel's May 27 2026 deployments redesign ratified the same pull ("denser layout") ([Vercel changelog](https://vercel.com/changelog/redesigned-deployments-list)). Dropbox 44 px and Drive 48–56 px are the "consumery" tells.
-- **Type:** body 13 / metadata 12 / header 11 uppercase, Inter, `tabular-nums` on every numeric column ([uiprep](https://www.uiprep.com/blog/the-ultimate-guide-to-designing-data-tables)).
-- **Hover:** background tint only, no border, no revealed icons. Skip Drive's hover-checkbox and Notion's hover-OPEN; both add noise.
-- **Selection:** file-manager convention (click = select, Cmd-click = add, Shift-click = range, double-click = open). Not Linear's `X`-toggle (engineer-specific) ([Linear select-issues](https://linear.app/docs/select-issues)).
+- **Row metric:** 32 px × 13 px Inter / 500 is the Linear-derived SaaS benchmark of 2026 ([Linear DS mirror](https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1)). Vercel's May 27 2026 deployments redesign ratified the same pull ("denser layout") ([Vercel changelog](https://vercel.com/changelog/redesigned-deployments-list)). Dropbox 44 px and Google Drive 48–56 px are the "consumery" tells — and both lean on thumbnails Doc-Hub deliberately omits.
+- **No thumbnails, no media columns.** Doc-Hub renders a 16 px Lucide **type glyph** per row. No image/video kinds exist in the allowlist; there is nothing to thumbnail. This removes an entire class of hover noise (Google Drive's hovercard, Figma's grid tiles).
+- **Registry columns:** Name · **Version** · **Updated** · Kind · **Encryption** · **Lock**. Size optional. `tabular-nums` on every numeric/hash column ([uiprep](https://www.uiprep.com/blog/the-ultimate-guide-to-designing-data-tables)).
+- **Hover:** background tint only, no border, no revealed icons, no hover-checkbox. Skip Google Drive's hover-checkmark (users call it "annoying") and Notion's hover-OPEN.
+- **Selection:** file-manager convention (click = select, Cmd-click = add, Shift-click = range, double-click = open).
 - **Keyboard:** ↑↓ + Enter + Cmd-A + Esc + letter-jump + F2/Enter + Backspace/Delete. Matches ARIA Grid pattern ([ARIA APG Grid](https://www.w3.org/WAI/ARIA/apg/patterns/grid/)).
-- **Virtualization:** TanStack Virtual, threshold >100 rows, `useFlushSync: false` for React-19 ([TanStack Virtual](https://tanstack.com/virtual/latest), [Borstch](https://borstch.com/blog/development/list-virtualization-in-react-with-tanstack-virtual)).
-- **Drag-drop:** Atlassian's **Pragmatic drag-and-drop** — production-proven (Trello/Jira/Confluence), external adapter handles OS-file drops ([Pragmatic DnD](https://github.com/atlassian/pragmatic-drag-and-drop), [PkgPulse 2026](https://www.pkgpulse.com/guides/dnd-kit-vs-react-beautiful-dnd-vs-pragmatic-drag-drop-2026)).
+- **Virtualization:** TanStack Virtual, threshold >100 rows, `useFlushSync: false` for React-19 ([TanStack Virtual](https://tanstack.com/virtual/latest)).
+- **Drag-drop:** Atlassian's **Pragmatic drag-and-drop**; external adapter handles OS-file drops, gated by the documents-only allowlist ([Pragmatic DnD](https://github.com/atlassian/pragmatic-drag-and-drop)).
+- **Immutability shows in the row.** "Delete" is **Move to trash** = a tombstone under retention, never erasure; a document under **legal hold** or an **open editor lock** cannot be trashed and says so.
 - **Density:** ship one (32 px). Sonoma System Settings is the cautionary tale ([Lapcat](https://lapcatsoftware.com/articles/SystemSettings.html)).
-- **Motion:** Motion `layout` for FLIP on insert/move/delete ([Motion docs](https://motion.dev/docs/react-layout-animations)); AutoAnimate the one-liner ([AutoAnimate](https://awesome-react.dev/library/auto-animate)). **No animation on selection.**
-- **Selection bar:** floating bottom-center pill, persistent until cleared. Table stakes now ([Eleken](https://www.eleken.co/blog-posts/bulk-actions-ux), [PatternFly](https://www.patternfly.org/patterns/bulk-selection/)).
-- Drive spec at bottom replaces §5 + §8 of `02-surface.md`.
+- **Motion:** Motion `layout` for FLIP on insert/move/sort ([Motion docs](https://motion.dev/docs/react-layout-animations)); AutoAnimate the one-liner. **No animation on selection.** A committed version never animates in optimistically.
+- Doc-Hub spec at bottom replaces §5 + §8 of `02-surface.md`.
 
 ---
 
 ## Reference list surfaces
 
-**1. Linear — issues list (gold standard).** ~32 px rows default, 28 px in compact `[unverified]`; Inter Variable 510/590, body ~13 px `[unverified]` ([Linear DS mirror](https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1), [Made Good Designs on Inter](https://madegooddesigns.com/inter-font/)). User-reorderable columns via Display menu ([Linear display options](https://linear.app/docs/display-options)). Hover background only, no border ([UI refresh Mar 2026](https://linear.app/changelog/2026-03-12-ui-refresh)). **Focus and selection are separate layers** — arrows move a "cursor," `X` toggles selection, `Shift-↑↓` extends, `Cmd-A` all, `Shift-click`/`Cmd-click` work too ([Linear select-issues](https://linear.app/docs/select-issues), [issue selection changelog](https://linear.app/changelog/issue-selection)). Right-click = same menu as Cmd-K on selection. Sort/group/sub-group live in a Display menu, not in headers. Custom virtualization present `[unverified]`. Bulk: floating contextual bar ([Storylane](https://www.storylane.io/tutorials/how-to-bulk-edit-issues-in-linear)). One density.
+**1. Linear — issues list (gold standard).** ~32 px rows default, 28 px in compact `[unverified]`; Inter Variable 510/590, body ~13 px `[unverified]` ([Linear DS mirror](https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1)). User-reorderable columns via Display menu ([Linear display options](https://linear.app/docs/display-options)). Hover background only, no border ([UI refresh Mar 2026](https://linear.app/changelog/2026-03-12-ui-refresh)). **Focus and selection are separate layers** — arrows move a "cursor," `X` toggles selection, `Cmd-A` all, `Shift-click`/`Cmd-click` work too ([select-issues](https://linear.app/docs/select-issues)). Sort/group in a Display menu, not in headers. Bulk: floating contextual bar. One density.
 
-**2. Linear — inline edit.** Title/description: click-to-edit, autosave ([2022 changelog](https://linear.app/changelog/2022-06-09-inline-editing)). Properties (status/assignee/priority/labels): **chord-driven pickers** scoped to focused row — `S`/`A`/`P`/`L` open a Cmd-K-shaped picker. Drive adopts the same shape for rename (F2/Enter) and Move-to (⌘⇧M).
+**2. Vercel — deployments list (immutable records).** May 27 2026 explicitly went **denser**, grouped by status ([deployments redesign](https://vercel.com/changelog/redesigned-deployments-list)). Each row is an immutable deployment: short **mono commit SHA**, author, relative time, status badge — an append-only ledger, never edited in place. This is the closest mainstream analog to Doc-Hub's version chain and to what a document row's Version column points at. Row ~32 px `[unverified]`; hover reveals a row-end `⋯` overflow (explicit affordance, not right-click-only).
 
-**3. Vercel — projects / deployments list.** May 27 2026 explicitly went **denser**, grouped environments by status, made branches/commits scannable ([Vercel deployments redesign](https://vercel.com/changelog/redesigned-deployments-list)). Feb 26 2026 rolled out collapsible sidebar: "projects function as filters so you can switch between team and project versions in one click" ([dashboard rollout](https://vercel.com/changelog/dashboard-navigation-redesign-rollout)). Row: project name (semibold), framework icon, last-deploy time, environment badges; hover reveals row-end action menu; explicit `⋯` overflow replaces right-click as the visible affordance. Row height `[unverified]`, visually ~32 px.
+**3. Stripe — payments table + event log.** Published Table primitives expose no row-height tokens ([Stripe Apps Table](https://docs.stripe.com/stripe-apps/components/table)). Row click opens a side panel; double-click unused — sidesteps open/select ambiguity. Tabular-nums + right-aligned numerics are the universal standard ([uiprep](https://www.uiprep.com/blog/the-ultimate-guide-to-designing-data-tables), [Carbon DS](https://carbondesignsystem.com/components/data-table/usage/)). The event/log rows are read-only records — the shape of Doc-Hub's audit feed. Hover: light tint; selected: stronger tint + left-edge stripe `[unverified]`. Bulk: top-of-table action bar.
 
-**4. Stripe — payments table.** Published Table primitives expose no row-height tokens ([Stripe Apps Table](https://docs.stripe.com/stripe-apps/components/table)). Row click opens a side panel; double-click unused — sidesteps file-manager open/select ambiguity. Tabular-nums + right-aligned numerics are the universal standard ([uiprep](https://www.uiprep.com/blog/the-ultimate-guide-to-designing-data-tables), [Carbon DS](https://carbondesignsystem.com/components/data-table/usage/)). Hover: light tint; selected: stronger tint + left-edge stripe `[unverified]`. Bulk: top-of-table action bar.
+**4. GitHub — commit list + file changes.** The reference for a versioned, hash-linked record. A commit row is short **mono SHA** + author + message + relative time; a "Verified" chip marks a signed commit ([commit signature verification](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification)) `[unverified visual specifics]`. Maps one-for-one to Doc-Hub's version timeline (`seq`, short `content_hash`, author, reason, `created_at`, provenance chip). Diffs use low-saturation add/remove tints and mono gutters — the palette Doc-Hub uses to diff two document versions.
 
-**5. Figma — file browser.** List and grid views ("Show as grid" toggle) ([file browser guide](https://help.figma.com/hc/en-us/articles/14381406380183-Guide-to-the-file-browser), [forum grid hover](https://forum.figma.com/suggest-a-feature-11/file-type-icons-in-recent-files-grid-gallery-view-17317)). Grid tiles render 16:9 from 1920×1080 source ([thumbnail guide](https://help.figma.com/hc/en-us/articles/360038511413-Set-custom-thumbnails-for-files), [design a thumbnail](https://help.figma.com/hc/en-us/articles/23510169950871-Design-a-file-thumbnail)). Grid-tile hover: type icon top-left, context-menu trigger top-right. Drafts is a private workspace with identical row visuals ([drafts updates](https://help.figma.com/hc/en-us/articles/18409526530967-Updates-to-how-drafts-work)). Empty: centered illustration + heading + "Create new" CTA. Spring-loaded folder expansion observed, undocumented `[unverified]`.
+**5. 1Password 8 — hub item list.** Three-pane: sidebar (vaults/categories) → item list → detail ([Knox](https://aliceliao.com/work/knox)). Item rows carry a category glyph + name + subtitle; **security state (lock, category) reads as quiet system chrome**, never decorative. Doc-Hub mirrors this: a document row's Encryption and Lock columns are muted semantic chips, not alarms. Cautionary density: 1P8 cut to ~40 px and was publicly punished ([1P community](https://1password.community/discussion/122677/item-list-information-density-in-1pw8)). Doc-Hub stays at 32 px.
 
-**6. Dropbox web.** ~44 px row `[unverified]` to fit avatar + thumbnail. Hover reveals inline share/⋯ icons at row end. Right-click on web + OS shell extensions ([CBackup](https://www.cbackup.com/articles/dropbox-right-click-menu-missing.html)). Multi-select: hover-checkbox + top-of-list action bar. **Lesson: looser row is a consumer choice — wrong precedent for Linear-grade.**
+**6. Notion — database table.** Every cell editable on click ([Notion tables](https://www.notion.com/help/tables)). Hover reveals **OPEN button**, **⋮⋮ drag handle**, **checkbox** ([Medium](https://medium.com/@VaughanVanDyk/notion-databases-10-things-i-needed-to-learn-52873eb2618b)). Sort/filter in header dropdown; column resize via edge drag. **Lesson: don't reveal too many controls on hover.** Notion's three is busy. Doc-Hub shows **nothing** on hover except a tint.
 
-**7. Google Drive.** Row ~48–56 px `[unverified]` for owner avatar + hover thumbnail. May 2024 introduced **hovercard preview** ([Workspace Updates](https://workspaceupdates.googleblog.com/2024/05/preview-files-in-google-drive-with-hovercards.html), [9to5Google](https://9to5google.com/2024/05/16/google-drive-hovercard/)) — polarizing; users publicly call the hover-checkbox "annoying" ([community thread](https://support.google.com/drive/thread/205464794/when-we-hover-mouse-on-a-file-folder-it-shows-a-selection-option-as-a-checkmark-which-is-annoying)). Right-click duplicates toolbar verbatim — the "feature-of-features" tell. **Does well:** shared-with badges, owner attribution, type-aware thumbnails. **Does poorly:** density (too loose), hover noise, menu duplication.
+**7. macOS Finder — list view.** Row ~22 px small / ~38 px medium `[unverified]` — same density philosophy as Linear, twenty years earlier. Column widths not persistable as defaults in list view ([Apple Discussions](https://discussions.apple.com/thread/8304069)) — Doc-Hub must persist them to surpass Finder. Rename: `Return` enters rename, extension *not* selected ([Apple Discussions](https://discussions.apple.com/thread/255445067)). Right-click is the primary command surface.
 
-**8. Notion — database table.** Every cell editable on click ([Notion tables](https://www.notion.com/help/tables)). Hover reveals **OPEN button** in col 1, **⋮⋮ drag handle** left, **checkbox** at row start ([Medium](https://medium.com/@VaughanVanDyk/notion-databases-10-things-i-needed-to-learn-52873eb2618b)). Keyboard: `Return` cell-below, `Shift-Return` newline, `Cmd-D`/`Cmd-R` fill-down/right ([shortcuts](https://www.notion.com/help/keyboard-shortcuts)). Sort/filter in header dropdown. Column resize via edge drag. **Lesson: don't reveal too many controls on hover.** Notion's three (drag + OPEN + checkbox) is busy. Drive shows **nothing** on hover except a tint.
+**8. Arc — sidebar Tabs.** ~36 px rows with `padding: 0 12px` flexbox ([ArcWTF CSS](https://github.com/KiKaraage/ArcWTF/blob/main/README.md)). Subtle hover bg, no border. Three visual tiers distinguished by spacing and size, not color ([Blake Crosley](https://blakecrosley.com/guides/design/arc)). **Lesson: when 30+ rows stack in a scrollable column, the row component is the brand.**
 
-**9. macOS Finder — list view.** Row ~22 px small / ~38 px medium `[unverified]` — same density philosophy as Linear, twenty years earlier. Column widths not persistable as defaults in list view ([Apple Discussions](https://discussions.apple.com/thread/8304069)) — Drive must persist them to surpass Finder. macOS Tahoe 26.1 added "Resize Columns To Fit File Names" auto-fit in column view ([MacMost](https://macmost.com/resize-columns-to-fit-filenames.html)). Rename: `Return` enters rename, extension *not* selected ([Apple Discussions](https://discussions.apple.com/thread/255445067)). Right-click is the primary command surface; ~12 default verbs.
-
-**10. Arc — sidebar Tabs.** ~36 px rows with `padding: 0 12px` flexbox ([ArcWTF Firefox port CSS](https://github.com/KiKaraage/ArcWTF/blob/main/README.md)). Subtle hover bg, no border. Three visual tiers (pinned / everyday / favorite) distinguished by spacing and size, not color ([Blake Crosley](https://blakecrosley.com/guides/design/arc), [LogRocket UX](https://blog.logrocket.com/ux-design/ux-analysis-arc-opera-edge/)). **Lesson: when 30+ rows stack in a scrollable column, the row component is the brand. Get it right; everything else is decoration.**
+**9. Consumer file managers — Figma / Dropbox / Google Drive (contrast, do NOT copy).** These are the Drive-clone surfaces Doc-Hub deliberately is not:
+- **Figma** — grid default, 16:9 thumbnails from 1920×1080 source ([thumbnail guide](https://help.figma.com/hc/en-us/articles/360038511413-Set-custom-thumbnails-for-files)). Thumbnails *are* the UI. Doc-Hub has no thumbnails.
+- **Dropbox** — ~44 px rows to fit avatar + thumbnail; hover reveals inline share/⋯ icons ([redesign](https://www.techspot.com/news/100467-dropbox-rolls-out-redesigned-web-interface-releases-new.html)). Looser row is a consumer choice.
+- **Google Drive** — ~48–56 px rows for owner avatar + hover thumbnail; the May 2024 **hovercard preview** ([Workspace Updates](https://workspaceupdates.googleblog.com/2024/05/preview-files-in-google-drive-with-hovercards.html)) is polarizing and the hover-checkbox is publicly called "annoying" ([community thread](https://support.google.com/drive/thread/205464794/when-we-hover-mouse-on-a-file-folder-it-shows-a-selection-option-as-a-checkmark-which-is-annoying)).
+- **Worth stealing (only):** the selection-aware action bar (Dropbox), shared-with badges (Google Drive). **Rejected:** thumbnails, hovercards, hover-checkboxes, media previews, 44 px+ density, "put anything here" storage framing.
 
 ---
 
 ## Synthesis
 
-**Row height.** 32 px = 2026 benchmark. 28 px is floor (Apple HIG min-tappable, [Nadcab](https://www.nadcab.com/blog/apple-human-interface-guidelines-explained)). 36–40 px = "comfortable" (avatar rows). >44 px = consumer. **Drive: 32 px.**
+**Row height.** 32 px = 2026 benchmark. 28 px is floor. 36–40 px = "comfortable". >44 px = consumer (and usually thumbnail-driven). **Doc-Hub: 32 px.**
 
-**Type.** Body 13 / Inter 500. Metadata 12 muted. Header 11 uppercase + `letter-spacing: 0.04em`. Tabular-nums on every numeric column.
+**Type.** Body 13 / Inter 500. Metadata 12 muted. Header 11 uppercase + `letter-spacing: 0.04em`. Tabular-nums on every numeric column; **mono** on `content_hash` (short form) and version.
 
-**Hover.** Background tint only. Linear/Vercel/Notion/Stripe: tint only. Dropbox/Drive: tint + revealed icons (consumer tell). **Drive: tint only**; inline icons on focus or selection, never hover.
+**No thumbnails.** The documents-only allowlist (`docx, xlsx, csv, xlsm, pptx, pdf, md, txt, json, yaml`) has no image/video kind. The row leads with a 16 px Lucide type glyph. This is a deliberate simplification, not a gap — it removes hovercards, grid tiles, thumbnail workers, and the media-preview attack surface in one stroke.
 
-**Selection.** Two models: Linear (focus/selection separate, `X` toggles, keyboard-optimized) vs file-manager (click = select, Cmd-click = add, Shift-click = range). **Drive picks file-manager.** Users come in with Finder/Explorer muscle memory.
+**Hover.** Background tint only. Linear/Vercel/Notion/Stripe/GitHub: tint only. Dropbox/Google Drive: tint + revealed icons + thumbnail (consumer tell). **Doc-Hub: tint only**; inline actions live on focus, selection, or right-click, never hover.
 
-**Keyboard.** Matches the ARIA Grid pattern ([W3 ARIA APG Grid](https://www.w3.org/WAI/ARIA/apg/patterns/grid/)): ↑↓ move focus+selection · Home/End first/last · PgUp/PgDn page · Enter open (folder navigates, file opens editor/downloads) · Space Quick Look (deferred) · Cmd-A select all · Esc clear · Cmd-click toggle · Shift-click / Shift-↑↓ range · letter-key jump (sticky 1 s) · F2 or Enter rename (slow double-click rename, fast double-click open) · Backspace/Delete trash · Cmd-Shift-Space context menu at focus.
+**Selection.** File-manager model (click = select, Cmd-click = add, Shift-click = range). Users arrive with Finder/Explorer muscle memory.
 
-**Virtualization.** TanStack Virtual is the React-19 default ([TanStack Virtual](https://tanstack.com/virtual/latest), [LogRocket](https://blog.logrocket.com/speed-up-long-lists-tanstack-virtual/), [Borstch](https://borstch.com/blog/development/list-virtualization-in-react-with-tanstack-virtual)). Threshold >100 rows, `useFlushSync: false` for React-19, `estimateSize: 32`, `overscan: 5`. Selection `Set<id>` outside the virtualizer. Alternatives: react-window (smaller API), react-virtualized (aging), [react-arborist](https://github.com/jameskerr/react-arborist) (trees w/ virtualization + drag + multi-select + inline edit out of the box, [LogRocket](https://blog.logrocket.com/using-react-arborist-create-tree-components/)) — sidebar candidate, not for the flat main pane.
+**Keyboard.** ARIA Grid ([W3 ARIA APG Grid](https://www.w3.org/WAI/ARIA/apg/patterns/grid/)): ↑↓ move focus+selection · Home/End · PgUp/PgDn · Enter open (folder navigates, document opens the embedded editor) · Cmd-A select all · Esc clear · Cmd-click toggle · Shift-click / Shift-↑↓ range · letter-key jump (sticky 1 s) · F2 or Enter rename · Backspace/Delete → Move to trash (tombstone).
 
-**Drag-drop.** **Pragmatic drag-and-drop** powers Trello/Jira/Confluence; external adapter handles OS-file cleanly ([Pragmatic DnD](https://github.com/atlassian/pragmatic-drag-and-drop), [docs](https://atlassian.design/components/pragmatic-drag-and-drop)). DnDKit is modular (12 KB core, [Zoer](https://zoer.ai/posts/zoer/best-react-drag-drop-libraries-comparison)) but bolts the OS-file case onto raw HTML5. React Aria `useDragAndDrop` has the best a11y + native `FileDropItem` ([RAC DnD](https://react-spectrum.adobe.com/react-aria/dnd.html)) — pick if RAC is otherwise in the stack. **Drive picks Pragmatic** unless the component-library brief lands on RAC.
+**Virtualization.** TanStack Virtual is the React-19 default. Threshold >100 rows, `useFlushSync: false`, `estimateSize: 32`, `overscan: 5`. Selection `Set<id>` outside the virtualizer.
 
-**Empty state.** Centered in table viewport, not whole pane. Symbol → title → optional subtitle → optional CTA ([Eleken](https://www.eleken.co/blog-posts/empty-state-ux), [Carbon DS](https://carbondesignsystem.com/patterns/empty-states-pattern/), [NN/g](https://www.nngroup.com/articles/empty-state-interface-design/)).
+**Drag-drop.** **Pragmatic drag-and-drop** powers Trello/Jira/Confluence ([repo](https://github.com/atlassian/pragmatic-drag-and-drop)); external adapter handles OS-file, **filtered by the documents-only allowlist** — a `.mp4` drop is rejected at the dropzone with a clear message, not silently accepted. React Aria `useDragAndDrop` is the pick if RAC is otherwise in the stack ([RAC DnD](https://react-spectrum.adobe.com/react-aria/dnd.html)).
+
+**Immutability in the surface.** Trash is a tombstone under retention, not erasure (the audit chain records it). A document under **legal hold** or with an **open editor lock** cannot be trashed — the action is hidden/disabled with a reason. Restore-from-trash and restore-a-version both append; nothing is destroyed.
+
+**Empty state.** Centered in table viewport. Symbol → title → optional subtitle → optional CTA ([Eleken](https://www.eleken.co/blog-posts/empty-state-ux), [Carbon DS](https://carbondesignsystem.com/patterns/empty-states-pattern/)).
 
 **Density.** Ship one. Linear/Vercel/Stripe/Notion all do.
 
-**Motion.** Motion `layout` for FLIP on insert/move/delete ([Motion](https://motion.dev/docs/react-layout-animations)); AutoAnimate the one-liner ([AutoAnimate](https://awesome-react.dev/library/auto-animate)). No animation on selection (sub-10 ms response). Spring on drag preview. `prefers-reduced-motion` → 0–50 ms crossfade ([MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion)).
+**Motion.** Motion `layout` for FLIP on insert/move/sort ([Motion](https://motion.dev/docs/react-layout-animations)); AutoAnimate the one-liner. No animation on selection. A **committed version is not optimistic** — the row's Version column updates only after the server confirms the append.
 
-**Skeleton.** 8 rows at exact row footprint, 1.2 s `linear-gradient` shimmer, `background-attachment: fixed` keeps rows in sync ([Mat Simon](https://www.matsimon.dev/blog/simple-skeleton-loaders)).
+**Skeleton.** 8 rows at exact row footprint, 1.2 s shimmer ([Mat Simon](https://www.matsimon.dev/blog/simple-skeleton-loaders)).
 
 ---
 
-## Drive surface spec — main file pane (replaces §5 of `02-surface.md`)
+## Doc-Hub surface spec — main document pane (replaces §5 of `02-surface.md`)
 
 Tokens reference `04-polish-principles.md` §"Starter Token Set".
 
@@ -80,99 +88,108 @@ Tokens reference `04-polish-principles.md` §"Starter Token Set".
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ [ + New ▾ ]   [ ⬆ Upload  U ]                                 [List] [Grid]  │  toolbar 44 px
+│ [ + New ▾ ]   [ ⬆ Upload  U ]                                       [ Search ] │  toolbar 44 px
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ Home › Reports › Q2                                                           │  breadcrumbs 32 px
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ NAME ▲                                MODIFIED        SIZE     KIND          │  sort header 32 px, sticky
+│ NAME ▲                        VER    UPDATED       KIND        🔒   ENC       │  sort header 32 px, sticky
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ 📁  Drafts                            yesterday         —     Folder         │  row 32 px
-│ 📁  Q1                                3 days ago        —     Folder         │
-│ 📄  Budget Q2.xlsx                    2 hrs ago     42 KB     Spreadsheet    │
-│ 🖼   hero.png                          last week    1.2 MB    Image          │
-│▌📄  Notes.md      [Open]              10 min ago     8 KB     Markdown       │  editor session, left stripe
+│ 📁  Drafts                     —     yesterday     Folder       —    —        │  row 32 px
+│ 📄  Budget Q2.xlsx            v7     2 hrs ago     Spreadsheet  —    ✓        │
+│ 📄  Policy.docx               v3     last week     Document     🔒   ✓        │  legal hold / lock
+│▌📄  Notes.md      [Editing]  v12     10 min ago    Markdown     ✎    ✓        │  editor session, left stripe
+│ 📄  data.json                v1     3 days ago     JSON         —    ✓        │
 │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │  skeleton
 └──────────────────────────────────────────────────────────────────────────────┘
                                             (selection bar floats at bottom — §8 below)
 ```
 
+There is no List/Grid toggle: Doc-Hub is list-only (no thumbnails to grid). The former view-toggle slot holds an inline content-search field instead.
+
 ### Pane-top toolbar
 
 44 px, padding `--space-3` × `--space-6`, `--bg-default`, hairline bottom, sticky.
 
-- **New ▾**: ghost split-button + chevron, 13/500, `--radius-md`. Dropdown: New folder (⌘⇧N) · Upload file (U) · Upload folder (⌘⇧U).
-- **Upload**: primary fill (`--accent` / `--fg-onAccent`), `upload-cloud` 16, chord chip `U` muted right.
-- **View toggle**: Radix ToggleGroup, two 28 px squares (`list`, `grid-2x2`); active = `--bg-selected` + `--accent` icon; persisted in IndexedDB.
+- **New ▾**: ghost split-button + chevron, 13/500, `--radius-md`. Dropdown: New folder (⌘⇧N) · Upload document (U) · Create document ▸ (Sheet / Doc / Markdown).
+- **Upload**: primary fill (`--accent` / `--fg-onAccent`), `upload-cloud` 16, chord chip `U` muted right. Rejects non-allowlisted types at the picker and the dropzone.
+- **Search**: inline field (or `/` to focus) querying document *content* + metadata; hands off to the Cmd-K palette for advanced filters.
 
 ### Breadcrumbs band
 
-32 px (drop from current 40 to match row metrics), 13 px / 500, current segment `--fg-default`, others `--fg-muted`, `›` separator 12 px `--fg-subtle`. Long paths collapse to middle ellipsis dropdown (per current spec).
+32 px, 13 px / 500, current segment `--fg-default`, others `--fg-muted`, `›` separator 12 px `--fg-subtle`. Long paths collapse to middle ellipsis dropdown.
 
 ### Sort header
 
-32 px, `--bg-default`, hairline bottom only, sticky under breadcrumbs. Type 11 px / 500 / `--fg-muted` / `letter-spacing: 0.04em` / uppercase. Active column: `--fg-default` + 12 px ▲/▼ in `--accent`. Click toggles asc → desc → clear (back to default name-asc). Resize handle between header cells on hover (`col-resize` + 1 px `--accent` line).
+32 px, `--bg-default`, hairline bottom only, sticky under breadcrumbs. Type 11 px / 500 / `--fg-muted` / `letter-spacing: 0.04em` / uppercase. Active column: `--fg-default` + 12 px ▲/▼ in `--accent`. Click toggles asc → desc → clear (back to default updated-desc). Resize handle between header cells on hover.
 
 ### Columns
 
-Name (flex min 240, left, 13/500) · Modified (144 px, left, 13/400 muted, tabular-nums) · Size (96 px, right, 13/400 muted, tabular-nums) · Kind (128 px, left, 13/400 muted). All sortable. Widths persist per user in IndexedDB.
+- **Name** — flex min 240, left, 13/500, type glyph 16 px. Ellipsis truncate.
+- **Version** — 64 px, left, `--font-mono` 12/400 muted, `v<seq>` (e.g. `v7`); tooltip shows short `content_hash` + author of the head version; click opens the version timeline.
+- **Updated** — 144 px, left, 13/400 muted, tabular-nums, relative ("2 hrs ago", "yesterday", "3 May").
+- **Kind** — 128 px, left, 13/400 muted, one word from the allowlist ("Folder", "Document", "Spreadsheet", "PDF", "Markdown", "JSON", "YAML", "CSV", "Text").
+- **Lock** — 40 px, center. Empty by default. `lock` glyph (`--fg-muted`) = legal hold or admin lock; `pencil`/`✎` (`--accent`) = an open editor session; tooltip names who/why. A locked/held row disables trash.
+- **Encryption** — 40 px, center. `shield-check` (`--fg-muted`) = encrypted at rest with the workspace DEK (the normal, universal state — every document is encrypted); on the rare key-state issue (e.g. rewrapping during rotation) a `shield-alert` (`--warning`) with tooltip. Never absent, since encryption is not optional.
+- **Size** — optional, 96 px, right, 13/400 muted, tabular-nums; hidden by default to keep the registry columns primary.
+
+All sortable except Lock/Encryption (filterable instead). Widths persist per user in IndexedDB.
 
 ### Row tokens
 
-**32 px** fixed. Padding `--space-3` left / `--space-4` right. Transparent (no zebra; Linear/Vercel/Notion skip it). Bottom grid line: 1 px `--border-default` at 50% opacity (hairline, not divider). Type icon: 16 px Lucide; folder tints `--accent` when selected/focused. Name: 13/500/`--fg-default`, ellipsis truncate, `overflow-wrap: anywhere`. Modified: relative ("2 hrs ago", "yesterday", "3 May"), muted, tabular-nums. Size: binary ("42 KB", "—" for folders), muted, right-aligned, tabular-nums. Kind: one-word ("Folder", "Image", "Spreadsheet", "PDF"), muted.
+**32 px** fixed. Padding `--space-3` left / `--space-4` right. Transparent (no zebra). Bottom grid line: 1 px `--border-default` at 50% opacity. Type glyph: 16 px Lucide (`folder`, `file-text`, `file-spreadsheet`, `file-json`, etc.); tints `--accent` when selected/focused. Name: 13/500/`--fg-default`, ellipsis. Version: mono, muted. Updated/Kind: muted. Lock/Encryption: 14 px glyphs, muted/semantic.
 
 ### Row state matrix
 
-- **Default:** transparent. **Hover:** `--bg-hover`, no border, cursor `default`.
+- **Default:** transparent. **Hover:** `--bg-hover`, no border, cursor `default`, no revealed controls.
 - **Focused (kb):** `--bg-hover` + outer `--focus-ring`, offset (no content shift).
-- **Selected:** `--bg-selected` + 2 px `--accent` left-edge stripe. **Selected+hover:** +4% toward accent. **Selected+focused:** stack focus ring on top.
-- **Editor session:** inline `[Open]` chip (`--bg-accent-muted`, `--accent` text, 11/500, `--radius-xs`, padding 4 × 8) after name; tooltip "Editing — open since HH:MM".
-- **Uploading ghost:** 60% opacity; icon overlaid with `upload-cloud`; 2 px determinate `--accent` bar at row bottom, real bytes.
-- **Upload failed:** `--danger-muted` tint; icon → `alert-circle` `--danger`; tooltip with reason.
+- **Selected:** `--bg-selected` + 2 px `--accent` left-edge stripe. **Selected+hover:** +4% toward accent. **Selected+focused:** stack focus ring.
+- **Editor session:** inline `[Editing]` chip (`--bg-accent-muted`, `--accent` text, 11/500, `--radius-xs`) after name; Lock column shows `✎`; tooltip "Editing — open since HH:MM by <user>".
+- **Legal hold / locked:** Lock column shows `lock` (`--fg-muted`); trash action hidden; tooltip "On legal hold — cannot be trashed".
+- **Uploading ghost:** 60% opacity; glyph overlaid with `upload-cloud`; 2 px determinate `--accent` bar at row bottom, real bytes.
+- **Upload rejected (type not allowed):** `--danger-muted` tint; glyph → `alert-circle` `--danger`; tooltip "Only documents can be uploaded (docx, xlsx, pdf, md, …)".
+- **Version committing:** brief `--bg-accent-muted` pulse when the head Version increments after a confirmed save — not before.
 - **Drag origin:** 40% opacity; cursor carries card.
 - **Drop target (folder row only):** `--accent-muted` bg, folder glows `--accent`, 2 px ring; spring-loaded expand after 700 ms.
-- **Disabled (e.g. trash on editor-locked):** 8 px lateral shake, 200 ms, 1 cycle.
 
 ### Inline rename
 
-Trigger F2, Enter on focused row (slow double-click = rename, fast = open, Finder convention), right-click → Rename. Name cell becomes input matching row typography; extension in `--fg-muted` next to input, not editable without explicit click ([Apple Discussions](https://discussions.apple.com/thread/255445067)). Auto-select basename only. Border `--border-strong` → `--danger` on invalid + helper line. Enter commits, Esc cancels, Tab commits + advances. Optimistic; 409 reverts with 8 px shake (200 ms), stays in edit, helper "Already a file with that name."
+Trigger F2, Enter on focused row (slow double-click = rename, fast = open), right-click → Rename. Name cell becomes input matching row typography; extension in `--fg-muted`, not editable without explicit click ([Apple Discussions](https://discussions.apple.com/thread/255445067)). Auto-select basename only. Enter commits, Esc cancels, Tab commits + advances. Rename is metadata-only (does not create a version); optimistic; 409 reverts with 8 px shake, helper "Already a document with that name."
 
 ### Multi-select
 
-Click = select single (replaces prior). Cmd-click = toggle. Shift-click = range from anchor. Cmd-A = all in folder. Esc = clear. Shift-↑↓ = extend. Lasso: list view only when drag begins in whitespace; grid defaults to lasso. State in `Set<file_id>` outside virtualizer; Cmd-A on 10k rows is fast.
+Click = select single. Cmd-click = toggle. Shift-click = range from anchor. Cmd-A = all in folder. Esc = clear. Shift-↑↓ = extend. Lasso: list view when drag begins in whitespace. State in `Set<file_id>` outside virtualizer.
 
 ### Drag-drop
 
-Library: **Pragmatic drag-and-drop** ([repo](https://github.com/atlassian/pragmatic-drag-and-drop)) for in-app row → folder; external adapter for OS-file → window.
+Library: **Pragmatic drag-and-drop** ([repo](https://github.com/atlassian/pragmatic-drag-and-drop)) for in-app row → folder; external adapter for OS-file → window, **allowlist-gated**.
 
-- Whole row draggable, no visible handle (Finder/Drive/Dropbox convention). 4 px start threshold.
+- Whole row draggable, no visible handle. 4 px start threshold.
 - Cursor preview: 32 px floating card at 95% opacity; multi-select shows "(N)" stack badge.
 - Drop target (folder row, sidebar folder, breadcrumb segment): bg → `--accent-muted`, folder → `--accent`, 2 px ring.
 - Spring-loaded folders: hover > 700 ms → navigate in.
-- Drop completion: source fades out 200 ms ease-out; destination flashes `--bg-selected` 1 cycle (200 ms); FLIP on reflow.
-- Cancel (Esc): cursor card springs back `{400, 30}`.
-- OS-file overlay: canvas dims to `--bg-subtle` (120 ms); centered 320 × 160 card, dashed 2 px `--accent-muted` border, `--radius-xl`, `upload-cloud` 32 px, caption "Drop to upload to *<folder>*"; spring pop-in.
+- OS-file overlay: canvas dims to `--bg-subtle` (120 ms); centered 320 × 160 card, dashed 2 px `--accent-muted` border, `upload-cloud` 32 px, caption "Drop documents to upload to *<folder>*". Non-allowlisted files in the drop are rejected with a per-file reason.
 - Invalid drop (folder → itself): cursor `not-allowed`, silently ignored.
-- Keyboard fallback: Cmd-Shift-M opens Move-to picker (flow 9).
+- Keyboard fallback: Cmd-Shift-M opens Move-to picker.
 
 ### Skeleton state
 
-8 rows × 32 px matching layout (16 × 16 icon block, name flex-fill, modified 96, size 64 right-aligned, kind 80). Blocks `--bg-subtle` `--radius-xs`. Shimmer: linear-gradient sweep 1.2 s, `background-attachment: fixed` for sync ([Mat Simon](https://www.matsimon.dev/blog/simple-skeleton-loaders)). `prefers-reduced-motion`: static blocks pulsing opacity 50% ↔ 70% over 1.6 s. Replaces row list only.
+8 rows × 32 px matching layout (16 × 16 glyph block, name flex-fill, version 48, updated 96, kind 80, lock/enc 24). Blocks `--bg-subtle` `--radius-xs`. Shimmer: 1.2 s sweep ([Mat Simon](https://www.matsimon.dev/blog/simple-skeleton-loaders)). `prefers-reduced-motion`: static pulse.
 
 ### Empty state (centered, in-table)
 
 ```
                               ┌───────────┐
-                              │    📂     │   56 px Lucide folder-open, --fg-subtle
+                              │    📄     │   56 px Lucide file-text, --fg-subtle
                               └───────────┘
-                          This folder is empty.       20 px / --weight-semibold
-                            Drop files to add.         15 px / --fg-muted
+                       This project has no documents.     20 px / --weight-semibold
+                     Upload or create one to start the record.   15 px / --fg-muted
 ```
 
-Root "first run" variant adds `[ Upload  U ]` primary button below. Search no-results: title `No files match "<query>".`, single text-link "Clear search". Fade in 200 ms after skeleton ends. No tutorial overlay; no glyph animation.
+Root "first run" variant adds `[ Upload  U ]` primary button below. Search no-results: title `No documents match "<query>".`, subtitle "Search reads inside documents, not just names.", single text-link "Clear search". Fade in 200 ms after skeleton ends. No tutorial overlay.
 
 ### Loading on fetch / pagination
 
-Initial: skeleton above. Paginate-on-scroll: append 4 skeleton rows at list end; replace on arrival. Hover pre-fetch on folder > 100 ms (polish-principle #11) → cached → sub-100 ms navigate render.
+Initial: skeleton above. Paginate-on-scroll: append 4 skeleton rows; replace on arrival. Hover pre-fetch on folder > 100 ms → cached → sub-100 ms navigate.
 
 ### Error state
 
@@ -180,41 +197,42 @@ Initial: skeleton above. Paginate-on-scroll: append 4 skeleton rows at list end;
                               ┌───────────┐
                               │    ⚠     │   56 px Lucide alert-triangle, --warning
                               └───────────┘
-                       Couldn't load this folder.      20 px / --weight-semibold
-                          Check your connection.        15 px / --fg-muted
-                            [ Try again ]              ghost button
+                       Couldn't load this project.        20 px / --weight-semibold
+                          Check your connection.           15 px / --fg-muted
+                            [ Try again ]                 ghost button
 ```
 
-Same vertical-center layout as empty state. Toast does *not* fire concurrently — in-pane error is the surface; toasts are for transients.
+Same vertical-center layout as empty state. A tamper alarm (a version failing `verify_chain`) uses this frame with `shield-alert` `--danger`, title "Integrity check failed on <document>." and a "View details" link into the provenance panel — it is surfaced, never silently repaired.
 
 ### Right-click context menu
 
-Radix ContextMenu at cursor. 220 px wide, `--bg-elevated`, `--shadow-lg`, `--radius-lg`, item rows 28 px / 13 px / 500. Chord chips right-aligned, 11 px `--font-mono`, muted.
+Radix ContextMenu at cursor. 220 px wide, `--bg-elevated`, `--shadow-lg`, item rows 28 px / 13 px / 500. Chord chips right-aligned, 11 px `--font-mono`, muted.
 
-- **File selected:** Open (Enter) · Open in new tab (⇧⏎) — Rename (F2) · Move to… (⌘⇧M) · Share… (⌘⇧S) · Copy link — Download (⌘D) — Properties (⌘I) — Move to trash (⌫).
-- **Folder selected:** same minus Open-in-new-tab; "Open" navigates in.
-- **Multi-select:** drops Rename / Open-in-new-tab / Properties; rest scale to selection; footer shows muted "<N> items".
-- **Empty area:** New folder · Upload file · Upload folder · Paste (disabled if clipboard empty) · Sort by ▸ (Name / Modified / Size / Kind).
+- **Document selected:** Open (Enter) · Open in new tab (⇧⏎) — Version history (⌘Y) · Restore version… — Rename (F2) · Move to… (⌘⇧M) · Share… (⌘⇧S) · Copy link — Download (⌘D) · Export provenance — Properties (⌘I) — Move to trash (⌫, disabled under lock/hold).
+- **Folder selected:** same minus Open-in-new-tab and version actions; "Open" navigates in.
+- **Multi-select:** drops Rename / version actions / Properties; rest scale to selection; footer shows muted "<N> documents".
+- **Empty area:** New folder · Upload document · Create document ▸ · Sort by ▸ (Name / Version / Updated / Kind).
 
 ### Motion summary
 
-- Insert / sort change / undo: Motion `layout` FLIP, 200 ms `--ease-out`, spring `{400, 30}`. Delete: opacity 0 + translateY(-4 px) 200 ms; neighbors FLIP up. Drag-drop reorder: FLIP on drop.
-- Hover: `--bg-hover` fade 80 ms. Focus ring: 120 ms opacity fade. **Selection toggle: none — instant.**
-- Skeleton shimmer: 1.2 s loop, `background-attachment: fixed`. Drop overlay: dim 120 ms + card pop-in. Drop completion: source fade 200 ms + dest flash 200 ms.
+- Insert / sort change / undo: Motion `layout` FLIP, 200 ms `--ease-out`, spring `{400, 30}`. Trash (tombstone): opacity 0 + translateY(-4 px) 200 ms; neighbors FLIP up.
+- Hover: `--bg-hover` fade 80 ms. Focus ring: 120 ms. **Selection toggle: none — instant.**
+- Version increment: `--bg-accent-muted` pulse 1 cycle (200 ms) **after** server-confirmed commit only.
+- Skeleton shimmer: 1.2 s loop. Drop overlay: dim 120 ms + card pop-in.
 - Rename: instant; only validation-error shake (8 px / 200 ms / 1 cycle).
 - `prefers-reduced-motion`: FLIPs → 0–50 ms crossfade; shimmer → opacity pulse.
 
 ### Copy strings (final)
 
-Upload button **"Upload"** + chip `U`. New menu **"New folder"** · **"Upload file"** · **"Upload folder"**. Empty root: **"Your Drive is empty."** / **"Drop files anywhere, or use Upload."** / CTA **"Upload"**. Empty folder: **"This folder is empty."** / **"Drop files to add."** / no CTA. Empty search: **"No files match \"<query>\"."** / link **"Clear search"**. Error: **"Couldn't load this folder."** / **"Check your connection."** / **"Try again"**. Drop caption: **"Drop to upload to *<folder>*"**. Editor badge: **"Open"** / tooltip **"Editing — open since HH:MM"**.
+Upload button **"Upload"** + chip `U`. New menu **"New folder"** · **"Upload document"** · **"Create document"**. Empty root: **"This project has no documents."** / **"Upload or create one to start the record."** / CTA **"Upload"**. Empty folder: **"This folder is empty."** / **"Drop documents to add."** / no CTA. Empty search: **"No documents match \"<query>\"."** / **"Search reads inside documents, not just names."** / link **"Clear search"**. Error: **"Couldn't load this project."** / **"Check your connection."** / **"Try again"**. Type-rejected: **"Only documents can be uploaded (docx, xlsx, pdf, md, …)."** Drop caption: **"Drop documents to upload to *<folder>*"**. Editor badge: **"Editing"** / tooltip **"Editing — open since HH:MM"**. Hold tooltip: **"On legal hold — cannot be trashed."**
 
 ### Virtualization
 
-TanStack Virtual ([`@tanstack/react-virtual`](https://tanstack.com/virtual/latest)) with `useFlushSync: false` for React 19 ([Borstch guide](https://borstch.com/blog/development/list-virtualization-in-react-with-tanstack-virtual)). Threshold: `rows.length > 100`. `estimateSize: 32`, `overscan: 5`. Selection `Set<id>` lives outside the virtualizer.
+TanStack Virtual ([`@tanstack/react-virtual`](https://tanstack.com/virtual/latest)) with `useFlushSync: false` for React 19. Threshold: `rows.length > 100`. `estimateSize: 32`, `overscan: 5`. Selection `Set<id>` outside the virtualizer.
 
 ---
 
-## Drive surface spec — selection bar (replaces §8 of `02-surface.md`)
+## Doc-Hub surface spec — selection bar (replaces §8 of `02-surface.md`)
 
 ```
                           ┌─────────────────────────────────────────────────────┐
@@ -226,19 +244,19 @@ TanStack Virtual ([`@tanstack/react-virtual`](https://tanstack.com/virtual/lates
 
 ### Layout
 
-Fixed bottom-center of main pane, 24 px inset. Width hugs content (min 480, max 720). Height 56 px single row (wraps to 2 rows below 640 viewport). Background `--bg-elevated` at 80% opacity + `backdrop-filter: saturate(180%) blur(20px)` (vibrancy). Hairline `--border-default`. `--radius-xl` (16). `--shadow-lg`. `z-index: --z-popover` (1400) — above rows, below modals.
+Fixed bottom-center of main pane, 24 px inset. Width hugs content (min 480, max 720). Height 56 px single row (wraps to 2 below 640 viewport). Background `--bg-elevated` at 80% + `backdrop-filter: saturate(180%) blur(20px)`. Hairline `--border-default`. `--radius-xl`. `--shadow-lg`. `z-index: --z-popover`.
 
 ### Contents (left → right)
 
-Count chip `"<N> selected"` (13/500, tabular-nums, plural-aware) → vertical hairline 16 px → action chips (32 px tall, `--space-2` horizontal, Lucide 16 + label 13/500): **Download** (⌘D) · **Move…** (⌘⇧M) · **Share…** (⌘⇧S, only when exactly 1 selected); hover `--bg-hover`, active `--bg-selected` → vertical hairline → **Trash** chip in `--danger` text + glyph, no fill (hover `--bg-hover`, no danger tint on hover) → spacer → **Clear ×** in `--fg-subtle` → `--fg-default` on hover, tooltip "Clear (Esc)". Chord chips are not shown on the bar itself — they live in chip tooltips and in Cmd-K.
+Count chip `"<N> selected"` (13/500, tabular-nums) → vertical hairline → action chips (32 px, Lucide 16 + label 13/500): **Download** (⌘D) · **Move…** (⌘⇧M) · **Share…** (⌘⇧S, only when exactly 1 selected) → vertical hairline → **Trash** chip in `--danger` text + glyph, no fill (hidden for the whole selection if any item is under lock/hold) → spacer → **Clear ×** tooltip "Clear (Esc)". Chord chips live in tooltips and Cmd-K, not on the bar.
 
 ### State matrix
 
 - Hidden (0–1 selected): not rendered.
-- Enter (≥ 2 selected): slide up 200 ms `--ease-out` + fade, spring `{stiffness: 400, damping: 30}`.
+- Enter (≥ 2 selected): slide up 200 ms `--ease-out` + fade, spring `{400, 30}`.
 - Exit: slide down 150 ms `--ease-in` + fade.
-- Action in progress: active chip gets 2 px `--accent` progress bar across bottom; chip interactable; Esc cancels.
-- Action success: chip flashes `--bg-selected` 1 cycle (200 ms); toast carries confirmation.
+- Action in progress: active chip gets 2 px `--accent` progress bar; Esc cancels.
+- Action success: chip flashes `--bg-selected` 1 cycle (200 ms); toast confirms ("Moved 3 documents").
 
 ### Compact mode (< 640 px)
 
@@ -246,12 +264,13 @@ Chips collapse to icon-only with labels in tooltips. Order preserved. Trash stay
 
 ### Mixed-selection rules
 
-- Folders + files: chips that don't apply (e.g. Share, when v0 folder share isn't supported) are **hidden, not greyed**. Hiding > disabling for "does not apply" ([Linear changelog: issue selection](https://linear.app/changelog/issue-selection)).
-- Mixed Download routes to zip-bundle path (flow 16); label stays "Download".
+- Folders + documents: chips that don't apply (e.g. Share when a folder is selected, or version-scoped actions) are **hidden, not greyed** ([Linear changelog: issue selection](https://linear.app/changelog/issue-selection)).
+- Any item under legal hold / open editor lock: **Trash is hidden** for the whole selection; tooltip on the count chip explains "N under hold".
+- Mixed Download bundles to a zip; label stays "Download".
 
 ### Keyboard
 
-`Esc` clears + dismisses. `⌘D` / `⌘⇧M` / `⌘⇧S` / `Backspace` / `Delete` fire respective actions globally.
+`Esc` clears + dismisses. `⌘D` / `⌘⇧M` / `⌘⇧S` / `Backspace` / `Delete` fire respective actions globally (Delete = trash, subject to hold checks).
 
 ### `prefers-reduced-motion`
 
@@ -259,56 +278,54 @@ Enter/exit become 100 ms opacity fade.
 
 ### Copy strings
 
-- Count: **"<N> selected"** (plural-aware: `1 selected`, `2 selected`, …).
+- Count: **"<N> selected"** (plural-aware).
 - Actions: **Download** · **Move…** · **Share…** · **Trash** · **Clear**.
-- Clear tooltip: **"Clear (Esc)"**.
-- Trash tooltip: **"Move to trash (Delete)"**.
+- Clear tooltip: **"Clear (Esc)"**. Trash tooltip: **"Move to trash (Delete)"**.
+- Hold note: **"<N> under hold — can't be trashed."**
 - Inapplicable chips: silent (not rendered).
 
 ---
 
 ## States checklist (test matrix)
 
-**File list:** Default · Hover · Focused (keyboard) · Selected (single / multi / range) · Inline rename (open / valid / invalid / conflict) · Uploading ghost · Upload failed · Drag origin · Drop target (folder / sidebar / breadcrumb) · Editor session badge · Skeleton · Empty (root / folder / search) · Error · Right-click menu (file / folder / multi / empty area) · OS-file drop overlay.
+**Document list:** Default · Hover · Focused (keyboard) · Selected (single / multi / range) · Inline rename (open / valid / invalid / conflict) · Uploading ghost · Upload rejected (type not allowed) · Version committing · Editor session badge · Legal hold / locked · Integrity-alarm · Drag origin · Drop target (folder / sidebar / breadcrumb) · Skeleton · Empty (root / folder / search) · Error · Right-click menu (document / folder / multi / empty area) · OS-file drop overlay.
 
-**Selection bar:** Hidden · Enter animation · Hover chip · Active chip during in-progress action · Compact viewport · Mixed-selection hiding · Exit animation.
+**Selection bar:** Hidden · Enter animation · Hover chip · Active chip during in-progress action · Compact viewport · Mixed-selection hiding · Hold-blocks-trash · Exit animation.
 
 ---
 
 ## Sources
 
-**Linear:** [board](https://linear.app/docs/board-layout) · [display](https://linear.app/docs/display-options) · [views](https://linear.app/docs/custom-views) · [select](https://linear.app/docs/select-issues) · [create](https://linear.app/docs/creating-issues) · [editor](https://linear.app/docs/editor) · [inline-edit](https://linear.app/changelog/2022-06-09-inline-editing) · [shortcuts](https://linear.app/changelog/2021-03-25-keyboard-shortcuts-help) · [selection](https://linear.app/changelog/issue-selection) · [UI-Mar2026](https://linear.app/changelog/2026-03-12-ui-refresh) · [diffs-May2026](https://linear.app/changelog/2026-05-27-linear-diffs) · [releases-Apr2026](https://linear.app/changelog/2026-04-30-releases) · [shortcuts.design](https://shortcuts.design/tools/toolspage-linear/) · [ShortcutFoo](https://www.shortcutfoo.com/app/dojos/linear-app-mac/cheatsheet) · [Keycombiner](https://keycombiner.com/collections/linear/) · [DS-mirror](https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1) · [getdesign.md](https://getdesign.md/linear.app/design-md) · [redesign](https://linear.app/now/how-we-redesigned-the-linear-ui) · [Storylane](https://www.storylane.io/tutorials/how-to-bulk-edit-issues-in-linear)
+**Linear:** [display](https://linear.app/docs/display-options) · [select](https://linear.app/docs/select-issues) · [inline-edit](https://linear.app/changelog/2022-06-09-inline-editing) · [selection](https://linear.app/changelog/issue-selection) · [UI-Mar2026](https://linear.app/changelog/2026-03-12-ui-refresh) · [DS-mirror](https://styles.refero.design/style/90ce5883-bb24-4466-93f7-801cd617b0d1) · [getdesign.md](https://getdesign.md/linear.app/design-md)
 
-**Vercel:** [redesign-rollout](https://vercel.com/changelog/dashboard-navigation-redesign-rollout) · [deployments-May2026](https://vercel.com/changelog/redesigned-deployments-list) · [changelog](https://vercel.com/changelog) · [new-dashboard](https://vercel.com/try/new-dashboard) · [docs](https://vercel.com/docs/projects/project-dashboard) · [deployments-docs](https://vercel.com/docs/deployments) · [blog](https://vercel.com/blog/dashboard-redesign) · [925studios](https://www.925studios.co/blog/saas-dashboard-design-examples-2026) · [Releasebot](https://releasebot.io/updates/vercel)
+**Vercel:** [deployments-May2026](https://vercel.com/changelog/redesigned-deployments-list) · [redesign-rollout](https://vercel.com/changelog/dashboard-navigation-redesign-rollout) · [changelog](https://vercel.com/changelog)
 
-**Stripe / data tables:** [Apps-Table](https://docs.stripe.com/stripe-apps/components/table) · [Dashboard](https://docs.stripe.com/dashboard/basics) · [Apps-patterns](https://docs.stripe.com/stripe-apps/patterns) · [SaaSFrame](https://www.saasframe.io/examples/stripe-payments-dashboard) · [uiprep](https://www.uiprep.com/blog/the-ultimate-guide-to-designing-data-tables) · [Carbon-DS](https://carbondesignsystem.com/components/data-table/usage/)
+**Stripe / data tables:** [Apps-Table](https://docs.stripe.com/stripe-apps/components/table) · [uiprep](https://www.uiprep.com/blog/the-ultimate-guide-to-designing-data-tables) · [Carbon-DS](https://carbondesignsystem.com/components/data-table/usage/)
 
-**Figma:** [browser](https://help.figma.com/hc/en-us/articles/14381406380183-Guide-to-the-file-browser) · [drafts](https://help.figma.com/hc/en-us/articles/18409526530967-Updates-to-how-drafts-work) · [drafts-blog](https://www.figma.com/blog/the-power-of-figma-drafts/) · [files](https://help.figma.com/hc/en-us/articles/1500005554982-Guide-to-files-and-projects) · [thumbnails](https://help.figma.com/hc/en-us/articles/360038511413-Set-custom-thumbnails-for-files) · [thumbnail-design](https://help.figma.com/hc/en-us/articles/23510169950871-Design-a-file-thumbnail) · [forum](https://forum.figma.com/suggest-a-feature-11/file-type-icons-in-recent-files-grid-gallery-view-17317)
+**GitHub:** [commit signature verification](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification) · [comparing commits](https://docs.github.com/en/pull-requests/committing-changes-to-your-project/viewing-and-comparing-commits/comparing-commits)
 
-**Dropbox:** [CSS](https://github.com/dropbox/css-style-guide) · [right-click](https://www.cbackup.com/articles/dropbox-right-click-menu-missing.html) · [context-menu](https://www.tenforums.com/tutorials/158955-how-add-remove-dropbox-context-menu-windows.html) · [PageFlows](https://pageflows.com/web/products/dropbox/) · [NicelyDone](https://nicelydone.club/apps/dropbox)
+**1Password:** [Knox by Alice Liao](https://aliceliao.com/work/knox) · [1P8 list density](https://1password.community/discussion/122677/item-list-information-density-in-1pw8)
 
-**Google Drive:** [help](https://support.google.com/drive/answer/2375177) · [hovercard](https://workspaceupdates.googleblog.com/2024/05/preview-files-in-google-drive-with-hovercards.html) · [9to5Google](https://9to5google.com/2024/05/16/google-drive-hovercard/) · [complaint](https://support.google.com/drive/thread/205464794/when-we-hover-mouse-on-a-file-folder-it-shows-a-selection-option-as-a-checkmark-which-is-annoying) · [AODocs](https://support.aodocs.com/hc/en-us/articles/206775853-Switch-from-grid-layout-to-list-layout-in-Google-Drive) · [Gizmodo](https://gizmodo.com/best-cloud-storage/google-drive-alternatives) · [Dragbin](https://www.dragbin.com/reviews/google-drive-review-2026/)
+**Notion:** [tables](https://www.notion.com/help/tables) · [shortcuts](https://www.notion.com/help/keyboard-shortcuts) · [Medium](https://medium.com/@VaughanVanDyk/notion-databases-10-things-i-needed-to-learn-52873eb2618b)
 
-**Notion:** [tables](https://www.notion.com/help/tables) · [databases](https://www.notion.com/help/intro-to-databases) · [shortcuts](https://www.notion.com/help/keyboard-shortcuts) · [dashboards](https://www.notion.com/help/dashboards) · [buttons](https://www.notion.com/help/buttons) · [Medium](https://medium.com/@VaughanVanDyk/notion-databases-10-things-i-needed-to-learn-52873eb2618b) · [VIP](https://www.notion.vip/insights/compare-and-configure-notion-s-database-formats-tables-lists-galleries-boards-and-timelines)
+**Finder:** [columns](https://discussions.apple.com/thread/8304069) · [rename](https://discussions.apple.com/thread/255445067) · [Lapcat](https://lapcatsoftware.com/articles/SystemSettings.html)
 
-**Finder:** [columns](https://discussions.apple.com/thread/8304069) · [rename](https://discussions.apple.com/thread/255445067) · [resize](https://macmost.com/resize-columns-to-fit-filenames.html) · [MacMost](https://macmost.com/mac-basics-how-to-rename-files.html) · [TidBITS](https://tidbits.com/2018/06/28/macos-hidden-treasures-batch-rename-items-in-the-finder/) · [Automators](https://talk.automators.fm/t/how-to-adjust-column-width-in-apple-mail-or-finder-list-view/17672) · [OSXDaily](https://osxdaily.com/2010/03/25/setting-the-default-column-size-in-mac-os-x-finder-windows/) · [Lapcat](https://lapcatsoftware.com/articles/SystemSettings.html)
+**Arc:** [Crosley](https://blakecrosley.com/guides/design/arc) · [ArcWTF](https://github.com/KiKaraage/ArcWTF/blob/main/README.md)
 
-**Arc:** [Crosley](https://blakecrosley.com/guides/design/arc) · [Refine](https://refine.dev/blog/arc-browser/) · [LogRocket](https://blog.logrocket.com/ux-design/ux-analysis-arc-opera-edge/) · [ArcWTF](https://github.com/KiKaraage/ArcWTF/blob/main/README.md) · [Wikipedia](https://en.wikipedia.org/wiki/Arc_(web_browser)) · [Medium](https://medium.com/design-bootcamp/arc-browser-rethinking-the-web-through-a-designers-lens-f3922ef2133e)
+**Consumer file managers (contrast):** [Figma thumbnails](https://help.figma.com/hc/en-us/articles/360038511413-Set-custom-thumbnails-for-files) · [Figma browser](https://help.figma.com/hc/en-us/articles/14381406380183-Guide-to-the-file-browser) · [Dropbox redesign](https://www.techspot.com/news/100467-dropbox-rolls-out-redesigned-web-interface-releases-new.html) · [GoodUX Dropbox](https://goodux.appcues.com/blog/dropbox-redesign) · [Google Drive hovercard](https://workspaceupdates.googleblog.com/2024/05/preview-files-in-google-drive-with-hovercards.html) · [hover-checkbox complaint](https://support.google.com/drive/thread/205464794/when-we-hover-mouse-on-a-file-folder-it-shows-a-selection-option-as-a-checkmark-which-is-annoying)
 
-**Virtualization:** [TanStack-Virtual](https://tanstack.com/virtual/latest) · [GitHub](https://github.com/TanStack/virtual) · [react-docs](https://tanstack.com/virtual/v3/docs/framework/react/react-virtual) · [fixed-ex](https://tanstack.com/virtual/latest/docs/framework/react/examples/fixed) · [Table-virt](https://tanstack.com/table/v8/docs/guide/virtualization) · [virt-rows-ex](https://tanstack.com/table/v8/docs/framework/react/examples/virtualized-rows) · [LogRocket](https://blog.logrocket.com/speed-up-long-lists-tanstack-virtual/) · [Borstch-1](https://borstch.com/blog/development/how-to-virtualize-a-long-list-in-react-using-tanstack-virtual-for-better-performance) · [Borstch-2](https://borstch.com/blog/development/list-virtualization-in-react-with-tanstack-virtual) · [Borstch-3](https://borstch.com/blog/development/practical-guide-to-implementing-fixed-lists-using-tanstack-virtual-in-react) · [Patterns.dev](https://www.patterns.dev/vanilla/virtual-lists/) · [react-arborist](https://github.com/jameskerr/react-arborist) · [LogRocket-arb](https://blog.logrocket.com/using-react-arborist-create-tree-components/) · [Viprasol](https://viprasol.com/blog/react-virtual-table/)
+**Virtualization:** [TanStack-Virtual](https://tanstack.com/virtual/latest) · [Borstch](https://borstch.com/blog/development/list-virtualization-in-react-with-tanstack-virtual) · [react-arborist](https://github.com/jameskerr/react-arborist)
 
-**Drag-drop:** [Pragmatic-repo](https://github.com/atlassian/pragmatic-drag-and-drop) · [Pragmatic-docs](https://atlassian.design/components/pragmatic-drag-and-drop) · [core-pkg](https://atlassian.design/components/pragmatic-drag-and-drop/core-package/) · [npm](https://www.npmjs.com/package/@atlaskit/pragmatic-drag-and-drop) · [files-discussion](https://github.com/atlassian/pragmatic-drag-and-drop/discussions/139) · [PkgPulse](https://www.pkgpulse.com/guides/dnd-kit-vs-react-beautiful-dnd-vs-pragmatic-drag-drop-2026) · [RAC-DnD](https://react-spectrum.adobe.com/react-aria/dnd.html) · [useDrop](https://react-spectrum.adobe.com/react-aria/useDrop.html) · [useDrag](https://react-spectrum.adobe.com/react-aria/useDrag.html) · [collection](https://react-spectrum.adobe.com/react-aria/useDraggableCollection.html) · [Zoer](https://zoer.ai/posts/zoer/best-react-drag-drop-libraries-comparison) · [dnd-kit-virt](https://github.com/clauderic/dnd-kit/discussions/1372) · [SIDP](https://smart-interface-design-patterns.com/articles/drag-and-drop-ux/) · [LogRocket](https://blog.logrocket.com/ux-design/drag-and-drop-ui-examples/) · [SubUX](https://subux.pro/guides/article/accessible-drag-and-drop) · [Eleken](https://www.eleken.co/blog-posts/drag-and-drop-ui) · [MDN](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/File_drag_and_drop)
+**Drag-drop:** [Pragmatic-repo](https://github.com/atlassian/pragmatic-drag-and-drop) · [Pragmatic-docs](https://atlassian.design/components/pragmatic-drag-and-drop) · [RAC-DnD](https://react-spectrum.adobe.com/react-aria/dnd.html) · [MDN file drag-drop](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/File_drag_and_drop)
 
-**Motion:** [layout](https://motion.dev/docs/react-layout-animations) · [docs](https://motion.dev/docs/react) · [AutoAnimate](https://awesome-react.dev/library/auto-animate) · [BuildUI](https://buildui.com/recipes/animated-list) · [theodorusclarence](https://theodorusclarence.com/blog/list-animation) · [PkgPulse](https://www.pkgpulse.com/guides/best-react-animation-libraries-2026) · [Inhaq](https://inhaq.com/blog/framer-motion-complete-guide-react-nextjs-developers) · [Nan.fyi](https://www.nan.fyi/magic-motion) · [MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion)
+**Motion:** [layout](https://motion.dev/docs/react-layout-animations) · [AutoAnimate](https://awesome-react.dev/library/auto-animate) · [MDN reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion)
 
-**Skeleton:** [MatSimon](https://www.matsimon.dev/blog/simple-skeleton-loaders) · [jQueryScript](https://www.jqueryscript.net/blog/best-skeleton-loader.html) · [FreeFrontend](https://freefrontend.com/css-skeleton-loadings/) · [CodePen](https://codepen.io/maoberlehner/pen/bQGZYB) · [Syncfusion](https://ej2.syncfusion.com/react/documentation/skeleton/shimmer-effect)
+**Skeleton:** [MatSimon](https://www.matsimon.dev/blog/simple-skeleton-loaders)
 
-**Bulk actions:** [Eleken](https://www.eleken.co/blog-posts/bulk-actions-ux) · [UXDWorld](https://uxdworld.com/best-practices-for-providing-actions-in-data-tables/) · [UXMovement](https://uxmovement.substack.com/p/a-better-ux-approach-to-bulk-actions) · [PatternFly](https://www.patternfly.org/patterns/bulk-selection/) · [DEV](https://dev.to/talissoncosta/bulkactionbar-part-1-the-ux-micro-interactions-that-make-bulk-actions-feel-intuitive-3eb4) · [Soul](https://soul.emplifi.io/latest/components/components/bulk-action-bar/usage-UJL5kHLb) · [SaaSInterface](https://saasinterface.com/components/bulk-actions/) · [Spectrum](https://spectrum.adobe.com/page/action-bar/)
+**Bulk actions:** [Eleken](https://www.eleken.co/blog-posts/bulk-actions-ux) · [PatternFly](https://www.patternfly.org/patterns/bulk-selection/)
 
-**Empty states:** [Eleken](https://www.eleken.co/blog-posts/empty-state-ux) · [Carbon](https://carbondesignsystem.com/patterns/empty-states-pattern/) · [NN/g](https://www.nngroup.com/articles/empty-state-interface-design/) · [PatternFly](https://www.patternfly.org/components/empty-state/design-guidelines/) · [Setproduct](https://www.setproduct.com/blog/empty-state-ui-design) · [Toptal](https://www.toptal.com/designers/ux/empty-state-ux-design) · [SAP](https://www.sap.com/design-system/fiori-design-web/v1-96/foundations/best-practices/global-patterns/designing-for-empty-states) · [Mobbin](https://mobbin.com/glossary/empty-state)
+**Empty states:** [Eleken](https://www.eleken.co/blog-posts/empty-state-ux) · [Carbon](https://carbondesignsystem.com/patterns/empty-states-pattern/) · [NN/g](https://www.nngroup.com/articles/empty-state-interface-design/)
 
-**Keyboard / a11y:** [ARIA-Grid](https://www.w3.org/WAI/ARIA/apg/patterns/grid/) · [Tableau](https://help.tableau.com/current/pro/desktop/en-us/access_keyboard_navigation.htm) · [DataTables](https://datatables.net/extensions/buttons/examples/initialisation/keys.html) · [Excel](https://support.microsoft.com/en-us/office/keyboard-shortcuts-in-excel-1798d9d5-842a-42b8-9c99-9b7213f0040f) · [Workato](https://docs.workato.com/data-tables/user-interface/keyboard-shortcuts.html) · [Wikipedia](https://en.wikipedia.org/wiki/Table_of_keyboard_shortcuts)
+**Keyboard / a11y:** [ARIA-Grid](https://www.w3.org/WAI/ARIA/apg/patterns/grid/)
 
-**Typography / Inter:** [Inter](https://madegooddesigns.com/inter-font/) · [pairings](https://madegooddesigns.com/inter-font-pairing/) · [DSguide](https://www.designsystems.com/typography-guides/) · [FZT](https://www.fourzerothree.in/p/typography-system) · [LogRocket-Linear](https://blog.logrocket.com/ux-design/linear-design-ui-libraries-design-kits-layout-grid/) · [Nadcab](https://www.nadcab.com/blog/apple-human-interface-guidelines-explained)
-
-**React upload:** [Medium](https://medium.com/@dlrnjstjs/the-complete-react-file-upload-guide-from-drag-drop-to-progress-tracking-b2edb40016c2) · [Transloadit](https://transloadit.com/devtips/implementing-drag-and-drop-file-upload-in-react/) · [react.wiki](https://react.wiki/hooks/file-upload-hook/) · [BezKoder](https://www.bezkoder.com/react-drag-drop-file-upload/) · [Codewolfy](https://codewolfy.com/building-a-modern-file-upload-dropzone-in-react-with-dragdrop/) · [PrimeReact](https://primereact.org/fileupload/)
+**Typography / Inter:** [Inter](https://madegooddesigns.com/inter-font/) · [uiprep data tables](https://www.uiprep.com/blog/the-ultimate-guide-to-designing-data-tables)

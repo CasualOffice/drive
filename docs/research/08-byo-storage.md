@@ -1,29 +1,33 @@
 # 08 — Bring-your-own storage per workspace
 
-Pipeline §8.9. Per-workspace S3/MinIO override. Each Team workspace can opt-in to its own bucket + credentials; reads/writes for files in that workspace go through that adapter instead of the server-default. Personal workspaces always use the server default.
+Pipeline §8.9. Per-workspace S3/MinIO/R2/B2 override. Each Team workspace can opt-in to its own bucket + credentials; reads/writes for documents in that workspace go through that adapter instead of the server-default. Personal workspaces always use the server default.
+
+> **Document blobs are still encrypted in a BYO bucket.** BYO changes *where* ciphertext lands, not *whether* bytes are encrypted. The `dochub-storage` facade seals every document with the workspace DEK (AES-256-GCM envelope, `03-storage.md` §1a) before it reaches the operator — the operator here just happens to be the workspace's own bucket. A team that inspects its bucket sees opaque ciphertext blobs keyed by ULID, not readable documents. BYO gives you custody of the storage; it does not turn off hub encryption.
 
 ## Why
 
 - Cost separation. A team workspace bills its own cloud, not the host's.
-- Trust separation. A workspace owner can run their files through storage they audit, even if the host is shared.
-- Migration story. A team can `cp` their bucket out, repoint, and walk away. No data lock-in.
+- Trust separation. A workspace owner can run their documents through storage they audit, even if the host is shared. (They still can't read the blobs without the DEK — the server holds keys; BYO is not zero-knowledge.)
+- Migration story. A team can `cp` their bucket out, repoint, and walk away. No data lock-in. (Blobs stay encrypted end to end; the DEK, wrapped by the master KEK, is what makes them readable — `mc mirror` alone yields ciphertext.)
 
 ## What we're NOT doing
 
 - Per-user storage (only workspaces; users use their Personal workspace's storage = server default).
-- Migrating existing files when a workspace flips storage. New files land on the new adapter; the spec calls this out.
-- Storing credentials in plaintext. They're encrypted at rest with `DRIVE_STORAGE_SECRET_KEY` (32-byte hex). Boot refuses to start in production if the key is missing.
+- Migrating existing documents when a workspace flips storage. New versions land on the new adapter; the spec calls this out.
+- Storing credentials in plaintext. They're sealed at rest with the master key (`DOCHUB_MASTER_KEY`, 32 bytes) using the **same AES-256-GCM envelope scheme that wraps per-workspace document DEKs** — one crypto path, no homebrew. Boot refuses to start without a master key/KMS.
+- Turning off document encryption inside a BYO bucket. Not an option — the encryption layer is mandatory regardless of backend (`CLAUDE.md`).
 - Per-user-supplied storage that's reachable from the server's network. Server-side request forgery (SSRF) is the cardinal risk; we validate the endpoint scheme + hostname before any test request.
 
 ## Threat model
 
 | Risk | Mitigation |
 |---|---|
-| **Plaintext creds at rest** | AES-256-GCM with a server-wide key. Per-row nonce. Ciphertext + nonce + tag stored together. |
-| **SSRF via test-connection** | Endpoint must be `https://` (with `http://` allowed only when host is `localhost`/`127.0.0.1`/private RFC1918 *and* `DRIVE_ALLOW_INSECURE_BYO=true`). Hostname resolution checked against block list. |
+| **Plaintext creds at rest** | AES-256-GCM sealed with the master key (`DOCHUB_MASTER_KEY`) — the same envelope scheme as document DEKs. Per-row nonce. Ciphertext + nonce + tag stored together. |
+| **Plaintext document bytes in a BYO bucket** | The `dochub-storage` seal/open layer runs regardless of backend. A BYO bucket only ever receives ciphertext blobs keyed by ULID (spy-backend tested, `03-storage.md`). |
+| **SSRF via test-connection** | Endpoint must be `https://` (with `http://` allowed only when host is `localhost`/`127.0.0.1`/private RFC1918 *and* `DOCHUB_ALLOW_INSECURE_BYO=true`). Hostname resolution checked against block list. |
 | **Credential exfiltration via API** | `GET /api/workspaces/{id}/storage` returns provider + bucket + endpoint + region. **Never** returns the secret access key. UI shows `••••••••` + a "Replace credentials" action that requires re-entry. |
 | **Privilege escalation: Member sets storage** | Only Owner can configure. Backend rechecks role. |
-| **Default-storage leak after switch** | When a workspace activates BYO storage, new files land on BYO. Existing files keep their `storage_id` pointer to the server default. `files.storage_id` (NEW column) → `workspace_storage` row or NULL = server default. |
+| **Default-storage leak after switch** | When a workspace activates BYO storage, new document versions land on BYO. Existing versions keep their `storage_id` pointer to the server default. `files.storage_id` (NEW column) → `workspace_storage` row or NULL = server default. |
 | **Stale adapter cache** | Adapter is keyed by `(workspace_id, storage_id, key_version)`. Rotating creds bumps `key_version` so cached adapters get invalidated. |
 
 ## Schema
@@ -61,24 +65,27 @@ CREATE INDEX files_storage_id_idx ON files(storage_id);
 
 ## Crypto envelope
 
-- KDF: none — we use the configured master key directly. Master key is 32 bytes; if you don't have one yet, generate with `openssl rand -hex 32`.
-- Cipher: AES-256-GCM via `aes-gcm` crate (RustCrypto). Already-audited, no homebrew.
-- Per-row nonce: 12 random bytes from `OsRng`.
+Credentials use the **same `dochub-crypto` envelope path** as document DEKs — one audited primitive, no separate homebrew for BYO.
+
+- KDF: none — we use the configured master KEK (`DOCHUB_MASTER_KEY`) directly. Master key is 32 bytes; generate with `openssl rand -hex 32` (or point at an external KMS).
+- Cipher: AES-256-GCM via `dochub-crypto` (audited `ring`/`aws-lc-rs` primitives). No homebrew.
+- Per-row nonce: 12 random bytes from a CSPRNG.
 - AAD: `workspace_storage.id || ":" || key_version` so a ciphertext can't be swapped between rows.
 - On disk: `BASE64(nonce || ciphertext || tag)`. Tag is 16 bytes.
-- Rotation: replacing creds = `key_version += 1` + new ciphertext. Old caches drop on the version mismatch.
+- Rotation: replacing creds = `key_version += 1` + new ciphertext. Old caches drop on the version mismatch. A KEK rotation re-wraps sealed creds the same way it re-wraps document DEKs — no bucket rewrite.
 
 ## Storage facade changes
 
 The facade gains a workspace-aware constructor + an adapter cache:
 
 ```rust
-// drive-storage/src/lib.rs
+// dochub-storage/src/lib.rs
 pub struct StorageRegistry {
     default: Arc<Storage>,
     // Caches per (workspace_id, key_version). Bounded — evict on insert past N.
+    // Each cached Storage carries the workspace DEK, so seal/open runs on the BYO bucket too.
     cache: dashmap::DashMap<CacheKey, Arc<Storage>>,
-    master_key: [u8; 32],
+    master_key: [u8; 32],   // KEK: unwraps DEKs and seals BYO creds
 }
 
 impl StorageRegistry {
@@ -100,9 +107,9 @@ impl StorageRegistry {
 }
 ```
 
-Every handler that touches bytes (`upload_file`, `download_file`, `/raw/{token}`, WOPI `GetFile`/`PutFile`) goes through `registry.for_file(&db, &file)` instead of holding a single `Arc<Storage>` directly. The HTTP state changes from `Arc<Storage>` to `Arc<StorageRegistry>`.
+Every handler that touches bytes (upload, editor byte-stream, `/raw/{token}`, and the optional WOPI `GetFile`/`PutFile` interop path, `01-wopi.md`) goes through `registry.for_file(&db, &file)` instead of holding a single `Arc<Storage>` directly. The HTTP state changes from `Arc<Storage>` to `Arc<StorageRegistry>`. The seal/open encryption layer rides inside whichever `Storage` the registry returns, so BYO buckets never receive plaintext.
 
-`files.storage_id` is set at upload time from `registry.for_workspace(...)` — if the workspace has BYO active, the new file pins to it. The pointer is permanent for that row; switching storage later doesn't migrate prior rows.
+`files.storage_id` is set at ingest time from `registry.for_workspace(...)` — if the workspace has BYO active, the new document version pins to it. The pointer is permanent for that row; switching storage later doesn't migrate prior versions (immutable, write-once).
 
 ## Test-connection endpoint
 

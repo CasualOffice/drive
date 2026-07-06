@@ -1,8 +1,8 @@
-# 04 — Polish Principles for Casual Drive
+# 04 — Polish Principles for Doc-Hub
 
-**Audience:** the frontend engineer building Drive's web UI.
-**Purpose:** translate the macOS-tier polish bar (Things 3, Linear, Raycast, Notion, Sonoma system apps, Tot, Bear, Craft, Fantastical, Arc, Sketch, Figma desktop) into rules and tokens Drive can adopt.
-**Out of scope:** Drive's information architecture. This brief is about the *quality bar*, not the IA. It is **not** a Finder clone exercise.
+**Audience:** the frontend engineer building Doc-Hub's web UI.
+**Purpose:** translate the macOS-tier polish bar (Things 3, Linear, Raycast, Notion, Sonoma system apps, Tot, Bear, Craft, Fantastical, Arc, Sketch, Figma desktop) into rules and tokens Doc-Hub can adopt.
+**Out of scope:** Doc-Hub's information architecture. This brief is about the *quality bar*, not the IA. It is **not** a Finder or Drive clone exercise.
 
 ---
 
@@ -23,7 +23,7 @@
 
 Polished apps share one trait: most of the screen is empty by design. Linear, Things 3, Bear, Tot, Craft, Notes — all push a single content column on a near-blank canvas with chrome hidden until needed. Things 3's "Magic Plus" button is the canonical case: the *only* persistent affordance is a single circle the user drags where they want a new item ([MacStories review](https://www.macstories.net/reviews/things-3-beauty-and-delight-in-a-task-manager/)).
 
-For Drive:
+For Doc-Hub:
 
 - **One primary, one secondary, the rest is text.** A toolbar with 12 buttons reads cheap; 2 buttons plus 10 keyboard shortcuts reads professional. Linear is explicit that the keyboard system is "not a feature — it is a core design philosophy" ([Linear design breakdown](https://www.925studios.co/blog/linear-design-breakdown-saas-ui-2026)).
 - **Strip dividers; use space.** A 24 px gap separates two zones better than a 1 px line. Borders only earn their place inside a denser surface.
@@ -42,7 +42,7 @@ Apple's HIG layout page is JS-rendered and would not load via WebFetch; the numb
 ## 3. Typography
 
 - **Family.** On Apple devices, `system-ui` resolves to SF Pro for free ([CSS-Tricks system stack](https://css-tricks.com/snippets/css/system-font-stack/), [Jim Nielsen on system fonts](https://blog.jim-nielsen.com/2020/system-fonts-on-the-web/)). For consistent cross-platform polish, load **Inter** ([rsms/inter](https://github.com/rsms/inter/blob/master/README.md)) and fall back to system fonts.
-- **Inter ships tabular numerals by default**, plus contextual alternates, slashed zero, and geometry close to SF Pro ([Wikipedia](https://en.wikipedia.org/wiki/Inter_(typeface))). Tabular numerals are non-negotiable for Drive — file sizes, dates, counts must align in columns. Inter also has a `Display` cut for large headings ([issue #413](https://github.com/rsms/inter/issues/413)), mirroring Apple's SF Pro Text/Display split at ~19 pt ([HIG typography summary](https://www.nadcab.com/blog/apple-human-interface-guidelines-explained)).
+- **Inter ships tabular numerals by default**, plus contextual alternates, slashed zero, and geometry close to SF Pro ([Wikipedia](https://en.wikipedia.org/wiki/Inter_(typeface))). Tabular numerals are non-negotiable for Doc-Hub — file sizes, dates, counts must align in columns. Inter also has a `Display` cut for large headings ([issue #413](https://github.com/rsms/inter/issues/413)), mirroring Apple's SF Pro Text/Display split at ~19 pt ([HIG typography summary](https://www.nadcab.com/blog/apple-human-interface-guidelines-explained)).
 - **Weight is the primary hierarchy tool, not size.** SF Pro ships nine weights ([Apple Fonts](https://developer.apple.com/fonts/)). Regular (400) body, medium (500) emphasized, semibold (600) headings, bold (700) sparingly. Never more than three weights on one screen.
 - **Line-height:** 1.4–1.5 body, 1.2–1.3 headings, 1.0–1.1 tight UI labels.
 - **Tracking:** -0.01 to -0.02 em on display sizes; 0 on body; slightly positive on UPPERCASE micro-labels (use sparingly).
@@ -51,7 +51,7 @@ Apple's HIG layout page is JS-rendered and would not load via WebFetch; the numb
 
 - **Restraint.** Two greys, one accent, the semantic four (success / warning / danger / info). That is the entire palette. Polished apps look monochrome from across the room.
 - **True greys, not blue-tinted.** Tailwind's `slate` is blue-tinted; `neutral` and `zinc` are closer to the Apple feel.
-- **Accent.** macOS lets the user pick the accent ([macSales](https://eshop.macsales.com/blog/50559-how-to-adjust-the-system-accent-highlight-colors-in-macos/)). Drive can't honor that exactly, but keep accent rare enough that it never fights the user's OS accent in surrounding chrome.
+- **Accent.** macOS lets the user pick the accent ([macSales](https://eshop.macsales.com/blog/50559-how-to-adjust-the-system-accent-highlight-colors-in-macos/)). Doc-Hub can't honor that exactly, but keep accent rare enough that it never fights the user's OS accent in surrounding chrome.
 - **Semantic colors that adapt.** Apple's `NSColor.textColor` auto-resolves for dark/light ([Indie Stack](https://indiestack.com/2018/10/supporting-dark-mode-adapting-colors/)). Web equivalent: CSS variables under `data-theme` or `prefers-color-scheme`, with semantic names (`--fg-default`, `--bg-elevated`) — never raw hexes in components.
 - **Dark mode is not "invert the light theme."** Plan it day one; retrofitting reveals semantic leaks. Dark mode needs its own (often warmer) greys and a slightly desaturated accent.
 - **Vibrancy on the web.** `backdrop-filter: blur(20px) saturate(180%)` over a translucent fill is the closest the web gets to NSVisualEffectView ([MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter), [web.dev](https://web.dev/articles/backdrop-filter)). Use sparingly — sidebar, popover, command palette — never as page background. Apple's guidance: vibrancy pulls color from behind the material to enhance depth ([Apple Materials](https://developer-mdn.apple.com/design/human-interface-guidelines/foundations/materials/)).
@@ -62,7 +62,7 @@ Apple's stance: animations should be quick, precise, ease-in-ease-out by default
 
 - **Durations.** 80–120 ms hover/press/focus; 150–250 ms UI transitions (panel slide, popover open); 400–600 ms full-screen transitions. Anything over 500 ms starts to feel unresponsive.
 - **Curves.** Default `cubic-bezier(0.32, 0.72, 0, 1)` — the standard "Apple" ease-out used widely in the reference set. Ease-out on enter, ease-in on exit, ease-in-out only when the user can interrupt (a draggable drawer).
-- **Spring physics for direct manipulation.** Anything dragged, dropped, pressed, or pulled deserves a spring. Motion (formerly Framer Motion) drives these with `stiffness`/`damping`/`mass` ([Motion docs](https://motion.dev/docs/react-transitions)). Drive defaults: `{ stiffness: 400, damping: 30 }` snappy, `{ stiffness: 200, damping: 25 }` soft.
+- **Spring physics for direct manipulation.** Anything dragged, dropped, pressed, or pulled deserves a spring. Motion (formerly Framer Motion) drives these with `stiffness`/`damping`/`mass` ([Motion docs](https://motion.dev/docs/react-transitions)). Doc-Hub defaults: `{ stiffness: 400, damping: 30 }` snappy, `{ stiffness: 200, damping: 25 }` soft.
 - **`prefers-reduced-motion` is non-negotiable.** Wrap every transition >150 ms in a media query that flips it to a no-op or a 50 ms opacity fade ([MDN](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion), [WCAG C39](https://www.w3.org/WAI/WCAG22/Techniques/css/C39)).
 
 ## 6. Focus and Interaction States
@@ -104,17 +104,17 @@ Apple pattern: single symbol, one-line title in body color, optional secondary l
 
 ## 10. Sound and Haptics
 
-Web has no haptics and only `<audio>` for sound. **Don't add sound or fake haptics in a file manager** — users wouldn't expect it. Reserve for a future native wrapper if one ships.
+Web has no haptics and only `<audio>` for sound. **Don't add sound or fake haptics in a document hub** — users wouldn't expect it. Reserve for a future native wrapper if one ships.
 
 ## 11. Perceived Speed and Loading
 
-The most important section. Drive's user compares it to Linear, where a created issue lands in the UI in under 100 ms ([performance.dev](https://performance.dev/how-is-linear-so-fast-a-technical-breakdown)).
+The most important section. Doc-Hub's user compares it to Linear, where a created issue lands in the UI in under 100 ms ([performance.dev](https://performance.dev/how-is-linear-so-fast-a-technical-breakdown)).
 
-- **The 100 ms rule.** Below ~100 ms, users perceive cause and effect as simultaneous ([response time limits](https://uxuiprinciples.com/en/principles/response-time-limits)). Below 400 ms (Doherty threshold), users stay in flow ([Laws of UX](https://lawsofux.com/doherty-threshold/)). Drive's target: every direct manipulation <100 ms, every navigation <400 ms.
-- **Optimistic UI.** Rename, move, star, delete — UI updates immediately; server call happens in background; reconciliation rolls back on failure. Linear's pattern: write to local store (MobX + IndexedDB queue), reflect in UI, queue for server, reconcile ([performance.dev](https://performance.dev/how-is-linear-so-fast-a-technical-breakdown), [Vinta](https://www.vintasoftware.com/lessons-learned/hows-linear-so-fast-a-technical-breakdown)). Drive should adopt the same shape.
+- **The 100 ms rule.** Below ~100 ms, users perceive cause and effect as simultaneous ([response time limits](https://uxuiprinciples.com/en/principles/response-time-limits)). Below 400 ms (Doherty threshold), users stay in flow ([Laws of UX](https://lawsofux.com/doherty-threshold/)). Doc-Hub's target: every direct manipulation <100 ms, every navigation <400 ms.
+- **Optimistic UI.** Rename, move, star, delete — UI updates immediately; server call happens in background; reconciliation rolls back on failure. Linear's pattern: write to local store (MobX + IndexedDB queue), reflect in UI, queue for server, reconcile ([performance.dev](https://performance.dev/how-is-linear-so-fast-a-technical-breakdown), [Vinta](https://www.vintasoftware.com/lessons-learned/hows-linear-so-fast-a-technical-breakdown)). Doc-Hub should adopt the same shape.
 - **Skeleton screens.** Identical waits feel ~20–30% faster with skeletons ([UI Deploy](https://ui-deploy.com/blog/skeleton-screens-vs-spinners-optimizing-perceived-performance)).
 - **Pre-fetch on hover.** Hover a folder for >100 ms → start fetching its contents. By click, data has often arrived.
-- **Cache aggressively, invalidate carefully.** Anything Drive has shown the user should be available offline. Boot from cache, then revalidate.
+- **Cache aggressively, invalidate carefully.** Anything Doc-Hub has shown the user should be available offline. Boot from cache, then revalidate.
 
 ## 12. Density vs Breathing Room
 
@@ -122,16 +122,16 @@ Sonoma System Settings is the most-cited recent Apple app to break its own polis
 
 - **Linear / Raycast / Fantastical:** dense; works because every row has consistent height and clear column rhythm. Fantastical is praised as "information-dense without feeling cluttered" ([The Sweet Setup](https://thesweetsetup.com/fantastical-review-calendar-app/)).
 - **Notion / Craft / Bear:** spacious; works because the content *is* the product.
-- **Drive sits in the middle.** List view dense (~32–36 px rows, 13 px type, columns aligned, Linear-ish). Detail/preview pane spacious (Bear-ish padding, content-led).
+- **Doc-Hub sits in the middle.** List view dense (~32–36 px rows, 13 px type, columns aligned, Linear-ish). Detail/preview pane spacious (Bear-ish padding, content-led).
 
 ## 13. Information Architecture Polish
 
-Drive's IA is its own, but these IA-*polish* patterns are universal:
+Doc-Hub's IA is its own, but these IA-*polish* patterns are universal:
 
 - **Breadcrumbs that fade.** 13 px muted grey, clickable segments, current in default-fg weight. Truncate the middle with `…`; never wrap. Hover shows full path.
-- **Inline editing, not modal (Things 3 pattern).** Tap an item, it expands in place; the editor appears inline; the rest dims slightly. Drive should do this for rename, properties, quick edits.
+- **Inline editing, not modal (Things 3 pattern).** Tap an item, it expands in place; the editor appears inline; the rest dims slightly. Doc-Hub should do this for rename, properties, quick edits.
 - **Cmd-K command palette.** Universal escape hatch. Every action — including ones with a visible button — reachable here. Use [`cmdk`](https://cmdk.paco.me/) — the de facto React library (Linear, Vercel, Raycast use it).
-- **Sidebar that earns its width.** Arc's reinvention: sidebar is where state and identity live, not a nav graveyard ([Blake Crosley on Arc](https://blakecrosley.com/guides/design/arc), [LogRocket UX](https://blog.logrocket.com/ux-design/ux-analysis-arc-opera-edge/)). Drive: collapsible, persistent per user. ~240 px expanded, ~52 px collapsed.
+- **Sidebar that earns its width.** Arc's reinvention: sidebar is where state and identity live, not a nav graveyard ([Blake Crosley on Arc](https://blakecrosley.com/guides/design/arc), [LogRocket UX](https://blog.logrocket.com/ux-design/ux-analysis-arc-opera-edge/)). Doc-Hub: collapsible, persistent per user. ~240 px expanded, ~52 px collapsed.
 
 ## 14. Keyboard-First
 
@@ -188,13 +188,13 @@ Touches no one user notices individually, but collectively make the product feel
 - **Sonoma Notes / Reminders** — canonical native list-detail: sidebar of collections, middle list, right pane for the active item.
 - **Arc** — sidebar reinvention, spaces, persistent workspace state. Study the philosophy even though the product is sunsetting ([Blake Crosley](https://blakecrosley.com/guides/design/arc), [Refine](https://refine.dev/blog/arc-browser/)).
 - **Fantastical** — density done right; multiple coordinated views over the same data ([Sweet Setup](https://thesweetsetup.com/fantastical-review-calendar-app/)).
-- **Sketch / Figma desktop** — file-list and asset-browser polish, most directly relevant to Drive. Study Figma's file browser (teams → projects → files) and the Assets panel ([file browser guide](https://help.figma.com/hc/en-us/articles/14381406380183-Guide-to-the-file-browser), [libraries guide](https://help.figma.com/hc/en-us/articles/360041051154-Guide-to-libraries-in-Figma)).
+- **Sketch / Figma desktop** — file-list and asset-browser polish, most directly relevant to Doc-Hub. Study Figma's file browser (teams → projects → files) and the Assets panel ([file browser guide](https://help.figma.com/hc/en-us/articles/14381406380183-Guide-to-the-file-browser), [libraries guide](https://help.figma.com/hc/en-us/articles/360041051154-Guide-to-libraries-in-Figma)).
 
 ---
 
 ## The 10 Commandments
 
-Single-page distillation. Drive's UI must never break these.
+Single-page distillation. Doc-Hub's UI must never break these.
 
 1. **One primary action per screen.** One secondary. The rest is text or icon.
 2. **Type carries hierarchy.** Use weight + size + opacity before reaching for boxes, dividers, or color.
@@ -237,13 +237,13 @@ Clichés that read as "trying to look premium" and therefore read as cheap.
 - **sonner** — opinionated toast, 40M+ weekly downloads, default in shadcn/ui ([GitHub](https://github.com/emilkowalski/sonner), [site](https://sonner.emilkowal.ski/)).
 - **lucide-react** — icon family, 34M+ weekly downloads, 1,800+ icons, 24 × 24, 2 px stroke, ISC ([GitHub](https://github.com/lucide-icons/lucide)).
 
-Bundle this set and you have everything except the file-manager logic.
+Bundle this set and you have everything except the document-hub logic.
 
 ---
 
 ## Starter Token Set
 
-Copy verbatim into Drive's design tokens. Tune later; ship this first.
+Copy verbatim into Doc-Hub's design tokens. Tune later; ship this first.
 
 ```css
 /* ===== Typography ===== */

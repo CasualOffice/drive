@@ -13,12 +13,12 @@ import Compare from "../components/Compare.astro";
 import FinalCta from "../components/FinalCta.astro";
 
 const description =
-  "Casual Drive is an open-source, self-hosted Drive that opens .xlsx and .docx in your browser via WOPI. Rust + React, single binary, S3 or filesystem, no tracking.";
+  "Doc-Hub is an open-source, self-hosted document hub — an encrypted, tamper-evident registry that versions every .docx, .xlsx and .pdf forever, edits them natively in the browser, and searches inside them. Rust + React, single binary, no tracking.";
 
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "Casual Drive",
+  name: "Doc-Hub",
   description,
   applicationCategory: "BusinessApplication",
   operatingSystem: "Web, Docker, Linux, macOS",
@@ -31,7 +31,7 @@ const jsonLd = {
 ---
 
 <Base
-  title="Self-hosted Drive that opens .xlsx and .docx in the browser"
+  title="Self-hosted, encrypted document hub with permanent history"
   description={description}
   jsonLd={jsonLd}
 >

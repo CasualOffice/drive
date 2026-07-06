@@ -1,26 +1,31 @@
 ---
 title: Contributing
-description: Casual Drive is a small project run with strong opinions. Here's how to land a change without us bouncing it back.
+description: Doc-Hub is a small project run with strong opinions. Here's how to land a change without us bouncing it back.
 layout: ../../layouts/DocLayout.astro
 ---
 
 ## Repo layout
 
 ```
-drive/
+dochub/
   crates/
-    drive-bin/        the single binary entrypoint
-    drive-http/       routes, handlers, middleware
-    drive-auth/       sessions, password hashing
-    drive-db/         sqlx repos + migrations (SQLite + Postgres portable)
-    drive-storage/    OpenDAL facade + fs/s3/minio/memory adapters
-    drive-wopi/       WOPI host implementation
-  web/                React + Vite SPA, embedded into drive-bin at build
+    dochub-bin/        the single binary entrypoint; boot-invariant checks
+    dochub-http/       routes, handlers, two-origin middleware, editor streams
+    dochub-auth/       sessions, Argon2id, OIDC, share links
+    dochub-db/         sqlx repos + migrations (SQLite + Postgres portable)
+    dochub-crypto/     envelope encryption, key wrap/rotate, hash chains, provenance
+    dochub-storage/    OpenDAL facade + mandatory encryption layer + BYO sealing
+    dochub-index/      core-backed extraction → Tantivy full-text index
+    dochub-ai/         optional LLM layer (semantic search, summaries, PII, Q&A)
+  web/                React + Vite SPA (embedded editors), embedded into dochub-bin at build
   marketing/          this site
-  docs/               research briefs + UX specs + architecture
-  PIPELINE.md         what's done, what's next, who owns it
+  docs/               ARCHITECTURE.md, TESTING.md, research briefs, UX specs
+  PLAN.md             phased delivery plan + current phase
+  PIPELINE.md         shipped / deferred status per phase
   CLAUDE.md           inviolable rules + working mode
 ```
+
+> The tree may still carry `drive-*` / `DRIVE_*` names until the Phase 0 rename lands. Read them as `dochub-*` / `DOCHUB_*`.
 
 ## Dev loop
 
@@ -28,7 +33,7 @@ You'll need three terminals.
 
 ```bash
 # 1. The backend.
-cargo run -p drive
+cargo run -p dochub
 
 # 2. The SPA (dev server with HMR; talks to the cargo process on :8080).
 cd web && pnpm dev
@@ -37,54 +42,56 @@ cd web && pnpm dev
 cd marketing && pnpm dev
 ```
 
-The SPA dev server proxies `/api`, `/raw`, and `/wopi` to the Rust process so you don't fight CORS during development.
+The SPA dev server proxies `/api` and `/raw` to the Rust process so you don't fight CORS during development.
 
-## The five inviolable rules
+## The inviolable rules
 
-Set by the project owner, never broken. The `CLAUDE.md` at the repo root spells them out, but in short:
+Set by the project owner, never broken. The `CLAUDE.md` at the repo root spells them out in full; in short:
 
 1. **Research first.** Investigate prior art before proposing. Briefs live in `docs/research/`.
 2. **Plan UX.** Numbered flows before pixels. Spec lives in `docs/ux/`.
 3. **Consistent UI.** Surfaces, copy, motion all coherent.
-4. **Industry-standard secure coding.** No homebrew crypto. OWASP-aware.
-5. **Polished, minimalistic design.** macOS-app-grade polish. The [10 commandments](https://github.com/CasualOffice/drive/blob/main/docs/research/04-polish-principles.md) are enforced.
+4. **Industry-standard secure coding.** No homebrew crypto or auth. OWASP-aware.
+5. **Polished, minimalistic design.** macOS-app-grade polish. The [10 commandments](https://github.com/CasualOffice/dochub/blob/main/docs/research/04-polish-principles.md) are enforced.
+6. **History is append-only.** No code path may overwrite or hard-delete a committed document version, an audit event, or a hash-chain link. Destructive-looking operations are tombstones + retention, never erasure. This is the product.
+7. **Everything is tested.** No feature merges without unit + integration tests; user-facing flows carry an e2e use-case test; crypto and immutability invariants carry property tests. See [`docs/TESTING.md`](https://github.com/CasualOffice/dochub/blob/main/docs/TESTING.md).
 
-A PR that breaks a polish commandment has to call it out and explain.
+A PR that breaks a polish commandment — or any of the above — has to call it out and explain.
 
 ## PR conventions
 
 - Small. Focused. One idea per PR.
-- Tests included. Every flow ships with unit + handler tests. UI flows ship with Playwright e2e.
-- Docs updated **in the same commit**. If you change a flow, update `docs/ux/01-flows.md`. If you change the storage facade, update `docs/ARCHITECTURE.md`. Stale docs poison every future contributor session.
+- Tests included. Behaviour ships with unit + integration tests; touched invariants (crypto, hash chain, immutability) ship property tests; UI flows ship a Playwright e2e use-case. See [`docs/TESTING.md`](https://github.com/CasualOffice/dochub/blob/main/docs/TESTING.md).
+- Docs updated **in the same commit**. Change a flow → update `docs/ux/01-flows.md`. Change the crypto layer → update `docs/ARCHITECTURE.md`. Stale docs poison every future contributor session.
 - Commits don't mention the model that helped write them. No `Co-Authored-By` on machine output.
 - UI icons are SVG (Lucide), never emoji.
 - Timestamps render in user-preferred or system timezone, never UTC.
-- Don't add a runtime dependency casually — justify it in the PR.
+- Don't add a runtime dependency casually — especially crypto. Justify it in the PR; prefer audited crates.
 
 ## What's locked
 
-These are not up for debate without new research + a synthesis update:
+These are not up for debate without new research + a synthesis update in `docs/research/00-synthesis.md`:
 
-- **WOPI** is the editor handoff. Not gRPC, not WebSockets, not a homegrown protocol.
+- **At-rest encryption is mandatory.** AES-256-GCM envelope, per-workspace DEK wrapped by a master KEK or KMS. Not optional, not zero-knowledge E2E.
+- **History is append-only + hash-chained.** No hard delete, ever.
+- **Embedded native editors** are the primary editing path. WOPI is optional interop.
 - **OpenDAL** is the storage facade. Not a custom S3 client.
-- **tower-sessions** is the session layer.
-- **Argon2id** is the password hash.
-- **Rust + Axum 0.8** is the backend.
-- **React + Vite** is the SPA.
-- **Astro** is the marketing site.
+- **tower-sessions** + Argon2id + OIDC (Auth Code + PKCE) is the auth stack.
+- **Rust + Axum 0.8** is the backend. **React + Vite** is the SPA. **Astro** is the marketing site.
+- **`core`** owns document text extraction and format parsing — not re-implemented here.
 
 Reopening any of these requires evidence the current choice is wrong, not a preference.
 
 ## Phase awareness
 
-Always know which phase you're in. The current phase is at the top of `PLAN.md` and `PIPELINE.md`. Don't start Phase 1 code until Phase 0 spikes are decided. Don't start Phase 3 code at all yet.
+Always know which phase you're in. The current phase is at the top of [`PLAN.md`](https://github.com/CasualOffice/dochub/blob/main/PLAN.md); shipped / deferred status lives in `PIPELINE.md`. Phase 0 is the Drive→Doc-Hub rename + scope narrowing + encryption/immutability foundations. Don't start a later phase's code before its predecessors' acceptance tests are green.
 
 ## Good first issues
 
 Look at the GitHub issue tracker for the `good-first-issue` label. Typical entries:
 
 - Add a Lighthouse CI job to the marketing site workflow.
-- Extend the Playwright suite with a multi-workspace isolation test.
+- Extend the Playwright suite with a multi-project isolation test.
 - Add a new storage backend (e.g., Backblaze B2 via OpenDAL).
 - Write a research brief on a specific topic listed under the `research-wanted` label.
 

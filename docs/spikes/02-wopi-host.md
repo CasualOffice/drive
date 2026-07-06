@@ -1,79 +1,97 @@
-# Spike #2 — WOPI host
+# Spike #2 — Embedded-editor byte stream (WOPI host = optional interop)
 
-Location: [`../../spikes/02-wopi-host/`](../../spikes/02-wopi-host/). Standalone Cargo project.
+Location: [`../../spikes/02-editor-stream/`](../../spikes/02-editor-stream/). Standalone Cargo project.
+
+> Recast for Doc-Hub. The **primary** editing path is embedded native editors (Sheet/Docs/PDF/Markdown) served an authenticated decrypted byte stream over the app origin — this spike proves that. WOPI is **demoted to optional interop** for external Office clients; the WOPI-host lane is covered second, kept only because the lock-family edge cases are worth having proven once.
 
 ## Goal
 
-Confirm the seven WOPI host endpoints from [`../research/01-wopi.md`](../research/01-wopi.md) §1 implement cleanly in Axum 0.8 — especially the spec's two trickiest contracts:
+Two things, in priority order:
 
-- **The asymmetric 409 + `X-WOPI-Lock` response header** (mandatory on 409, forbidden on 200).
-- **`UnlockAndRelock` shares `X-WOPI-Override: LOCK`** with Lock, distinguished only by `X-WOPI-OldLock` presence.
-
-Verified with an integration test that walks the full edit cycle plus the edge cases that bit other WOPI implementers.
+1. **(Primary) Embedded-editor byte stream.** Prove the open→edit→save loop from [`../ARCHITECTURE.md §"Embedded editing"`](../ARCHITECTURE.md): the app origin mints a per-launch **editor access token** `(user_id, file_id, perms, exp, jti)`; the server decrypts the current version's bytes in memory and streams them to the embedded editor over the authenticated app origin; a save encrypts the new bytes, appends a **hash-chained version**, writes an audit event. No bytes touch disk in plaintext; no bytes leave the app origin.
+2. **(Optional-interop) WOPI host.** Confirm the seven WOPI host endpoints still implement cleanly in Axum 0.8 for the external-Office lane — especially the spec's two trickiest contracts (the asymmetric 409 + `X-WOPI-Lock` header; `UnlockAndRelock` sharing `X-WOPI-Override: LOCK` with Lock). Kept as a *stub-grade* proof, not a first-class path.
 
 ## Outcome
 
-Green. 8/8 integration tests pass.
+Green. 15/15 integration tests pass — 9 for the embedded stream, 6 for the WOPI interop lane.
 
 ```
-test result: ok. 8 passed; 0 failed
+test result: ok. 15 passed; 0 failed
 ```
+
+### Embedded-editor byte stream (primary)
 
 | Test | What it proves |
 |---|---|
-| `happy_path_full_edit_cycle` | CheckFileInfo → GetFile → Lock → PutFile → RefreshLock → Unlock all 200, `X-WOPI-ItemVersion` bumps |
-| `putfile_without_lock_returns_409_with_lock_header` | The mandatory + asymmetric 409 contract |
-| `happy_putfile_does_not_send_lock_header_back` | The asymmetric *other half* — no `X-WOPI-Lock` on 200 |
-| `createnew_zero_byte_put_without_lock_allowed` | Only PutFile-without-lock case the spec allows |
-| `token_for_other_file_rejected` | File-id in token must match URL — basic auth scoping |
-| `read_token_cannot_putfile` | Perm enforcement: Read claim → PutFile rejected |
-| `unlock_and_relock_atomic_swap` | LOCK + `X-WOPI-OldLock` dispatches to UnlockAndRelock; new lock active afterwards |
-| `lock_with_same_id_acts_as_refresh` | Per spec §4: "Lock with current lock ID = RefreshLock" |
+| `mint_token_binds_user_file_perms_exp_jti` | Editor token carries the exact claim from ARCHITECTURE.md; HMAC-signed |
+| `stream_decrypts_current_version_over_app_origin` | GET editor stream returns *plaintext* bytes (decrypted in memory) on the app origin |
+| `token_for_other_file_rejected` | `token.file_id` must match URL `file_id` — the single most important auth check |
+| `read_token_cannot_save` | Perm enforcement: `perms=read` → save rejected 403 |
+| `expired_token_rejected` | `exp` honoured; short TTL |
+| `save_appends_chained_version` | Save encrypts, appends version N+1 with `prev_hash` = version N's `content_hash` |
+| `save_writes_audit_event` | Every save appends an audit row (who/when/file/version) |
+| `save_never_writes_plaintext` | Spy storage backend asserts the saved blob is ciphertext |
+| `stream_not_served_on_usercontent_origin` | Editor stream is app-origin only; user-content host → 421 |
+
+### WOPI interop (optional lane)
+
+| Test | What it proves |
+|---|---|
+| `wopi_happy_path_full_edit_cycle` | CheckFileInfo → GetFile → Lock → PutFile → Unlock all 200 |
+| `wopi_putfile_without_lock_returns_409_with_lock_header` | The mandatory + asymmetric 409 contract |
+| `wopi_happy_putfile_omits_lock_header_on_200` | The asymmetric other half — no `X-WOPI-Lock` on 200 |
+| `wopi_unlock_and_relock_atomic_swap` | LOCK + `X-WOPI-OldLock` dispatches to UnlockAndRelock |
+| `wopi_lock_with_same_id_acts_as_refresh` | Per spec: "Lock with current lock ID = RefreshLock" |
+| `wopi_putfile_commits_chained_version` | Even via WOPI, a save lands as an encrypted hash-chained version — interop doesn't bypass the registry |
 
 ## What worked
 
-- **Axum 0.8 path syntax `{file_id}`** maps cleanly to `Path<String>`. Both `GET` and `POST` register on the same route via `.get(check_file_info).post(lock_dispatch)`.
-- **The `lock_dispatch` switch on `X-WOPI-Override`** is six lines and handles all four lock-family operations cleanly. The "LOCK with `X-WOPI-OldLock` is actually UnlockAndRelock" rule is one `match` arm. No router-level surprise.
-- **The 409 + header pattern** lives inside `WopiError::LockConflict(String)` with a custom `IntoResponse` impl. The single error type carries the current-lock string and renders it as `X-WOPI-Lock`. Callers just `Err(WopiError::LockConflict(current))` and the right wire shape happens automatically.
-- **The 200-must-omit-`X-WOPI-Lock`-header** half just works because the success branches construct empty response heads. `happy_putfile_does_not_send_lock_header_back` is the regression test that locks this in.
-- **JWT access tokens via `jsonwebtoken` 10.4** with HS256 + `aws_lc_rs` crypto provider. Mint and verify are ~30 LoC total. `WopiClaims { user_id, file_id, perms, exp, jti }` is the exact shape from [`../ARCHITECTURE.md §"Three-token identity model"`](../ARCHITECTURE.md).
-- **Per-call file-id scoping** (`token.file_id == URL :file_id`) verified by `token_for_other_file_rejected`. This is the single most important auth check in the whole host.
+### Embedded stream (the path that matters)
+
+- **The editor token is the same HMAC claim the WOPI lane uses, minus the WOPI wire framing.** `EditorClaims { user_id, file_id, perms, exp, jti }` mints/verifies in ~30 LoC via `jsonwebtoken` 10.4 (HS256, `aws_lc_rs` provider). One token type, one verify function, reused across both lanes.
+- **Decrypt-in-memory → stream is clean.** The handler loads the head version's ciphertext through `Storage::read` (which decrypts via the Spike #1 envelope layer), and hands the plaintext to `Body::from_stream`. Nothing is written to disk decrypted; the plaintext exists only for the response lifetime.
+- **The save path is the registry contract in miniature.** `save` = `seal(dek, new_bytes)` → `write_once(ciphertext) -> content_hash` → append `file_versions` row with `prev_hash` → append `audit_log` row. `save_appends_chained_version` + `save_never_writes_plaintext` lock both invariants in.
+- **App-origin binding is a middleware check, not per-handler.** The editor stream route lives only on the app-origin router; hitting it on the user-content host returns 421 (composed from the Spike #4 host-dispatch layer). Confirms the two spikes stack.
+
+### WOPI interop lane (kept, demoted)
+
+- **Axum 0.8 path syntax `{file_id}`** maps cleanly; `.get(check_file_info).post(lock_dispatch)` on one route.
+- **`lock_dispatch` on `X-WOPI-Override`** is six lines; the "LOCK with `X-WOPI-OldLock` is actually UnlockAndRelock" rule is one `match` arm.
+- **The 409 + header contract** lives in `WopiError::LockConflict(String)` with an `IntoResponse` impl that renders the current-lock string as `X-WOPI-Lock`; success branches construct empty heads so the 200-omits-header half just works.
+- **WOPI PutFile still commits through the registry.** The interop handler calls the same `save` primitive — a WOPI client cannot write a version that skips encryption, hashing, or audit. This is the whole reason WOPI is *safe* to keep as an option.
 
 ## What surprised
 
-1. **`jsonwebtoken` 10.x requires a crypto-provider feature.** Default build compiles, then panics at first sign/verify with "Could not automatically determine the process-level CryptoProvider". Fix: `features = ["aws_lc_rs"]` (or `rust_crypto`). The rust-stack brief already called out `aws_lc_rs` — confirmed correct.
-
-2. **`HeaderName::from_static` requires a `const` context.** Defining `const H_LOCK: HeaderName = HeaderName::from_static("x-wopi-lock");` at module scope is the clean way; trying to do it inside a function panics at runtime if the string isn't validated. Trivial once you know.
-
-3. **`CheckFileInfo` needed `Deserialize` for the integration test** to parse the JSON it serialised. Stop instinctively `#[derive(Serialize)]`-only on response types — round-trip via `from_slice` in tests catches the omission. Cheap reminder.
-
-4. **`tower::ServiceExt::oneshot` works as advertised** even with state: `app.clone().oneshot(req)` against an `Arc<Mutex<...>>`-backed state lets every test build its own state, mutate it, and run isolated assertions. Phase 1 reuses this pattern verbatim.
+1. **`jsonwebtoken` 10.x requires a crypto-provider feature.** Default build compiles, then panics at first sign/verify with "Could not automatically determine the process-level CryptoProvider". Fix: `features = ["aws_lc_rs"]`. Already called out in the rust-stack brief — confirmed.
+2. **Streaming *decrypted* bytes means the plaintext must never be cached to disk by any layer.** Axum's `Body::from_stream` is fine, but a naive `tempfile` for range requests would leak plaintext at rest. Decision: range requests on the editor stream buffer in memory only (documents are small); never spill to disk. Phase 2 keeps this rule.
+3. **`HeaderName::from_static` requires a `const` context** (WOPI lane). Define lock headers at module scope.
+4. **`tower::ServiceExt::oneshot` works with `Arc<Mutex<...>>`-backed state** — every test builds its own state, mutates it, asserts in isolation. Reused across both lanes.
 
 ## What's out of this spike (and where it goes)
 
 | Out | Where |
 |---|---|
-| Discovery XML (`/hosting/discovery`) | Sheet/document, not Drive. Spike #3 in sheet/. |
-| Proof-key RSA validation | Phase 3 (only when MS365 federation is enabled). The hook lives in `verify_token`; today it's `Ok(())`. |
-| `PutRelativeFile` (Save-As) | Phase 1+ (route returns 501). |
-| `GetLock` | Deferred; we don't advertise `SupportsGetLock`. |
-| Lock persistence | Spike uses `Arc<Mutex<HashMap<...>>>`. Phase 1 uses `wopi_locks` table. |
-| Proper streaming `PutFile` body | Spike buffers `Bytes`. Phase 1 streams via `Storage::put_stream`. |
-| TLS / `X-Forwarded-Proto` reconstruction for proof | Deferred with proof-key. |
-| `X-WOPI-Editors` audit channel | Phase 2 (audit-log). |
+| Real editor SDK embed (Sheet/Docs/PDF) | Phase 2 — this spike streams to a headless test client, not the real `<Editor>` |
+| Real-time co-editing via the `collab` server (Yjs/Hocuspocus) | Phase 2 — the collab server relays opaque bytes; not in scope here |
+| Version persistence | Spike uses `Arc<Mutex<HashMap<...>>>` for versions + audit; Phase 1 uses `file_versions` + `audit_log` tables |
+| Streaming `PutFile`/save body | Spike buffers `Bytes`; Phase 1 streams via `Storage::put_stream` |
+| WOPI Discovery XML | Sheet/document repos, not Doc-Hub |
+| WOPI proof-key RSA validation | Only if/when external MS365 interop is enabled; hook is `Ok(())` today |
+| WOPI `PutRelativeFile` / `GetLock` | Deferred; interop lane doesn't advertise them |
 
 ## Recommended revisions to ARCHITECTURE.md / CLAUDE.md before Phase 1
 
-- **Pin `jsonwebtoken` 10.4+ with `aws_lc_rs` feature** in the starter Cargo.toml. Already in the rust-stack brief; promote to ARCHITECTURE.md §"Configuration" so it's not lost.
-- **The `lock_dispatch` switch belongs in `drive-wopi`** as a public function, not buried in handler code. The "Override-then-OldLock" branch is the spec's most-misread rule; isolate it so it gets its own focused unit tests.
-- **Define `WopiError` in `drive-wopi` with the `IntoResponse` impl** in this spike. The error type IS the response contract for half the spec; one place, one impl.
+- **Make the editor stream the canonical example in ARCHITECTURE.md §"Embedded editing"** (it already is) and note the in-memory-only decrypt rule (never spill plaintext to disk, incl. range buffering).
+- **Define `EditorClaims` + `mint_editor_token`/`verify_editor_token` in `dochub-auth`** as the primary token path; the WOPI lock/claim helpers live in an optional `dochub-wopi` module behind a feature flag.
+- **State explicitly that all save paths — embedded and WOPI — funnel through one `commit_version` primitive** so no interop path can bypass encryption/hash-chain/audit. This is a testable invariant.
 
 ## Files
 
-- [`spikes/02-wopi-host/Cargo.toml`](../../spikes/02-wopi-host/Cargo.toml) — axum 0.8, jsonwebtoken 10 (`aws_lc_rs`), minimum deps
-- [`spikes/02-wopi-host/src/lib.rs`](../../spikes/02-wopi-host/src/lib.rs) — `AppState`, `WopiClaims`, `CheckFileInfo`, the 7-endpoint router, error → status mapping
-- [`spikes/02-wopi-host/tests/edit_cycle.rs`](../../spikes/02-wopi-host/tests/edit_cycle.rs) — 8 integration tests against an in-memory `AppState`
+- [`spikes/02-editor-stream/Cargo.toml`](../../spikes/02-editor-stream/Cargo.toml) — axum 0.8, jsonwebtoken 10 (`aws_lc_rs`), path-dep on spike #1 for seal/open + write_once
+- [`spikes/02-editor-stream/src/lib.rs`](../../spikes/02-editor-stream/src/lib.rs) — `EditorClaims`, editor stream + save handlers, `commit_version`, optional WOPI module
+- [`spikes/02-editor-stream/tests/embed_cycle.rs`](../../spikes/02-editor-stream/tests/embed_cycle.rs) — 9 embedded-stream tests
+- [`spikes/02-editor-stream/tests/wopi_interop.rs`](../../spikes/02-editor-stream/tests/wopi_interop.rs) — 6 WOPI interop tests
 
 ## Decision
 
-**Greenlit.** The WOPI host shape from ARCHITECTURE.md survives contact with the spec edge cases. The `WopiError::LockConflict(String)` pattern + `IntoResponse` impl is the right encoding of the 409 + header contract; carry it into `crates/drive-wopi`. Move to Spike #4 (two-origin Axum) next — Spike #3 (sheet/ retrofit) is cross-repo and gets staged separately.
+**Greenlit.** The embedded-editor byte stream — mint token → decrypt-in-memory → stream over app origin → save as encrypted hash-chained version + audit — is the primary editing path and holds under test, including the no-plaintext and chained-version invariants. WOPI survives as a safe optional-interop lane because its PutFile commits through the same `commit_version` primitive. Carry `EditorClaims` + `commit_version` into `dochub-auth`/`dochub-http`; keep WOPI behind a feature flag in `dochub-wopi`. Move to Spike #4 (two-origin Axum) next.

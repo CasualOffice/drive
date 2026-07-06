@@ -1,139 +1,132 @@
 <div align="center">
 
-<img src="./logo.svg" alt="Casual Drive" width="420" />
+<img src="./logo.svg" alt="Doc-Hub" width="420" />
 
-**Open-source, self-hosted Drive that opens `.xlsx` and `.docx` in the browser. A drop-in alternative to Google Drive or OneDrive — your storage, your editors, your server.**
+**Open-source, self-hosted document hub — an encrypted, tamper-evident registry for the documents your team can't afford to lose or leak.**
 
-[![CI](https://img.shields.io/github/actions/workflow/status/CasualOffice/drive/ci.yml?branch=main&label=CI)](./.github/workflows/ci.yml)
+`.docx` · `.xlsx` · `.pdf` · `.md` · `.txt` · `.csv` · `.json` · `.yaml` — edited natively in the browser, versioned forever, encrypted at rest, searchable by content.
+
+[![CI](https://img.shields.io/github/actions/workflow/status/CasualOffice/dochub/ci.yml?branch=main&label=CI)](./.github/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-195%20green-brightgreen)](#)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A585%25-brightgreen)](./docs/TESTING.md)
 
-[Live demo](https://drive.casualoffice.org/demo) &nbsp;·&nbsp; [Docs](https://drive.casualoffice.org/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Pipeline](./PIPELINE.md)
+[Live demo](https://dochub.casualoffice.org/demo) &nbsp;·&nbsp; [Docs](https://dochub.casualoffice.org/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Testing](./docs/TESTING.md) &nbsp;·&nbsp; [Plan](./PLAN.md)
 
 </div>
 
 ---
 
-Casual Drive is a small, sharp file manager built around two ideas:
+**Doc-Hub** is the CasualOffice Document Hub: not a place to dump files, but a place to *keep* them — with a history you can prove, an audit trail you can't rewrite, and encryption you control on your own server.
 
-1. **Your files belong on your server.** Filesystem, S3, MinIO, Cloudflare R2, Backblaze B2 — pick any. Per-workspace bring-your-own-bucket too.
-2. **Office files belong in the browser.** Click a `.xlsx` and it opens in [Casual Sheet](https://github.com/CasualOffice/sheets); click a `.docx` and it opens in [Casual Document](https://github.com/CasualOffice/docs) — browser-only via the editor SDKs by default, or via [WOPI](https://learn.microsoft.com/en-us/microsoft-365/cloud-storage-partner-program/online/) when an editor server is configured for real-time co-editing.
+It is built around four promises:
 
-One Rust binary, one Docker container, a polished React SPA, and a marketing site that doubles as live documentation.
+1. **History is permanent.** Every save appends a new, hash-chained version. Old versions are never overwritten and never hard-deleted — only tombstoned under retention rules. The chain is tamper-evident: alter any past byte and verification fails. This is a registry, not a folder.
+2. **Documents are encrypted.** Every file is encrypted at rest (AES-256-GCM envelope encryption, per-workspace keys) and in transit (TLS). A stolen disk or database dump is ciphertext.
+3. **Editing is native.** Click a `.xlsx` and it opens in the embedded [Casual Sheet](https://github.com/CasualOffice/sheets); a `.docx` in [Casual Docs](https://github.com/CasualOffice/docs); a `.pdf` in Casual PDF — inside the hub, with real-time co-editing. One app, not a launcher.
+4. **Everything is findable.** Full-text search reads *inside* documents (not just filenames), backed by the Rust [`core`](https://github.com/schnsrw/core) extraction engine and a Tantivy index — with an optional AI layer for semantic search, summaries, and cross-document questions.
+
+Documents only. No video, no disk-image dumps, no "put anything here." The narrow scope is the point: it lets us encrypt everything, index everything, and version everything without compromise.
+
+## Who it's for
+
+Teams and individuals who need documents to be **owned, accountable, and durable**: maintainers and registrars keeping an authoritative record, compliance and legal teams who must prove what changed and when, and anyone who wants a private, DigiLocker-style locker for their personal and professional papers — self-hosted, on their own server.
 
 ## Quickstart
 
 ```bash
-docker run -d --name drive \
+docker run -d --name hub \
   -p 8080:8080 \
-  -v $HOME/drive-data:/data \
-  -e DRIVE_BIND=0.0.0.0:8080 \
-  -e DRIVE_APP_ORIGIN=https://drive.your-server \
-  -e DRIVE_USERCONTENT_ORIGIN=https://usercontent-drive.your-server \
-  -e DRIVE_STORAGE_BACKEND=fs \
-  -e DRIVE_FS_ROOT=/data \
-  ghcr.io/casualoffice/drive:latest
+  -v $HOME/dochub-data:/data \
+  -e DOCHUB_BIND=0.0.0.0:8080 \
+  -e DOCHUB_APP_ORIGIN=https://hub.your-server \
+  -e DOCHUB_USERCONTENT_ORIGIN=https://usercontent-dochub.your-server \
+  -e DOCHUB_STORAGE_BACKEND=fs \
+  -e DOCHUB_FS_ROOT=/data \
+  -e DOCHUB_MASTER_KEY=<32-byte base64 KEK> \
+  ghcr.io/casualoffice/dochub:latest
 ```
 
-Visit `https://drive.your-server`, complete the one-time admin setup, upload a file, click it. That's the demo. Full env-var matrix at <https://drive.casualoffice.org/docs/configuration>.
+Visit `https://hub.your-server`, complete the one-time admin setup, create a project, upload a document, edit it, and watch the version chain grow. Full env-var matrix at <https://dochub.casualoffice.org/docs/configuration>.
 
 ## What it does
 
 | Surface | Feature |
 |---|---|
-| **Files** | Grid + list views, search, sort, drag-to-upload, multi-select, context menus, breadcrumbs, trash + restore, inline previews for images / PDFs / video / audio / text / markdown. |
-| **Notes / Wiki** | Workspace-scoped pages with markdown source + live preview, `[[wiki-link]]` backlinks, drag-to-reorder tree, search across title + body. |
-| **Editor handoff** | Click `.xlsx` → opens in Casual Sheet; click `.docx` → opens in Casual Document. WOPI access tokens, 30-min locks. |
-| **Sharing** | Per-file share links with optional password (Argon2id) and expiry. Stripped-chrome recipient page. |
-| **Cmd-K** | One keyboard surface for files + notes + nav. ⌘K from anywhere. |
-| **Workspaces** | Personal (auto-created, untransferable) + Team workspaces with Owner/Member roles and atomic ownership transfer. |
-| **Per-workspace storage** | Bring-your-own S3 / MinIO / R2 / B2 bucket. AES-256-GCM secret envelope, SSRF guard, test-connection flow. |
-| **Quotas + admin** | Per-user storage caps, in-app quota upgrade requests, admin user-management UI, audit feed. |
-| **Direct upload** | Files ≥ 8 MiB on S3-compatible backends PUT straight to the bucket, bypassing the Drive process. |
-| **Server thumbnails** | 96 / 256 / 1024 px PNG thumbnails generated lazily on first access. Images render in-process; video via the sandboxed `drive-thumb-worker` subprocess (ffmpeg-CLI). |
-| **OIDC sign-in** | Authorization Code + PKCE against any compliant IdP. Optional `DRIVE_ALLOW_PASSWORD_AUTH=false` to hide the password form once SSO is wired. |
-| **Settings + Activity + Admin** | Full surfaces, real data, with stubs ("Coming in v0.2 — …") only for features that haven't shipped. |
+| **Doc-Hub** | Projects & folders of documents, content-aware search, sort, drag-to-upload, multi-select, breadcrumbs. Documents-only MIME allowlist enforced on every ingest. |
+| **Immutable history** | Every version retained, hash-chained, verifiable. Restore any prior version (as a new version — nothing is destroyed), diff versions, export the provenance chain. |
+| **Native editing** | Embedded Casual Sheet / Docs / PDF / Markdown editors with built-in real-time co-editing. Bytes decrypt into the editor; saves append a new version. |
+| **Encryption** | AES-256-GCM envelope encryption at rest, per-workspace data keys wrapped by a master KEK (or external KMS). TLS in transit. Encrypted BYO-bucket credentials. |
+| **Projects & teams** | Personal locker + Team projects with Owner/Admin/Member roles, magic-link invitations, atomic ownership transfer. |
+| **Compliance** | Append-only, hash-chained audit log; retention policies; legal hold; document signing/provenance; exportable audit & retention reports. |
+| **Search + AI** | Full-text content search over every format via `core` + Tantivy. Optional AI layer: semantic search, summaries, entity/PII detection, cross-document Q&A (pluggable provider; local-model option for air-gapped installs). |
+| **Sharing** | Per-document share links with optional password (Argon2id) and expiry, on an isolated user-content origin. |
+| **Auth** | Argon2id passwords + OIDC (Authorization Code + PKCE) against any compliant IdP. |
+| **Self-host** | Single Rust binary, one Docker container, SQLite for a $5 VPS or Postgres + S3/MinIO/R2/B2 for scale. |
 
-## What's locked in v0
+## What it is not
 
-Two-origin model, WOPI handoff, OpenDAL storage, tower-sessions, Argon2id passwords, Rust 1.85 + Axum 0.8, React 19 + Vite 7 + Tailwind v4, Astro 5 for the marketing site. Reopening any of these requires new research + a synthesis update — see [`CLAUDE.md`](./CLAUDE.md).
-
-## What's deferred
-
-MS365 / Office Online federation, presence (avatar stack + file-row dots), PDF thumbnails (needs pdfium-render in the worker), post-finalize magic-byte sniff for direct uploads, resumable + multipart uploads, EXIF strip, server-mediated invitations + email, Pagefind docs search, i18n. See [`PIPELINE.md`](./PIPELINE.md) for the table.
+- Not general cloud storage or a Drive/Dropbox clone — documents only, no heavy/binary blobs.
+- Not zero-knowledge E2E — the server holds keys so it can index and reason over content. It defeats a stolen disk/DB, not a fully compromised trusted server (see [Security model](./docs/research/06-security.md)).
+- Not a media library, sync client, or mailbox.
 
 ## Repo layout
 
 ```
-drive/
+dochub/
   crates/                Production Rust workspace
-    drive-core/          Domain types, Config, errors
-    drive-db/            SQLx repos + migrations (SQLite + Postgres portable)
-    drive-storage/       OpenDAL facade, BYO secret envelope, thumbnail worker
-    drive-wopi/          WOPI host (7 endpoints, lock state)
-    drive-auth/          Sessions, Argon2id, share links
-    drive-http/          Axum router, two-origin middleware, every API surface
-    drive-bin/           Binary entry point
-  web/                   React 19 SPA, embedded into the binary via rust-embed
-  marketing/             Astro 5 site (drive.casualoffice.org) + the /demo SPA
+    dochub-core/          Domain types, Config, errors
+    dochub-db/            SQLx repos + migrations (SQLite + Postgres portable)
+    dochub-storage/       OpenDAL facade + at-rest encryption layer, BYO secret envelope
+    dochub-crypto/        Envelope encryption, key wrapping, hash-chain + provenance
+    dochub-index/         core-backed text extraction → Tantivy full-text index
+    dochub-ai/            Optional AI layer (semantic search, summaries, PII, Q&A)
+    dochub-auth/          Sessions, Argon2id, OIDC, share links
+    dochub-http/          Axum router, two-origin middleware, every API surface
+    dochub-bin/           Binary entry point
+  web/                   React SPA (embedded editors), embedded into the binary via rust-embed
+  marketing/             Astro 5 site (dochub.casualoffice.org) + the /demo SPA
   docs/
-    ARCHITECTURE.md      System-level architecture
-    research/            12 grounded research briefs + synthesis
-    ux/                  17 surface specs and numbered flows
-  .github/workflows/     CI: fmt, clippy, audit, deny, tests; Pages deploy
-  PIPELINE.md            Single source of truth for what ships + status
-  CLAUDE.md              Working rules for AI assistants in this repo
+    ARCHITECTURE.md      System architecture
+    TESTING.md           Test strategy: unit + integration + property + e2e/use-cases
+    research/            Grounded research briefs + synthesis
+    ux/                  Surface specs and numbered flows
+  PLAN.md                Phased delivery plan + current status
+  CLAUDE.md              Working rules for contributors and AI assistants
 ```
+
+> **Naming/transition note:** the product is being revamped from "Casual Drive" (a storage Drive) into Doc-Hub. Crate/env names shown here (`dochub-*`, `DOCHUB_*`) are the target; the tree may still carry `drive-*` / `DRIVE_*` until the rename lands. See [`PLAN.md`](./PLAN.md) Phase 0.
 
 ## Build + dev loop
 
 ```bash
-# Backend
-cargo run -p drive               # Rust binary on :8080
-
-# SPA dev server (HMR; proxies /api to the backend)
-cd web && pnpm install && pnpm dev
-
-# Marketing site
+cargo run -p dochub                     # Rust binary on :8080
+cd web && pnpm install && pnpm dev     # SPA dev server (HMR; proxies /api)
 cd marketing && pnpm install && pnpm dev
 ```
 
-Required env for `cargo run -p drive`:
+Required env is documented in `.env.example` and on the docs site.
+
+## Quality bar
+
+This is a production-grade, compliance-oriented project. Every PR must pass the CI gates and carry tests for new behaviour — unit, integration, and, for user-facing flows, an end-to-end use-case test. Crypto and immutability invariants carry property tests. See [`docs/TESTING.md`](./docs/TESTING.md).
 
 ```
-DRIVE_BIND=127.0.0.1:8080
-DRIVE_APP_ORIGIN=http://127.0.0.1:8080
-DRIVE_USERCONTENT_ORIGIN=http://127.0.0.1:18090
-DRIVE_DB_URL=sqlite:///tmp/drive.db
-DRIVE_STORAGE_BACKEND=fs
-DRIVE_FS_ROOT=/tmp/drive-files
-DRIVE_SESSION_SECRET=<32+ bytes>
-DRIVE_WOPI_HMAC_SECRET=<32 bytes>
-DRIVE_SIGNED_URL_HMAC_SECRET=<32 bytes>
-DRIVE_ADMIN_USER=admin
-DRIVE_ADMIN_PASSWORD_HASH=<argon2id$...>
+cargo fmt --check
+cargo clippy --workspace -- -Dwarnings
+cargo test --workspace          # unit + integration
+cargo test --workspace --features proptest   # property tests
+cargo audit --deny warnings
+cargo deny check
+pnpm --dir web test             # component/unit
+pnpm --dir web test:e2e         # Playwright use-cases
 ```
-
-Full env-var contract in `.env.example` and on the docs site.
-
-## CI gates
-
-Every PR runs `cargo fmt --check`, `cargo clippy -- -Dwarnings`, `cargo test --workspace`, `cargo audit --deny warnings`, `cargo deny check`. Marketing site has its own Lighthouse CI on landing + `/docs/install` with hard-fail thresholds (Performance / Accessibility / SEO ≥ 0.95 mobile profile).
-
-## Demo
-
-- **Live demo** (in-memory, no backend, resets on reload): <https://drive.casualoffice.org/demo>
-- **Marketing site** (install + configuration + architecture + contributing docs): <https://drive.casualoffice.org>
-
-The same SPA bundle is served in both places — the demo just runs against a localStorage-backed shim. Drop your own files in, sign in as `demo` / `demo`, click around.
 
 ## Contributing
 
-1. Read [`CLAUDE.md`](./CLAUDE.md) — the five inviolable rules + locked decisions.
-2. Read the [Contributing docs](https://drive.casualoffice.org/docs/contributing) and the relevant `docs/research/` brief for whatever area you're touching.
-3. Open an issue describing what you'd like to take on before sending a PR.
-4. PRs must pass the CI gates above. UI work must honour the [10 polish commandments](./docs/research/04-polish-principles.md) — every commandment-break needs explicit justification in the PR description.
+1. Read [`CLAUDE.md`](./CLAUDE.md) — the inviolable rules + locked decisions.
+2. Read the relevant `docs/research/` brief and `docs/ux/` surface before touching an area.
+3. Open an issue before a PR. PRs must pass CI and ship tests.
 
 ## License
 
@@ -141,8 +134,6 @@ Apache-2.0 — see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
 
 ## Sister projects
 
-- [Casual Sheet](https://github.com/CasualOffice/sheets) — self-hosted `.xlsx` editor.
-- [Casual Document](https://github.com/CasualOffice/docs) — self-hosted `.docx` editor.
-- [Casual Office](https://casualoffice.org) — umbrella site.
+- [Casual Sheet](https://github.com/CasualOffice/sheets) · [Casual Docs](https://github.com/CasualOffice/docs) · [Casual PDF](https://github.com/CasualOffice/casual_pdf) · [`core`](https://github.com/schnsrw/core) engine · [Casual Office](https://casualoffice.org)
 
-Drive is the file-centric front door that wraps them into a coherent suite.
+Doc-Hub is the governance and record-keeping home of the suite; Casual Desktop is the local editing home. Both share the `core` document engine.

@@ -1,403 +1,102 @@
 # Architecture
 
-How Casual Drive fits together: workspace, the storage adapter trait, the WOPI handoff, the two-origin security model, the three-token identity model. Distillation of [`research/00-synthesis.md`](./research/00-synthesis.md); the deeper rationale lives in the numbered research briefs alongside.
+How Doc-Hub fits together: the crate workspace, the encrypted storage facade, the immutable version + hash-chain engine, the two-origin security model, the token model, embedded editing, content indexing, and the AI layer. Distillation of [`research/00-synthesis.md`](./research/00-synthesis.md); deeper rationale lives in the numbered briefs.
 
-## At a glance
+> Doc-Hub is the revamp of Casual Drive from a storage Drive into a document registry. Names in flight: `drive-*`→`dochub-*`, `DRIVE_*`→`DOCHUB_*`.
 
-```
-                   ┌─────────────────────────────┐
-                   │  Browser — Drive SPA        │
-                   │  (React + Radix + shadcn)   │
-                   └─────────────┬───────────────┘
-                                 │ HTTPS, cookies, JSON
-                                 ▼
-       ┌─────────────────────────────────────────────────────┐
-       │  drive-bin  (single Rust binary, Axum)              │
-       │  ┌─────────┬──────────┬──────────┬──────────┐       │
-       │  │ http    │ wopi     │ auth     │ storage  │       │
-       │  │ routes  │ host     │ session  │ facade   │       │
-       │  └─────────┴──────────┴──────────┴────┬─────┘       │
-       │                                       │              │
-       │  app_origin            usercontent_origin            │
-       │  drive.<host>          usercontent-drive.<host>      │
-       └────────┬────────────────────┬─────────┬──────────────┘
-                │                    │         │
-       ┌────────▼─────────┐  ┌───────▼────┐  ┌─▼────────────────┐
-       │  sheet/  (Node)  │  │  document/ │  │  OpenDAL backend │
-       │  WOPI client     │  │  WOPI client│ │  fs|mem|S3|MinIO │
-       │  port 3066 et al │  │  Go gateway │ │                  │
-       └──────────────────┘  └────────────┘  └──────────────────┘
-```
+## One-paragraph model
 
-Single Rust binary in a Docker container. Two HTTP origins served from the same process (distinguished by `Host:` header at request time). Storage and identity are pluggable but the binary ships with sensible defaults for solo self-host.
+A user signs in to a project, uploads or creates a document, and edits it in an embedded native editor. On save, the bytes are encrypted, written write-once to a storage backend, and appended as a new hash-chained version; an audit event is appended; a background worker extracts text and updates the full-text index. Nothing is ever overwritten or erased — history is a verifiable chain. Search reads document *content*; an optional AI layer reasons over it. The server holds keys (encryption defends storage-at-rest, not a compromised server), which is the deliberate trade that makes content search and AI possible.
 
-## Workspace layout
+## Crate workspace
 
 ```
-drive/
-├─ Cargo.toml              # [workspace] members = ["crates/*"]
-├─ crates/
-│  ├─ drive-core/          # domain types, errors, config, IDs
-│  ├─ drive-storage/       # Storage facade over opendal::Operator
-│  ├─ drive-wopi/          # WOPI types + host handlers (axum::Router fragment)
-│  ├─ drive-auth/          # tower-sessions glue + share-link tokens
-│  ├─ drive-http/          # router assembly, two-origin middleware, SPA mount
-│  └─ drive-bin/           # main.rs, CLI, settings loading
-├─ web/                    # Drive SPA (React + Vite)
-├─ migrations/             # SQL (portable across SQLite + Postgres)
-├─ docs/
-└─ Dockerfile
+dochub-core     Domain types, Config, error taxonomy. No I/O.
+dochub-db       SQLx repos + migrations. SQLite + Postgres portable.
+dochub-crypto   Envelope encryption, key wrap/rotate, hash chains, provenance signing.
+dochub-storage  OpenDAL facade + mandatory encryption layer + BYO-bucket sealing.
+dochub-index    core-backed extraction → Tantivy full-text index (background worker).
+dochub-ai       Optional LLM layer: semantic search, summaries, PII, Q&A.
+dochub-auth     Sessions, Argon2id, OIDC, share links.
+dochub-http     Axum router, two-origin middleware, every API + editor byte stream.
+dochub-bin      Binary entry point; boot-time invariant checks.
 ```
 
-**Why a workspace.** Lets `drive-wopi` be re-used by tests and the (future) `drive-wopi-validator` test harness without dragging in the whole HTTP layer. Lets `drive-storage` ship as a standalone library for anything else that wants the same OpenDAL facade later.
+Dependency direction is strictly downward: `http` → {`auth`, `storage`, `index`, `ai`, `db`, `crypto`} → `core`. `core` (the pure-Rust document engine, shared with the desktop suite) is a vendored dependency, not re-implemented here.
 
-**Crate boundaries (rules).** `drive-core` depends on nothing in the workspace. `drive-storage`, `drive-wopi`, `drive-auth` depend on `drive-core` only. `drive-http` depends on all three. `drive-bin` depends on `drive-http`. No reverse edges.
+## Encrypted storage facade
 
-## Storage facade
-
-The single most important trait in the codebase. Wraps `opendal::Operator` + a small HMAC-token mint for filesystem/memory presigning.
-
-```rust
-// crates/drive-storage/src/lib.rs
-
-use std::{ops::Range, sync::Arc, time::Duration};
-use bytes::Bytes;
-use futures::stream::BoxStream;
-use thiserror::Error;
-
-pub type ByteStream = BoxStream<'static, Result<Bytes, StorageError>>;
-
-#[derive(Debug, Clone)]
-pub struct ObjectMeta {
-    pub key: String,
-    pub size: u64,
-    pub etag: Option<String>,
-    pub modified: time::OffsetDateTime,
-    pub content_type: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ListPage {
-    pub entries: Vec<ObjectMeta>,
-    pub next_token: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub enum SignedUrl {
-    /// Backend issued a native presigned URL (S3/MinIO).
-    Native { url: url::Url, expires_at: time::OffsetDateTime },
-    /// We minted an HMAC token; serve via /raw/{token} on the user-content origin.
-    Token { url: url::Url, expires_at: time::OffsetDateTime },
-}
-
-#[derive(Debug, Error)]
-pub enum StorageError {
-    #[error("not found: {0}")]
-    NotFound(String),
-    #[error("already exists: {0}")]
-    AlreadyExists(String),
-    #[error("invalid key: {0}")]
-    InvalidKey(String),
-    #[error("backend error")]
-    Backend(#[from] opendal::Error),
-    #[error("io error")]
-    Io(#[from] std::io::Error),
-}
-
-#[derive(Clone)]
-pub struct Storage {
-    op: opendal::Operator,
-    sign_key: Arc<[u8; 32]>,    // HMAC secret for self-minted tokens
-    raw_base: Arc<url::Url>,    // base URL of /raw/{token} on user-content origin
-}
-
-impl Storage {
-    pub fn from_env() -> anyhow::Result<Self> { /* DRIVE_BACKEND=fs|memory|s3|minio */ }
-
-    pub async fn put_stream(&self, key: &str, body: ByteStream,
-                            content_type: Option<&str>) -> Result<ObjectMeta, StorageError>;
-    pub async fn get_stream(&self, key: &str, range: Option<Range<u64>>)
-                            -> Result<(ObjectMeta, ByteStream), StorageError>;
-    pub async fn stat(&self, key: &str)                  -> Result<ObjectMeta, StorageError>;
-    pub async fn delete(&self, key: &str)                -> Result<(), StorageError>;
-    pub async fn copy(&self, src: &str, dst: &str)       -> Result<(), StorageError>;
-    pub async fn rename(&self, src: &str, dst: &str)     -> Result<(), StorageError>;
-    pub async fn list(&self, prefix: &str, page_token: Option<&str>)
-                            -> Result<ListPage, StorageError>;
-
-    pub async fn signed_get(&self, key: &str, ttl: Duration) -> Result<SignedUrl, StorageError>;
-    pub async fn signed_put(&self, key: &str, ttl: Duration) -> Result<SignedUrl, StorageError>;
-}
-```
-
-**Capability gate.** `signed_get`/`signed_put` branch on `self.op.info().full_capability().presign_read`. S3/MinIO go down the `Native` path; fs/memory go down the `Token` path. Handlers always get a `SignedUrl` and never need to know.
-
-**Path/key model.** OpenDAL's RFC-0112 normalisation: Unix-style, leading slash optional, `//` collapsed, no `..`, no `\`. Drive's `Key` is just `String` validated at the API boundary.
-
-**The `/raw/{token}` route.** Mounted only on the user-content origin (see §"Two-origin model"). Decodes the HMAC token, verifies in constant time (`subtle::ConstantTimeEq`), checks expiry, then streams via `op.reader(key).into_futures_async_read(..)`. Same handler accepts uploads when method is `PUT`.
-
-**Object-safety.** Trait dispatch uses `Arc<Storage>` directly (not `Arc<dyn StorageTrait>`). One concrete type, multiple OpenDAL services behind it. Keeps the call sites simple and lets us pass `Storage` by value cheaply (everything's an `Arc` internally).
-
-**Conformance.** `tests/storage_conformance.rs` runs the same property suite across `Backend::Fs`, `Backend::Mem`, `Backend::Minio` (via `testcontainers-modules` `minio` feature). `Backend::S3` opt-in via `AWS_TEST_BUCKET`. Suite verifies put/get roundtrip, range read, list pagination, copy/rename atomicity, delete+absence, signed-URL variant selection, signed-URL round-trip.
-
-## WOPI host + clients
-
-Drive is the **WOPI host**. Sheet and Document are the **WOPI clients**. Sheet already ships ~500 LOC of WOPI-as-self-host scaffolding ([`research/01-wopi.md`](./research/01-wopi.md) §6) — the retrofit is `/hosting/discovery` + iframe entry route + lock loop, not a from-zero build. Document's `host.Integration` has an unwritten `wopi` impl slot already enumerated.
-
-### Open-in-editor sequence
+All document bytes pass through `Arc<Storage>`. The facade wraps an `opendal::Operator` with a mandatory encryption layer:
 
 ```
- Drive SPA (drive.<host>)         Drive backend         Editor (sheet.<host>)
- ───────────────────────         ─────────────         ─────────────────────
- user double-clicks row
-        │
-        │ GET /api/files/<id>/open
-        ├──────────────────────────►│
-        │                           │  ── mint per-launch access_token
-        │                           │     (HMAC over {user_id, file_id, perms, exp, jti})
-        │  { editor_app: "sheet",   │
-        │    entry_url, token, ttl }│
-        │◄──────────────────────────┤
-        │
-        │ window.open(entry_url
-        │   + ?access_token=...&
-        │     WOPISrc=https://drive.<host>/wopi/files/<id>)
-        │ ─────────────────────────────────────────────────►│
-        │                                                   │  ── sheet's entry route
-        │                                                   │     dynamically creates iframe,
-        │                                                   │     POSTs token into it
-        │                                                   │     (defeats bfcache)
-        │                                                   │
-        │ Within iframe:                                    │
-        │   GET /wopi/files/<id>?access_token=...           │  ─► Drive: CheckFileInfo
-        │                                                   │     { BaseFileName, OwnerId, Size,
-        │                                                   │       UserId, Version, UserCanWrite,
-        │                                                   │       SupportsUpdate, SupportsLocks,
-        │                                                   │       SupportsExtendedLockLength }
-        │   GET /wopi/files/<id>/contents?access_token=...  │  ─► Drive: GetFile (stream bytes)
-        │
-        │   (sheet renders, user starts editing)
-        │
-        │   POST /wopi/files/<id>                           │
-        │     X-WOPI-Override: LOCK                         │
-        │     X-WOPI-Lock: <uuid v4>                        │  ─► Drive: Lock (30-min TTL)
-        │
-        │   Every ~10 min while editing:                    │
-        │   POST /wopi/files/<id>                           │
-        │     X-WOPI-Override: REFRESH_LOCK                 │
-        │     X-WOPI-Lock: <uuid v4>                        │  ─► Drive: RefreshLock
-        │
-        │   On save (autosave or explicit):                 │
-        │   POST /wopi/files/<id>/contents                  │
-        │     X-WOPI-Override: PUT                          │
-        │     X-WOPI-Lock: <uuid v4>                        │
-        │     body: <xlsx bytes>                            │  ─► Drive: PutFile
-        │                                                   │     → Storage::put_stream
-        │                                                   │     → bump version, emit X-WOPI-ItemVersion
-        │
-        │   On beforeunload (navigator.sendBeacon):         │
-        │   POST /wopi/files/<id>                           │
-        │     X-WOPI-Override: UNLOCK                       │
-        │     X-WOPI-Lock: <uuid v4>                        │  ─► Drive: Unlock
-        │                                                   │
-        │                                                   │  (lock released; row badge in Drive
-        │                                                   │   clears within ~30 s on next list refresh)
+write(key, plaintext)  →  dochub-crypto.seal(workspace_dek, plaintext)  →  operator.write(key, ciphertext)
+read(key)              →  operator.read(key) → dochub-crypto.open(workspace_dek, ciphertext) → plaintext
 ```
 
-### Endpoint contract
+- **Envelope encryption.** Each workspace has a Data Encryption Key (DEK). The DEK is wrapped by a master Key Encryption Key (KEK) supplied via `DOCHUB_MASTER_KEY` or an external KMS; only wrapped DEKs are persisted. Primitive: AES-256-GCM (`ring`/`aws-lc-rs`), random 96-bit nonce per blob, stored as `nonce ‖ ciphertext ‖ tag`.
+- **No plaintext at rest.** No code path writes plaintext document bytes to a backend. Enforced by construction (handlers cannot reach the raw operator) and by test (a spy backend asserts ciphertext).
+- **Key rotation** re-wraps DEKs under a new KEK without rewriting document blobs. Blobs are re-encrypted only on explicit workspace re-key.
+- **Backends:** fs / memory / S3 / MinIO / R2 / B2 via OpenDAL. Storage keys are opaque ULIDs, never derived from user input. BYO-bucket credentials are themselves sealed with the same envelope scheme.
 
-Drive (host) implements the seven endpoints from [`research/01-wopi.md`](./research/01-wopi.md) §1:
+## Immutable version + hash-chain engine
 
-| Operation | Verb + path | Override | Required for edit |
-|---|---|---|---|
-| CheckFileInfo | `GET /wopi/files/{id}` | — | yes |
-| GetFile | `GET /wopi/files/{id}/contents` | — | yes |
-| PutFile | `POST /wopi/files/{id}/contents` | `PUT` | yes |
-| Lock | `POST /wopi/files/{id}` | `LOCK` (no `X-WOPI-OldLock`) | yes |
-| Unlock | `POST /wopi/files/{id}` | `UNLOCK` | yes |
-| RefreshLock | `POST /wopi/files/{id}` | `REFRESH_LOCK` | yes |
-| UnlockAndRelock | `POST /wopi/files/{id}` | `LOCK` + `X-WOPI-OldLock` present | yes |
+The heart of the registry.
 
-`PutRelativeFile` (Save-As) deferred to a later phase; the route returns 501. `GetLock` deferred (we don't advertise `SupportsGetLock`).
-
-### Lock storage
-
-In Drive: a `wopi_locks` table keyed by `file_id` with columns `lock_id TEXT, acquired_at TIMESTAMPTZ, expires_at TIMESTAMPTZ`. One lock per file, 30-min TTL per spec, expiry checked on every Lock/Unlock/Refresh request. Stale locks (`expires_at < now()`) are treated as absent — the next Lock request succeeds and overwrites.
-
-### Discovery (for sheet/document)
-
-Sheet exposes `GET /hosting/discovery` returning the XML:
-
-```xml
-<wopi-discovery>
-  <net-zone name="internal-https">
-    <app name="Casual Sheets" favIconUrl="https://sheet.<host>/favicon.ico">
-      <action name="edit" ext="xlsx" requires="locks,update"
-        urlsrc="https://sheet.<host>/wopi/editor?<ui=UI_LLCC&><WOPI_SOURCE=WOPI_SOURCE&>"/>
-      <action name="view" ext="xlsx"
-        urlsrc="https://sheet.<host>/wopi/editor?readonly=1&<WOPI_SOURCE=WOPI_SOURCE&>"/>
-      <!-- ods/csv/tsv: same shape -->
-    </app>
-  </net-zone>
-  <proof-key value="" modulus="" exponent="" oldvalue="" oldmodulus="" oldexponent=""/>
-</wopi-discovery>
+```
+file_versions(file_id, seq, storage_key, size, content_hash, prev_hash, author_id, reason, created_at)
 ```
 
-Drive fetches and caches this for 12 h, re-fetches on proof-key validation failure (when MS365 federation is enabled — deferred for v0).
-
-Document does the same at `/hosting/discovery` with `app name="Casual Editor"` advertising `docx`.
-
-### Why no proof-key crypto in v0
-
-Decided 2026-06-06: Drive doesn't federate to MS365 in v0. Only our own editors (sheet/document) are clients. Proof-key RSA validation is the defense against forged requests from Office's servers using a leaked token — irrelevant when the request comes from sheet's own server-side WOPI client. We still validate access tokens (HMAC), still enforce TTL, still check file-id scope. The proof-key hook is in the design; we just don't ship the RSA validation code until/unless federation goes on.
+- On every committed save, a **new** version row is appended: `content_hash = SHA-256(ciphertext)`, `prev_hash = ` the previous version's `content_hash`. `seq` increments; the head is the file's current version.
+- **Write-once.** Version blobs are content-addressed and never overwritten. "Delete" writes a tombstone and obeys retention + legal hold; bytes under hold are never removed.
+- **Verification.** `verify_chain(file_id)` recomputes hashes and links end-to-end. A mismatch is a tamper alarm — surfaced to admins and audited, never silently repaired.
+- **Restore** version *k* appends a new version *N+1* whose bytes equal *k*. The old chain is preserved; restore is additive.
+- **Audit chain.** The append-only `audit_log` is hash-chained the same way; committed rows are never updated or deleted. Optional: periodic Ed25519-signed anchoring of chain heads for third-party-verifiable provenance (transparency-log-lite).
 
 ## Two-origin security model
 
-Non-negotiable per [`research/06-security.md`](./research/06-security.md). Drive serves two HTTPS origins from the same binary, distinguished by the `Host:` header.
+- **App origin** (`hub.<host>`): SPA, JSON API, editor byte streams. Strict CSP. Session cookies live here only.
+- **User-content origin** (`usercontent-dochub.<host>`): serves `/raw/{token}` for share-links and isolated content. `CSP: sandbox; default-src 'none'`, no cookies, `Content-Disposition: attachment` for non-previewable types.
+- Boot **refuses to start in production** if the two origins are equal. Neither CSP is weakened; `/raw/{token}` never moves to the app origin.
 
-| Origin | Example | Serves | CSP |
-|---|---|---|---|
-| **App** | `drive.casualoffice.org` | SPA assets, JSON API, WOPI endpoints | `default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'` (WOPI routes override `frame-ancestors` to allow sheet/document origins) |
-| **User-content** | `usercontent-drive.casualoffice.org` | `/raw/{token}` — raw file bytes | `sandbox; default-src 'none'`. `Cross-Origin-Resource-Policy: same-site`. Forces opaque origin → in-document JS in uploaded HTML/SVG/PDF can't reach the app origin's cookies, can't navigate it, can't postMessage to it. |
+## Token model
 
-Boot-time check: `assert!(app_origin != usercontent_origin)` in production builds. Dev defaults to `127.0.0.1:8080` + `127.0.0.1:8081`.
+| Token | Purpose | Lifetime |
+|---|---|---|
+| Session cookie (`__Host-`) | Browser session | server-side store |
+| Editor access token | per-launch, per-document editor auth `(user_id, file_id, perms, exp, jti)`, HMAC | short TTL |
+| Share-link token | one per share row, constant-time compared | until expiry/revoke |
+| Signed-URL token | fs/mem `/raw/{token}`, HMAC over `(key, exp, method)` | short TTL |
 
-### Routing within the binary
+Never reuse one token for another's job.
 
-```rust
-// crates/drive-http/src/lib.rs
-let app = axum::Router::new()
-    .merge(app_origin_router(state.clone()))      // SPA + API + WOPI
-    .merge(usercontent_router(state.clone()))     // /raw/{token}
-    .layer(host_dispatch_layer(&cfg));            // rejects cross-origin requests
-```
+## Embedded editing
 
-`host_dispatch_layer` reads `Host` and returns 421 (Misdirected Request) if the route doesn't match the expected origin for that host. Defence-in-depth against misconfigured reverse proxies.
-
-### The signed-URL handoff
+The primary editing path is **embedded**, not WOPI:
 
 ```
-   Drive SPA              Drive backend (app)        Drive backend (usercontent)
-   ─────────              ───────────────────        ───────────────────────────
-   "Download" click
-        │
-        │ GET /api/files/<id>/download
-        ├────────────────────────────►│
-        │                             │  Storage::signed_get(key, 5min) →
-        │                             │    fs/mem: SignedUrl::Token { url, exp }
-        │                             │    S3/MinIO: SignedUrl::Native { url, exp }
-        │  302 Location: <url>        │
-        │◄────────────────────────────┤
-        │                             │
-        │ GET <url>  (usercontent origin OR S3 presign URL)
-        │ ──────────────────────────────────────────►│
-        │                                            │  /raw/{token}:
-        │                                            │    HMAC-verify token in constant time
-        │                                            │    Storage::get_stream(key)
-        │                                            │    headers: Content-Type=sniffed,
-        │                                            │             Content-Disposition=attachment;filename*=...
-        │                                            │             X-Content-Type-Options=nosniff
-        │                                            │             CSP: sandbox; default-src 'none'
-        │  <bytes>                                   │
-        │◄───────────────────────────────────────────┤
+SPA opens document → app origin mints an editor access token → embedded editor (Sheet/Docs/PDF SDK)
+   → server decrypts bytes in memory, streams them over the authenticated app origin
+   → user edits (optionally co-edits via the collab server)
+   → save → encrypt → append hash-chained version → audit → enqueue reindex
 ```
 
-The browser ends up with a file from a different origin from the app it was using — so even if it executes (e.g. an uploaded HTML page), it can't reach app-origin state.
+One `<Editor>` component hosts each format via its sibling SDK. Team documents co-edit through the `collab` server (Yjs/Hocuspocus), which relays opaque document bytes and never parses them. WOPI remains available as **optional interop** for external Office clients but is not the default path.
 
-## Three-token identity model
+## Content indexing
 
-Three concurrent token types, each with a distinct purpose. They never overlap.
+`dochub-index` runs a lazy background worker (mirroring the retired thumbnail-worker pattern): on new version, it calls `core` to extract text (docx/xlsx/pdf/md/txt/csv/json/yaml — PDF via text layer, OCR fallback later), normalizes it, and writes to a Tantivy index. A `files.index_state` column (`pending|ready|unsupported|failed`) drives the worker. Search unions Tantivy content hits with SQL metadata and returns snippets + highlights. Tombstoning a document removes it from the index.
 
-| Token | Issued by | Carried in | TTL | Scope | Verifier |
-|---|---|---|---|---|---|
-| **Session cookie** | Drive `/sign-in` | `__Host-cd_sid` (HttpOnly Secure SameSite=Lax) | rolling 7 days | the one admin user | `tower-sessions` server-side store |
-| **WOPI access token** | Drive `/api/files/<id>/open` | query `?access_token=` (and re-sent on every WOPI call) | 10 min, refreshed by editor via CheckFileInfo | (user_id, file_id, perms) | `jsonwebtoken` HMAC-SHA256 |
-| **Share-link token** | Drive `/api/share-links` | path segment `/s/<token>` | unlimited or until expiry/revoke | a single share-link row | `subtle::ConstantTimeEq` against DB row |
-| **Signed-URL token** (fs/mem only) | Drive `Storage::signed_get` | path/query on user-content origin | 5 min | (storage key, method) | HMAC-SHA256 + constant-time compare |
+## AI layer (optional)
 
-WOPI access tokens are minted *after* the requester is authenticated by one of the first two. A logged-in admin requesting `/api/files/<id>/open` gets a token. A share-link consumer reaching `/s/<token>/open` gets a token scoped to the share-link's perms (read-only, or read+write). The editor doesn't care which path produced the token.
+`dochub-ai` sits beside search, never replacing it for compliance-critical retrieval:
+- **Semantic search:** embeddings + rerank alongside Tantivy exact/full-text results.
+- **Summaries, entity + PII detection, cross-document Q&A** — all read-only suggestions; a human approves any action (e.g. flagging PII). AI never mutates documents or history.
+- **Provider:** pluggable; default Claude via the Anthropic API (Haiku for extraction/classification, Sonnet/Opus for reasoning/Q&A), with a local-model adapter for air-gapped installs. Every AI action is audited.
 
-## Data flow — typical edit session
+## Data model (portable)
 
-```
-1. Admin signs in (cookie set)
-2. Admin double-clicks Budget Q2.xlsx
-3. Drive mints WOPI token (10 min, write perms), returns sheet entry URL
-4. Sheet opens in new tab, posts token into its WOPI iframe
-5. Iframe → Drive WOPI: CheckFileInfo → GetFile → Lock → (user edits) → PutFile (every 30s on autosave) → RefreshLock (every 10min) → Unlock (on close)
-6. Drive Storage::put_stream → OpenDAL Operator → backend (fs/S3/MinIO/memory)
-7. Drive bumps version row, emits X-WOPI-ItemVersion on PutFile response
-8. Admin returns to Drive tab; row "Modified" column refreshes on focus
-```
+TEXT ULID ids, ISO-8601 UTC timestamps, INTEGER 0/1 bools; no JSONB/enum/native-UUID. Core tables: `users`, `sessions`, `workspaces` (+`workspace_members`, `workspace_invitations`, `workspace_storage`), `folders`, `files` (+`file_versions`), `audit_log`, `share_links`, `retention_policies`, `legal_holds`, `oidc_*`. See `crates/dochub-db/migrations/`.
 
-## Error handling
+## Boot invariants (fail-fast)
 
-- **Storage errors** (`StorageError`) → mapped to HTTP via `impl IntoResponse for AppError`. `NotFound → 404`, `AlreadyExists → 409`, `InvalidKey → 400`, anything else → `500` with redacted body.
-- **WOPI errors** follow the spec contract: `400` missing lock header, `401` bad token, `404` not-found, `409` lock mismatch (with `X-WOPI-Lock: <current>` response header — mandatory + asymmetric per [`research/01-wopi.md`](./research/01-wopi.md) §4), `412` GetFile over `X-WOPI-MaxExpectedSize`, `413` PutFile over cap, `500` server error / proof-key failure.
-- **Auth errors** → `401` for unauthenticated, `403` for authenticated-but-no-permission, `429` for rate-limited.
-- **Validation errors** → `400` with a JSON body `{ "error": "...", "field": "..." }`.
-
-## Observability
-
-- `tracing` + `tracing-subscriber` JSON layer.
-- Per-request `TraceLayer::new_for_http()` from `tower-http`.
-- `#[tracing::instrument(skip(state, body))]` on storage adapter methods and WOPI handlers.
-- Redaction: `Authorization`, `Cookie`, `X-WOPI-*`, `?access_token=` query — all stripped via `tower-http SetSensitiveHeadersLayer` + custom URL redactor at the trace layer.
-- Body logging disabled by hard code path that refuses to start in prod when set.
-- OpenTelemetry export gated behind cargo feature `otel`; off by default.
-
-## Configuration
-
-```bash
-# Required
-DRIVE_APP_ORIGIN=https://drive.casualoffice.org
-DRIVE_USERCONTENT_ORIGIN=https://usercontent-drive.casualoffice.org
-DRIVE_SESSION_SECRET=<32B base64>
-DRIVE_WOPI_HMAC_SECRET=<32B base64>
-DRIVE_SIGNED_URL_HMAC_SECRET=<32B base64>
-DRIVE_ADMIN_USER=admin
-DRIVE_ADMIN_PASSWORD_HASH=<argon2id $argon2id$...>
-
-# Storage backend (one of)
-DRIVE_BACKEND=fs           DRIVE_FS_ROOT=/var/lib/drive/data
-DRIVE_BACKEND=memory       # tests only
-DRIVE_BACKEND=s3           DRIVE_S3_BUCKET=...  DRIVE_S3_REGION=...
-                           AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...
-DRIVE_BACKEND=minio        DRIVE_S3_BUCKET=...  DRIVE_S3_ENDPOINT=http://minio:9000
-                           AWS_ACCESS_KEY_ID=minioadmin  AWS_SECRET_ACCESS_KEY=minioadmin
-
-# Database
-DRIVE_DB_URL=sqlite:///var/lib/drive/drive.db   # or postgres://...
-
-# Optional
-DRIVE_BIND=0.0.0.0:8080
-DRIVE_LOG_LEVEL=info,drive=debug
-DRIVE_BODY_LIMIT_MB=100
-DRIVE_ANTIVIRUS=clamd      DRIVE_CLAMD_SOCKET=/var/run/clamav/clamd.ctl
-DRIVE_OIDC_ISSUER=...      # only when single-tenant mode → multi-user
-DRIVE_RECIPIENT_FOOTER=true
-```
-
-Boot refuses to start in prod when:
-- Either origin is missing or both match
-- Any required secret is shorter than 32 bytes
-- Any required secret equals a known dev default (`"changeme"`)
-- `DRIVE_BACKEND=fs` and `DRIVE_FS_ROOT` doesn't exist or isn't `chmod 0700`
-- `DRIVE_DB_URL` is unset
-
-## Testing strategy
-
-- **Unit tests** in each crate; standard `cargo test`.
-- **Handler integration tests** in `drive-http`: build the `Router` with a `Backend::Mem` storage, `MemoryStore` sessions, hit it via `tower::ServiceExt::oneshot`.
-- **Storage conformance suite** in `drive-storage/tests/`: same suite runs against `Fs`, `Mem`, `Minio` (via testcontainers).
-- **WOPI conformance** in `drive-wopi/tests/`: use the proof-key fixtures from Microsoft's `Office-Online-Test-Tools-and-Documentation` repo as a unit test even though we don't validate proof in v0 (so we're ready when we do).
-- **End-to-end** in `tests/e2e/` (Playwright): drives the SPA from sign-in through upload, open-in-editor (against a stub sheet/document or the real ones if available on `$DRIVE_E2E_SHEET_URL`), download, trash, restore.
-- **WOPI cross-repo e2e** is a separate harness mounted in sheet/'s playwright.wopi.config.ts (which already exists at port 3066) — extended to point at this Drive binary instead of sheet-as-self-host.
-
-## Build & deploy
-
-- Cargo workspace, release profile: `lto = "thin", codegen-units = 1, strip = "symbols", panic = "abort"`.
-- Multi-stage Dockerfile with `cargo-chef` for dep-layer caching.
-- Runtime: `debian:trixie-slim` + `ca-certificates`. No OpenSSL system dep (link `aws-lc-rs`).
-- SPA bundle (`web/dist/`) embedded via `rust-embed`. Single static binary, single .sqlite file, single Docker image.
-- Reverse proxy example: Caddy (Caddyfile in `docs/deploy/Caddyfile.example`).
+The binary refuses to start unless: a master key/KMS is configured; the two origins differ (in production); the DB migrates cleanly; storage backend is reachable. These are asserted in `dochub-bin` and covered by tests.
