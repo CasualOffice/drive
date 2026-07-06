@@ -36,10 +36,10 @@ pub fn seal(master_key: &[u8; 32], plaintext: &[u8], aad: &str) -> Result<String
     let cipher = Aes256Gcm::new(master_key.into());
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     let ct = cipher
         .encrypt(
-            nonce,
+            &nonce,
             Payload {
                 msg: plaintext,
                 aad: aad.as_bytes(),
@@ -68,11 +68,13 @@ pub fn open(
         return Err(SecretBoxError::Malformed);
     }
     let (nonce_bytes, ct) = raw.split_at(NONCE_LEN);
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let mut nonce_arr = [0u8; NONCE_LEN];
+    nonce_arr.copy_from_slice(nonce_bytes);
+    let nonce = Nonce::from(nonce_arr);
     let cipher = Aes256Gcm::new(master_key.into());
     cipher
         .decrypt(
-            nonce,
+            &nonce,
             Payload {
                 msg: ct,
                 aad: aad.as_bytes(),
