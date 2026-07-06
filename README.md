@@ -6,14 +6,17 @@
 
 `.docx` · `.xlsx` · `.pdf` · `.md` · `.txt` · `.csv` · `.json` · `.yaml` — edited natively in the browser, versioned forever, encrypted at rest, searchable by content.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/CasualOffice/dochub/ci.yml?branch=main&label=CI)](./.github/workflows/ci.yml)
+[![Status](https://img.shields.io/badge/status-revamp_in_progress-orange)](./ROADMAP.md)
+[![CI](https://img.shields.io/github/actions/workflow/status/CasualOffice/drive/ci.yml?branch=main&label=CI)](./.github/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org/)
-[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A585%25-brightgreen)](./docs/TESTING.md)
 
 [Live demo](https://dochub.casualoffice.org/demo) &nbsp;·&nbsp; [Docs](https://dochub.casualoffice.org/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Testing](./docs/TESTING.md) &nbsp;·&nbsp; [Plan](./PLAN.md)
 
 </div>
+
+> ### 🚧 Revamp in progress
+> **Doc-Hub is being rebuilt from Casual Drive.** This repository is **documents-first**: the vision, architecture, security model, test contract, and phased plan are published — **production code for the pivot has not started yet.** Track it in **[ROADMAP.md](./ROADMAP.md)** and the **[project board](https://github.com/orgs/CasualOffice/projects/1)**. Product URLs, the demo, and some badges below describe the *target* and may not be live during the revamp.
 
 ---
 
