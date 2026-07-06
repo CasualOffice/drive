@@ -92,15 +92,28 @@ impl Storage {
     /// exactly these bytes. No `Dek` is needed (and none is used) — nothing is
     /// opened, so no plaintext is produced.
     pub async fn read_ciphertext(&self, key: &StorageKey) -> Result<Vec<u8>, StorageError> {
-        validate_key(key.as_str())?;
-        let bytes = self
-            .op
-            .read(key.as_str())
-            .await
-            .map_err(|e| match e.kind() {
-                opendal::ErrorKind::NotFound => StorageError::NotFound(key.as_str().to_string()),
-                _ => StorageError::Backend(e),
-            })?;
+        self.read_raw(key.as_str()).await
+    }
+
+    /// Read the raw bytes of a *legacy plaintext* blob (e.g. the pre-version
+    /// `files/{id}` object) so the version engine can seal them into the
+    /// encrypted chain on first read. Unlike [`Storage::get_blob`] this does
+    /// no decryption — the legacy blob was written in the clear.
+    ///
+    /// This is a migration-only read path; the write side (`put`) that seeds
+    /// such plaintext blobs is being retired in favour of [`Storage::put_blob`].
+    pub async fn read_plaintext(&self, key: &str) -> Result<Vec<u8>, StorageError> {
+        self.read_raw(key).await
+    }
+
+    /// Shared raw read: validate the key, read the backend bytes, and map a
+    /// missing object to [`StorageError::NotFound`].
+    async fn read_raw(&self, key: &str) -> Result<Vec<u8>, StorageError> {
+        validate_key(key)?;
+        let bytes = self.op.read(key).await.map_err(|e| match e.kind() {
+            opendal::ErrorKind::NotFound => StorageError::NotFound(key.to_string()),
+            _ => StorageError::Backend(e),
+        })?;
         Ok(bytes.to_vec())
     }
 

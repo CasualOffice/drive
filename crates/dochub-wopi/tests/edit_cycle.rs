@@ -1,17 +1,19 @@
 //! End-to-end WOPI edit cycle against the Phase-1 crate.
 //! Carries over from `spike-02-wopi-host` using `FileId` IDs and a real Storage.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     body::Body,
     http::{Method, Request, StatusCode},
 };
-use bytes::Bytes;
 use dochub_core::FileId;
-use dochub_storage::Storage;
-use dochub_wopi::{mint_token, router, WopiAppState, WopiClaims, WopiPerms, WopiState};
+use dochub_wopi::{
+    mint_token, router, DocStoreError, DocumentStore, WopiAppState, WopiClaims, WopiPerms,
+    WopiState,
+};
 use http_body_util::BodyExt;
+use tokio::sync::Mutex;
 use tower::ServiceExt;
 
 fn secret() -> Arc<[u8; 32]> {
@@ -22,19 +24,52 @@ fn secret() -> Arc<[u8; 32]> {
     Arc::new(k)
 }
 
+/// In-memory stand-in for the registry-backed document store. The bytes here
+/// are the *plaintext* that crosses the port; the real impl seals them.
+#[derive(Default)]
+struct FakeDocs {
+    bytes: Mutex<HashMap<String, Vec<u8>>>,
+}
+
+#[async_trait::async_trait]
+impl DocumentStore for FakeDocs {
+    async fn read(&self, file_id: &str, _author_id: &str) -> Result<Vec<u8>, DocStoreError> {
+        self.bytes
+            .lock()
+            .await
+            .get(file_id)
+            .cloned()
+            .ok_or(DocStoreError::NotFound)
+    }
+    async fn commit(
+        &self,
+        file_id: &str,
+        _author_id: &str,
+        bytes: Vec<u8>,
+    ) -> Result<(), DocStoreError> {
+        self.bytes.lock().await.insert(file_id.to_string(), bytes);
+        Ok(())
+    }
+    async fn size(&self, file_id: &str) -> Result<u64, DocStoreError> {
+        Ok(self
+            .bytes
+            .lock()
+            .await
+            .get(file_id)
+            .map_or(0, |b| b.len() as u64))
+    }
+}
+
 async fn fixture() -> (WopiAppState, FileId) {
     let sk = secret();
     let wopi = WopiState::new();
-    let storage = Storage::memory([1u8; 32]).unwrap();
+    let docs = FakeDocs::default();
     let id = FileId::new();
     wopi.register(id, "Budget.xlsx".into()).await;
-    storage
-        .put(&format!("files/{id}"), Bytes::from_static(b"v1"), None)
-        .await
-        .unwrap();
+    docs.bytes.lock().await.insert(id.to_string(), b"v1".into());
     (
         WopiAppState {
-            storage,
+            docs: Arc::new(docs),
             wopi,
             jwt_secret: sk,
         },

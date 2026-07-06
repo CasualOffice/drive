@@ -10,6 +10,8 @@ use axum::{
 };
 use thiserror::Error;
 
+use crate::docs::DocStoreError;
+
 const H_LOCK: HeaderName = HeaderName::from_static("x-wopi-lock");
 
 #[derive(Debug, Error)]
@@ -29,6 +31,15 @@ pub enum WopiError {
     PayloadTooLarge,
     #[error("internal: {0}")]
     Internal(String),
+}
+
+impl From<DocStoreError> for WopiError {
+    fn from(e: DocStoreError) -> Self {
+        match e {
+            DocStoreError::NotFound => Self::NotFound,
+            DocStoreError::Internal(m) => Self::Internal(m),
+        }
+    }
 }
 
 impl IntoResponse for WopiError {

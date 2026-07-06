@@ -35,6 +35,14 @@ use crate::{
 /// The `versions/{hash}` storage-key prefix. `content_hash` is the remainder.
 const KEY_PREFIX: &str = "versions/";
 
+/// The legacy plaintext blob key for a pre-version file. Bytes uploaded before
+/// the read-path cutover live here in the clear (`docs/ARCHITECTURE.md`
+/// §"Storage facade"); [`Registry::read_or_backfill`] seals them into the chain
+/// on first read.
+fn legacy_key(file_id: &str) -> String {
+    format!("files/{file_id}")
+}
+
 /// Failure modes for the registry. None carry key material or plaintext.
 #[derive(Debug, Error)]
 pub enum RegistryError {
@@ -135,6 +143,83 @@ impl Registry {
             .await?;
 
         Ok(version)
+    }
+
+    /// Serve the file's current document bytes from the encrypted version
+    /// chain, lazily backfilling a `seq=1` version from the legacy plaintext
+    /// blob (`files/{id}`) when the file has no history yet.
+    ///
+    /// This is the single read entry point for the cutover (build spec §5):
+    ///
+    /// - **Head present** → resolve the workspace DEK, read the head
+    ///   `file_versions` row, `get_blob` → plaintext.
+    /// - **No head** (a legacy file) → read its legacy plaintext blob,
+    ///   `commit_version(.., "backfill v1")` to create `seq=1`, and return
+    ///   those bytes.
+    ///
+    /// Idempotent: the backfill only runs while the head is absent, so a second
+    /// read serves the version created by the first (no duplicate backfill).
+    pub async fn read_or_backfill(
+        &self,
+        workspace: &str,
+        file_id: &str,
+        author_id: &str,
+    ) -> Result<Vec<u8>, RegistryError> {
+        let versions = FileVersionsRepo::new(&self.db);
+        if let Some(head) = versions.head(file_id).await? {
+            let dek = self.deks.get_or_create(workspace).await?;
+            let key = StorageKey::from_stored(head.storage_key);
+            return Ok(self.storage.get_blob(&dek, &key).await?);
+        }
+
+        // Legacy file: pull the plaintext blob, seal it as the first version,
+        // then serve exactly those bytes.
+        let legacy = self.storage.read_plaintext(&legacy_key(file_id)).await?;
+        self.commit_version(workspace, file_id, &legacy, author_id, "backfill v1")
+            .await?;
+        Ok(legacy)
+    }
+
+    /// [`Registry::read_or_backfill`] for callers that don't carry the
+    /// workspace in hand (e.g. the WOPI host): resolves it from the file row.
+    pub async fn read_or_backfill_for_file(
+        &self,
+        file_id: &str,
+        author_id: &str,
+    ) -> Result<Vec<u8>, RegistryError> {
+        let workspace = self.workspace_of(file_id).await?;
+        self.read_or_backfill(&workspace, file_id, author_id).await
+    }
+
+    /// [`Registry::commit_version`] for callers that don't carry the workspace
+    /// in hand: resolves it from the file row before committing.
+    pub async fn commit_for_file(
+        &self,
+        file_id: &str,
+        plaintext: &[u8],
+        author_id: &str,
+        reason: &str,
+    ) -> Result<Version, RegistryError> {
+        let workspace = self.workspace_of(file_id).await?;
+        self.commit_version(&workspace, file_id, plaintext, author_id, reason)
+            .await
+    }
+
+    /// Logical byte length of the file's head version, or `0` when it has no
+    /// committed version yet. Cheap metadata read (no blob fetch).
+    pub async fn head_size(&self, file_id: &str) -> Result<u64, RegistryError> {
+        let head = FileVersionsRepo::new(&self.db).head(file_id).await?;
+        Ok(head.map_or(0, |h| u64::try_from(h.size).unwrap_or(0)))
+    }
+
+    /// Resolve the workspace a file lives in, erroring if the row is missing or
+    /// has no workspace (a pre-workspaces legacy row that can't be keyed).
+    async fn workspace_of(&self, file_id: &str) -> Result<String, RegistryError> {
+        let file = FileRepo::new(&self.db)
+            .find_by_id(file_id)
+            .await
+            .map_err(|_| RegistryError::VersionNotFound)?;
+        file.workspace_id.ok_or(RegistryError::NoWorkspace)
     }
 
     /// Verify the append-only chain for `file_id`.

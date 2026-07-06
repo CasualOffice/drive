@@ -10,12 +10,14 @@
 
 #![forbid(unsafe_code)]
 
+mod docs;
 mod error;
 mod handlers;
 mod router;
 mod state;
 mod token;
 
+pub use docs::{DocStoreError, DocumentStore};
 pub use error::WopiError;
 pub use handlers::WopiAppState;
 pub use router::router;
