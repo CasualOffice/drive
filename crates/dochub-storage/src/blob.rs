@@ -31,6 +31,15 @@ impl StorageKey {
     pub fn into_string(self) -> String {
         self.0
     }
+
+    /// Re-materialize a key that was persisted elsewhere (e.g. the
+    /// `file_versions.storage_key` column). The value is validated on the next
+    /// read, so a malformed string surfaces as a `StorageError` there rather
+    /// than reaching the backend.
+    #[must_use]
+    pub fn from_stored(key: String) -> Self {
+        Self(key)
+    }
 }
 
 impl std::fmt::Display for StorageKey {
@@ -74,6 +83,25 @@ impl Storage {
                 _ => StorageError::Backend(e),
             })?;
         Ok(open(dek, &ciphertext.to_vec())?)
+    }
+
+    /// Read the raw *ciphertext* bytes at `key`, without decrypting.
+    ///
+    /// This is the byte source for chain verification: `content_hash` is
+    /// `SHA-256(ciphertext)`, so the version engine recomputes the hash over
+    /// exactly these bytes. No `Dek` is needed (and none is used) — nothing is
+    /// opened, so no plaintext is produced.
+    pub async fn read_ciphertext(&self, key: &StorageKey) -> Result<Vec<u8>, StorageError> {
+        validate_key(key.as_str())?;
+        let bytes = self
+            .op
+            .read(key.as_str())
+            .await
+            .map_err(|e| match e.kind() {
+                opendal::ErrorKind::NotFound => StorageError::NotFound(key.as_str().to_string()),
+                _ => StorageError::Backend(e),
+            })?;
+        Ok(bytes.to_vec())
     }
 
     /// Content-address `ciphertext` and write it exactly once. If the key
