@@ -727,6 +727,9 @@ dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
  "proptest",
+ "serde",
+ "serde_json",
+ "subtle",
  "thiserror 2.0.18",
  "zeroize",
 ]

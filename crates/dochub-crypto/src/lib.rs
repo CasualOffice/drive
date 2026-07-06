@@ -12,13 +12,22 @@
 //! Invariants: keys never appear in logs, errors, or `Debug`; [`Dek`] and
 //! [`EnvKek`] zeroize on drop; every parse path returns [`CryptoError`] instead
 //! of panicking on malformed input.
+//!
+//! The [`chain`] module adds the tamper-evidence primitive — a [`Sha256Hex`]
+//! digest with constant-time equality, plus [`hash_content`]/[`entry_hash`] and
+//! an append-only [`verify_chain`] — shared by the version engine and the audit
+//! log. SHA-256 reuses the same `aws-lc-rs` digest, no new crypto crate.
 
 #![forbid(unsafe_code)]
 
+mod chain;
 mod envelope;
 mod error;
 mod kek;
 
+pub use chain::{
+    entry_hash, hash_content, verify_chain, BreakReason, ChainLink, ChainStatus, Sha256Hex,
+};
 pub use envelope::{generate_dek, open, seal, Dek, SealedBlob};
 pub use error::CryptoError;
 pub use kek::{EnvKek, KeyProvider, WrappedDek};

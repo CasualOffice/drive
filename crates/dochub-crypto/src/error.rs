@@ -17,4 +17,7 @@ pub enum CryptoError {
     /// Version prefix is not one this build understands.
     #[error("unsupported envelope version: {0:#04x}")]
     UnsupportedVersion(u8),
+    /// A hash string is not exactly 64 lowercase hex digits (a SHA-256).
+    #[error("invalid sha-256 hex: expected 64 lowercase hex digits")]
+    BadHash,
 }

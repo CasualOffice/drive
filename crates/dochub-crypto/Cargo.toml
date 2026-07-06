@@ -16,6 +16,12 @@ aws-lc-rs = { workspace = true }
 zeroize   = { workspace = true }
 thiserror = { workspace = true }
 base64    = { workspace = true }
+# Hash-chain primitive (`chain`): constant-time digest comparison + serde
+# rendering of the lowercase-hex hash. No new crypto crate — SHA-256 reuses the
+# `aws-lc-rs` digest already linked for AEAD.
+subtle    = { workspace = true }
+serde     = { workspace = true }
 
 [dev-dependencies]
-proptest  = { workspace = true }
+proptest   = { workspace = true }
+serde_json = { workspace = true }
