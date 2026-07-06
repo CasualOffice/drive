@@ -8,6 +8,7 @@ members = [
     "crates/dochub-auth",
     "crates/dochub-http",
     "crates/dochub-bin",
+    "crates/dochub-crypto",
 ]
 # Spike crates are intentionally OUT of the production workspace.
 # They are PoCs documented under docs/spikes/ and live under spikes/ as
@@ -65,6 +66,12 @@ base64            = "0.22"
 aes-gcm           = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 rand              = "0.9"
 
+# Envelope encryption (Phase 0 §3, `dochub-crypto`). AWS-LC is FIPS-track,
+# audited, and already pulled in transitively by `jsonwebtoken`'s aws_lc_rs
+# backend — one AEAD implementation across the tree, no homebrew primitives.
+aws-lc-rs         = "1"
+zeroize           = { version = "1", features = ["derive"] }
+
 # Phase 3 §12 — OIDC. `openidconnect` 5.x is the canonical Rust client;
 # does discovery + ID-token signature verification + PKCE for us.
 # Heavy (~50 transitive deps) but the alternative is hand-rolling
@@ -91,6 +98,7 @@ image             = { version = "0.25", default-features = false, features = ["p
 http-body-util    = "0.1"
 tempfile          = "3"
 rstest            = "0.23"
+proptest          = "1"
 
 [workspace.lints.rust]
 unused_must_use      = "deny"
