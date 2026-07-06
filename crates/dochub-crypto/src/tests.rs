@@ -75,7 +75,10 @@ fn seal_is_randomized() {
 fn open_rejects_short_and_wrong_version() {
     let dek = generate_dek();
     assert!(matches!(open(&dek, b""), Err(CryptoError::BadFormat)));
-    assert!(matches!(open(&dek, &[0u8; 10]), Err(CryptoError::BadFormat)));
+    assert!(matches!(
+        open(&dek, &[0u8; 10]),
+        Err(CryptoError::BadFormat)
+    ));
 
     let mut blob = seal(&dek, b"hello").0;
     blob[0] = 0x02;
@@ -106,7 +109,11 @@ fn kek_wrap_unwrap_roundtrip() {
     assert_eq!(kek.key_version(), 3);
 
     let recovered = kek.unwrap(&wrapped).unwrap();
-    assert_eq!(recovered.as_bytes(), &original, "unwrap must yield equal DEK");
+    assert_eq!(
+        recovered.as_bytes(),
+        &original,
+        "unwrap must yield equal DEK"
+    );
 }
 
 #[test]
@@ -114,10 +121,7 @@ fn kek_wrong_key_fails() {
     let kek = EnvKek::from_bytes([1u8; 32], 1);
     let wrong = EnvKek::from_bytes([2u8; 32], 1);
     let wrapped = kek.wrap(&generate_dek()).unwrap();
-    assert!(matches!(
-        wrong.unwrap(&wrapped),
-        Err(CryptoError::Decrypt)
-    ));
+    assert!(matches!(wrong.unwrap(&wrapped), Err(CryptoError::Decrypt)));
 }
 
 #[test]

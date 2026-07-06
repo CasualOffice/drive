@@ -94,7 +94,11 @@ fn aead_key(key: &[u8; 32]) -> LessSafeKey {
 pub(crate) fn seal_bytes(key: &[u8; 32], nonce: [u8; NONCE_LEN], plaintext: &[u8]) -> Vec<u8> {
     let mut in_out = plaintext.to_vec();
     aead_key(key)
-        .seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::empty(), &mut in_out)
+        .seal_in_place_append_tag(
+            Nonce::assume_unique_for_key(nonce),
+            Aad::empty(),
+            &mut in_out,
+        )
         .expect("AES-256-GCM sealing is infallible for a valid key");
 
     let mut out = Vec::with_capacity(1 + NONCE_LEN + in_out.len());
@@ -119,7 +123,11 @@ pub(crate) fn open_bytes(key: &[u8; 32], blob: &[u8]) -> Result<Vec<u8>, CryptoE
     let mut in_out = blob[1 + NONCE_LEN..].to_vec();
 
     let plaintext = aead_key(key)
-        .open_in_place(Nonce::assume_unique_for_key(nonce), Aad::empty(), &mut in_out)
+        .open_in_place(
+            Nonce::assume_unique_for_key(nonce),
+            Aad::empty(),
+            &mut in_out,
+        )
         .map_err(|_| CryptoError::Decrypt)?;
     Ok(plaintext.to_vec())
 }
