@@ -50,6 +50,7 @@ async fn bare_fixture() -> (HttpState, Db) {
         is_prod: false,
         sheet_origin: None,
         document_origin: None,
+        master_kek: dochub_core::dev_master_kek(),
     };
     let auth = AuthState::new(db.clone(), false, time::Duration::hours(1));
     let registry = HttpState::default_registry(storage.clone(), [0u8; 32]);

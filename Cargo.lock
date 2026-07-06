@@ -711,6 +711,8 @@ dependencies = [
 name = "dochub-core"
 version = "0.0.1"
 dependencies = [
+ "base64 0.22.1",
+ "dochub-crypto",
  "serde",
  "serde_json",
  "sha2",
@@ -738,7 +740,9 @@ dependencies = [
 name = "dochub-db"
 version = "0.0.1"
 dependencies = [
+ "base64 0.22.1",
  "dochub-core",
+ "dochub-crypto",
  "serde",
  "sqlx",
  "thiserror 2.0.18",
@@ -792,6 +796,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "dochub-core",
+ "dochub-crypto",
  "futures",
  "hmac",
  "opendal",

@@ -19,6 +19,7 @@ mod search;
 mod sessions;
 mod share_links;
 mod users;
+mod workspace_keys;
 mod workspace_storage;
 mod workspaces;
 
@@ -37,6 +38,7 @@ pub use search::{SearchFilters, SearchPaging, SortBy, SortDir, TypeBucket};
 pub use sessions::{NewSession, Session, SessionRepo};
 pub use share_links::{NewShareLink, ShareLink, ShareLinkRepo};
 pub use users::{NewUser, User, UserRepo};
+pub use workspace_keys::{DekError, WorkspaceDeks, WorkspaceKeysRepo};
 pub use workspace_storage::{
     NewWorkspaceStorage, WorkspaceStorage, WorkspaceStorageProvider, WorkspaceStorageRepo,
 };
