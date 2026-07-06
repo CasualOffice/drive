@@ -25,7 +25,7 @@ mod workspace_keys;
 mod workspace_storage;
 mod workspaces;
 
-pub use audit::{AuditEvent, AuditRepo, NewAuditEvent};
+pub use audit::{action, AuditChainStatus, AuditEvent, AuditRepo, NewAuditEvent};
 pub use error::DbError;
 pub use file_versions::{FileVersionsRepo, NewVersion, Version};
 pub use files::{File, FileRepo, FileStatus, NewFile};
