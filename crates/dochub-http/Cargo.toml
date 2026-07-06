@@ -1,0 +1,48 @@
+[package]
+name        = "dochub-http"
+description = "Axum router, two-origin middleware, SPA mount for Casual Drive"
+version     = { workspace = true }
+edition     = { workspace = true }
+license     = { workspace = true }
+authors     = { workspace = true }
+repository  = { workspace = true }
+rust-version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+dochub-core    = { path = "../dochub-core" }
+dochub-db      = { path = "../dochub-db" }
+dochub-storage = { path = "../dochub-storage" }
+dochub-wopi    = { path = "../dochub-wopi" }
+dochub-auth    = { path = "../dochub-auth" }
+
+axum          = { workspace = true }
+tokio         = { workspace = true }
+tower         = { workspace = true }
+tower-http    = { workspace = true }
+hyper         = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+bytes         = { workspace = true }
+futures       = { workspace = true }
+thiserror     = { workspace = true }
+anyhow        = { workspace = true }
+tracing       = { workspace = true }
+rust-embed    = { workspace = true }
+mime_guess    = { workspace = true }
+url           = { workspace = true }
+time          = { workspace = true }
+ulid          = { workspace = true }
+argon2        = { workspace = true }
+base64        = { workspace = true }
+infer         = { workspace = true }
+hmac          = { workspace = true }
+sha2          = { workspace = true }
+subtle        = { workspace = true }
+
+[dev-dependencies]
+http-body-util = { workspace = true }
+tower          = { version = "0.5", features = ["util"] }
+tempfile       = { workspace = true }

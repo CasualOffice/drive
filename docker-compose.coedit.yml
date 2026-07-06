@@ -6,7 +6,7 @@
 #                  -f docker-compose.coedit.yml \
 #                  up -d --build
 #
-# The `drive` service is rebuilt with VITE_DRIVE_COLLAB_BACKEND_URL
+# The `dochub` service is rebuilt with VITE_DRIVE_COLLAB_BACKEND_URL
 # baked into the SPA bundle — without that, the SDK runs in standalone
 # mode and the gateway here is unused.
 #
@@ -30,7 +30,7 @@
 # in-memory, fine for dev).
 
 services:
-  drive:
+  dochub:
     build:
       args:
         # Drive's SPA reaches the gateway at ws://localhost:8082 from
@@ -47,7 +47,7 @@ services:
     # image line and drop the build directive once the gateway gets
     # a Docker Hub release.
     image: casual-editor:local
-    container_name: casual-drive-doc-gateway
+    container_name: casual-dochub-doc-gateway
     restart: unless-stopped
     # Host port 8082 keeps :8080 free for drive's own SPA / API.
     ports:

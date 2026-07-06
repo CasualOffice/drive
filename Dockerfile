@@ -2,11 +2,11 @@
 # Multi-stage build:
 #   1. web-build  → produces web/dist/ (rust-embed needs this)
 #   2. planner    → cargo-chef recipe for cached dep builds
-#   3. builder    → cooks deps, copies SPA artifacts, compiles drive
+#   3. builder    → cooks deps, copies SPA artifacts, compiles dochub
 #   4. runtime    → small Debian image with just the binary
 # See: https://github.com/LukeMathWalker/cargo-chef
 
-# ─── Web: build the SPA bundle (needed by drive-http rust-embed) ─────────
+# ─── Web: build the SPA bundle (needed by dochub-http rust-embed) ─────────
 FROM node:22-bookworm-slim AS web-build
 WORKDIR /web
 # Optional build arg — bakes the doc-editor's collab gateway WS URL
@@ -41,17 +41,17 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 COPY --from=web-build /web/dist ./web/dist
-RUN cargo build --release --bin drive
+RUN cargo build --release --bin dochub
 
 # ─── Runtime: small image, no toolchain ───────────────────────────────────
 FROM debian:trixie-slim AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 1000 --no-create-home --shell /usr/sbin/nologin drive
+ && useradd --system --uid 1000 --no-create-home --shell /usr/sbin/nologin dochub
 
-COPY --from=builder /app/target/release/drive /usr/local/bin/drive
+COPY --from=builder /app/target/release/dochub /usr/local/bin/dochub
 
-USER drive
+USER dochub
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/drive"]
+ENTRYPOINT ["/usr/local/bin/dochub"]

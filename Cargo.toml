@@ -1,14 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/drive-core",
-    "crates/drive-db",
-    "crates/drive-storage",
-    "crates/drive-wopi",
-    "crates/drive-auth",
-    "crates/drive-http",
-    "crates/drive-thumb-worker",
-    "crates/drive-bin",
+    "crates/dochub-core",
+    "crates/dochub-db",
+    "crates/dochub-storage",
+    "crates/dochub-wopi",
+    "crates/dochub-auth",
+    "crates/dochub-http",
+    "crates/dochub-bin",
 ]
 # Spike crates are intentionally OUT of the production workspace.
 # They are PoCs documented under docs/spikes/ and live under spikes/ as

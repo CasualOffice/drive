@@ -1,30 +1,30 @@
 services:
-  drive:
+  dochub:
     build: .
-    image: casual-drive:dev
+    image: casual-dochub:dev
     environment:
-      DRIVE_APP_ORIGIN: "http://127.0.0.1:8080"
-      DRIVE_USERCONTENT_ORIGIN: "http://127.0.0.1:8081"
-      DRIVE_BIND: "0.0.0.0:8080"
-      DRIVE_BACKEND: "minio"
-      DRIVE_S3_BUCKET: "drive-dev"
-      DRIVE_S3_ENDPOINT: "http://minio:9000"
-      DRIVE_S3_REGION: "auto"
+      DOCHUB_APP_ORIGIN: "http://127.0.0.1:8080"
+      DOCHUB_USERCONTENT_ORIGIN: "http://127.0.0.1:8081"
+      DOCHUB_BIND: "0.0.0.0:8080"
+      DOCHUB_BACKEND: "minio"
+      DOCHUB_S3_BUCKET: "drive-dev"
+      DOCHUB_S3_ENDPOINT: "http://minio:9000"
+      DOCHUB_S3_REGION: "auto"
       AWS_ACCESS_KEY_ID: "minioadmin"
       AWS_SECRET_ACCESS_KEY: "minioadmin"
-      DRIVE_DB_URL: "sqlite:///data/drive.db"
+      DOCHUB_DB_URL: "sqlite:///data/drive.db"
       # Dev-only secrets — DO NOT use these in prod.
-      DRIVE_SESSION_SECRET: "dev-only-32-byte-secret-DO-NOT-USE-aa"
-      DRIVE_WOPI_HMAC_SECRET: "dev-only-32-byte-secret-DO-NOT-USE-bb"
-      DRIVE_SIGNED_URL_HMAC_SECRET: "dev-only-32-byte-secret-DO-NOT-USE-cc"
-      DRIVE_ADMIN_USER: "admin"
+      DOCHUB_SESSION_SECRET: "dev-only-32-byte-secret-DO-NOT-USE-aa"
+      DOCHUB_WOPI_HMAC_SECRET: "dev-only-32-byte-secret-DO-NOT-USE-bb"
+      DOCHUB_SIGNED_URL_HMAC_SECRET: "dev-only-32-byte-secret-DO-NOT-USE-cc"
+      DOCHUB_ADMIN_USER: "admin"
       # argon2id of "admin" — generated with `argon2 -t 2 -m 14 -p 1 -e`
-      DRIVE_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=19456,t=2,p=1$$ZGV2c2FsdGRldnNhbHQ$$REPLACE_BEFORE_PROD"
-      RUST_LOG: "info,drive=debug"
+      DOCHUB_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=19456,t=2,p=1$$ZGV2c2FsdGRldnNhbHQ$$REPLACE_BEFORE_PROD"
+      RUST_LOG: "info,dochub=debug"
     ports:
       - "8080:8080"
     volumes:
-      - drive_data:/data
+      - dochub_data:/data
     depends_on:
       minio:
         condition: service_healthy
@@ -59,5 +59,5 @@ services:
       echo bucket-ready"
 
 volumes:
-  drive_data:
+  dochub_data:
   minio_data:
