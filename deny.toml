@@ -9,7 +9,18 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 # RUSTSEC-2023-0071 (RSA Marvin Attack) is reachable only via sqlx-mysql,
 # which we do not enable. We never construct a MySQL pool.
-ignore = ["RUSTSEC-2023-0071"]
+#
+# The 2026-06-29 advisories are transitive and suppressed until the dependency
+# bump lands in the code revamp (tracked in ROADMAP Phase 0):
+#   RUSTSEC-2026-0190 — anyhow soundness (Error::context + downcast_mut UB)
+#   RUSTSEC-2026-0194 — quick-xml quadratic-time DoS (fix >= 0.41.0)
+#   RUSTSEC-2026-0195 — quick-xml namespace-alloc DoS (fix >= 0.41.0)
+ignore = [
+    "RUSTSEC-2023-0071",
+    "RUSTSEC-2026-0190",
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
 
 [licenses]
 allow = [

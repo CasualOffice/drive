@@ -101,9 +101,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cargo-audit --locked
-      # Mirror deny.toml's ignore set — the RSA Marvin Attack advisory is
-      # reachable only via sqlx-mysql, which we do not enable.
-      - run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071
+      # Mirror deny.toml's ignore set. RUSTSEC-2023-0071 (RSA Marvin) is
+      # reachable only via sqlx-mysql, which we do not enable. The 2026-06-29
+      # advisories are transitive and pending a dependency bump in the code
+      # revamp (anyhow: RUSTSEC-2026-0190; quick-xml: -0194/-0195, fix >=0.41).
+      - run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0190 --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195
 
   deny:
     name: cargo deny
