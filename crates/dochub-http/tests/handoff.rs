@@ -58,6 +58,7 @@ async fn fixture(with_editors: bool) -> HttpState {
         sheet_origin: with_editors.then(|| Url::parse("http://sheet.test").unwrap()),
         document_origin: with_editors.then(|| Url::parse("http://document.test").unwrap()),
         master_kek: dochub_core::dev_master_kek(),
+        master_kek_next: None,
     };
     let auth = AuthState::new(db.clone(), false, time::Duration::hours(1));
     let registry = HttpState::default_registry(storage.clone(), [0u8; 32]);

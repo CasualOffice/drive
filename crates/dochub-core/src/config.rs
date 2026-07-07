@@ -15,6 +15,11 @@ use url::Url;
 /// version so re-wrap is lossless.
 const MASTER_KEY_VERSION: u32 = 1;
 
+/// KEK version for the optional `DOCHUB_MASTER_KEY_NEXT` provider — the target
+/// of a KEK rotation (P1.1). Bumped past the current version so re-wrapped rows
+/// record which KEK sealed them.
+const MASTER_KEY_NEXT_VERSION: u32 = MASTER_KEY_VERSION + 1;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     /// Filesystem-backed storage rooted at a configured directory.
@@ -61,6 +66,12 @@ pub struct Config {
     /// Held behind an `Arc` so `Config` stays `Clone`; the key material is
     /// zeroized on drop and never appears in `Debug`.
     pub master_kek: Arc<EnvKek>,
+    /// Optional *next* master KEK, parsed from `DOCHUB_MASTER_KEY_NEXT` (base64,
+    /// 32 bytes). Present only during a KEK rotation (P1.1): the `rotate-kek`
+    /// admin command re-wraps every per-workspace DEK from `master_kek` to this
+    /// one without rewriting document blobs. `None` in steady state. Carries a
+    /// bumped `key_version` so re-wrapped rows record which KEK sealed them.
+    pub master_kek_next: Option<Arc<EnvKek>>,
     /// Casual Sheets origin (e.g. `https://sheet.casualoffice.org`). When
     /// `None`, the editor handoff endpoint returns 503 and the SPA shows a
     /// "editor isn't configured" toast. See docs/ux/08-editor-handoff.md.
@@ -119,6 +130,8 @@ pub enum ConfigError {
     MasterKeyMissing,
     #[error("DOCHUB_MASTER_KEY is invalid: {0}")]
     MasterKeyInvalid(&'static str),
+    #[error("DOCHUB_MASTER_KEY_NEXT is invalid: {0}")]
+    NextMasterKeyInvalid(&'static str),
 }
 
 impl Config {
@@ -207,6 +220,10 @@ impl Config {
         // before the optional origin blocks so a misconfigured deployment
         // fails on the most important thing first.
         let master_kek = parse_master_kek(std::env::var("DOCHUB_MASTER_KEY").ok())?;
+        // Optional rotation target. Absent in steady state; set only while a
+        // `rotate-kek` run is planned. Validated like the master key so a
+        // typo'd rotation key fails at boot, not mid-rotation.
+        let master_kek_next = parse_master_kek_next(std::env::var("DOCHUB_MASTER_KEY_NEXT").ok())?;
 
         let sheet_origin = match std::env::var("DOCHUB_SHEET_ORIGIN").ok() {
             Some(s) if !s.is_empty() => Some(
@@ -245,6 +262,7 @@ impl Config {
             recipient_footer,
             is_prod,
             master_kek,
+            master_kek_next,
             oidc: load_oidc_from_env()?,
             allow_password_auth: env_bool("DOCHUB_ALLOW_PASSWORD_AUTH").unwrap_or(true),
             sheet_origin,
@@ -323,6 +341,27 @@ fn parse_master_kek(raw: Option<String>) -> Result<Arc<EnvKek>, ConfigError> {
     Ok(Arc::new(kek))
 }
 
+/// Parse the optional *next* master KEK from a raw `DOCHUB_MASTER_KEY_NEXT`
+/// value. Unlike [`parse_master_kek`], absence (or an all-whitespace value) is
+/// not an error — it just means "no rotation pending" and yields `None`. When
+/// present it must be a valid base64 32-byte key, sealed under the bumped
+/// [`MASTER_KEY_NEXT_VERSION`]. Pure for the same testability reason.
+fn parse_master_kek_next(raw: Option<String>) -> Result<Option<Arc<EnvKek>>, ConfigError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    let kek = EnvKek::from_base64(&raw, MASTER_KEY_NEXT_VERSION).map_err(|e| match e {
+        dochub_crypto::CryptoError::BadKeyLength => {
+            ConfigError::NextMasterKeyInvalid("must decode to exactly 32 bytes")
+        }
+        _ => ConfigError::NextMasterKeyInvalid("not valid standard base64"),
+    })?;
+    Ok(Some(Arc::new(kek)))
+}
+
 /// A fixed, well-known master KEK for tests and local fixtures. Not wired to
 /// any production path — `Config::from_env` always derives the KEK from the
 /// environment. `#[doc(hidden)]` keeps it out of the public surface.
@@ -330,6 +369,16 @@ fn parse_master_kek(raw: Option<String>) -> Result<Arc<EnvKek>, ConfigError> {
 #[must_use]
 pub fn dev_master_kek() -> Arc<EnvKek> {
     Arc::new(EnvKek::from_bytes([0x2a; 32], MASTER_KEY_VERSION))
+}
+
+/// A fixed, well-known *next* master KEK for rotation tests — distinct key
+/// material and the bumped [`MASTER_KEY_NEXT_VERSION`], so a re-wrap from
+/// [`dev_master_kek`] to this one is observable. `#[doc(hidden)]` keeps it out
+/// of the public surface; never wired to a production path.
+#[doc(hidden)]
+#[must_use]
+pub fn dev_master_kek_next() -> Arc<EnvKek> {
+    Arc::new(EnvKek::from_bytes([0x5b; 32], MASTER_KEY_NEXT_VERSION))
 }
 
 /// Load the optional OIDC block from env. All four required fields must
@@ -459,6 +508,40 @@ mod tests {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         let key = STANDARD.encode([7u8; 32]);
         assert!(parse_master_kek(Some(key)).is_ok());
+    }
+
+    #[test]
+    fn next_master_key_absent_is_none() {
+        // Unset and all-whitespace both mean "no rotation pending".
+        assert!(matches!(parse_master_kek_next(None), Ok(None)));
+        assert!(matches!(
+            parse_master_kek_next(Some("   ".into())),
+            Ok(None)
+        ));
+    }
+
+    #[test]
+    fn next_master_key_invalid_is_error() {
+        assert!(matches!(
+            parse_master_kek_next(Some("not!!base64!!".into())),
+            Err(ConfigError::NextMasterKeyInvalid(_))
+        ));
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let short = STANDARD.encode([0u8; 16]);
+        assert!(matches!(
+            parse_master_kek_next(Some(short)),
+            Err(ConfigError::NextMasterKeyInvalid(_))
+        ));
+    }
+
+    #[test]
+    fn next_master_key_valid_base64_parses_with_bumped_version() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use dochub_crypto::KeyProvider;
+        let key = STANDARD.encode([9u8; 32]);
+        let parsed = parse_master_kek_next(Some(key)).unwrap().expect("some");
+        assert_eq!(parsed.key_version(), MASTER_KEY_NEXT_VERSION);
+        assert_ne!(MASTER_KEY_NEXT_VERSION, MASTER_KEY_VERSION);
     }
 
     #[test]

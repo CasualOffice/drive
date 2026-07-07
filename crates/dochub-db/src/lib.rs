@@ -13,6 +13,7 @@ mod file_versions;
 mod files;
 mod folders;
 mod invitations;
+mod key_rotation;
 mod notes;
 mod oidc;
 mod pool;
@@ -31,6 +32,7 @@ pub use file_versions::{FileVersionsRepo, NewVersion, Version};
 pub use files::{File, FileRepo, FileStatus, NewFile};
 pub use folders::{Folder, FolderRepo, NewFolder};
 pub use invitations::{NewWorkspaceInvitation, WorkspaceInvitation, WorkspaceInvitationRepo};
+pub use key_rotation::RotationReport;
 pub use notes::{
     order_key_between, parse_wiki_links, NewNote, Note, NoteBacklink, NoteLinksRepo, NoteNode,
     NotesRepo,

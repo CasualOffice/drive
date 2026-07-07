@@ -455,3 +455,142 @@ async fn workspace_key_persisted_only_wrapped() {
     assert!(wrapped.ct.len() > 32);
     assert_eq!(wrapped.key_version, 1);
 }
+
+// --- KEK rotation / lossless re-wrap (build spec §4, P1.1) ----------------
+
+/// TESTING.md invariant #7: KEK rotation is lossless. A DEK created under
+/// KEK_A, re-wrapped A→B, unwraps under KEK_B to the SAME plaintext key — a
+/// blob sealed BEFORE rotation still opens byte-identical afterwards. No
+/// document blob is touched by the rotation.
+#[tokio::test]
+async fn rewrap_all_is_lossless_across_keks() {
+    use dochub_crypto::KeyProvider;
+
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let ws = personal_ws(&db, &owner).await;
+
+    let kek_a = dochub_core::dev_master_kek();
+    let kek_b = dochub_core::dev_master_kek_next();
+
+    // DEK created + persisted under KEK_A, then a blob sealed under it.
+    let deks_a = WorkspaceDeks::new(db.clone(), kek_a.clone());
+    let dek = deks_a.get_or_create(&ws).await.unwrap();
+    let blob = dochub_crypto::seal(&dek, b"pre-rotation payload");
+
+    // Rotate every workspace DEK from A to B.
+    let report = WorkspaceKeysRepo::new(&db)
+        .rewrap_all(kek_a.as_ref(), kek_b.as_ref())
+        .await;
+    assert_eq!(report.rotated, 1);
+    assert!(report.is_clean(), "clean rotation has no failures");
+
+    // The row now records the new KEK's version and unwraps under KEK_B to a
+    // key that opens the PRE-rotation blob byte-identically.
+    let wrapped = WorkspaceKeysRepo::new(&db)
+        .get(&ws)
+        .await
+        .unwrap()
+        .expect("row exists");
+    assert_eq!(wrapped.key_version, 2, "re-wrap bumps key_version");
+    let dek_under_b = kek_b.unwrap(&wrapped).unwrap();
+    assert_eq!(
+        dochub_crypto::open(&dek_under_b, &blob.0).unwrap(),
+        b"pre-rotation payload",
+        "blob sealed before rotation still decrypts under the rotated key",
+    );
+
+    // The resolver, now injected with KEK_B, transparently returns the same DEK.
+    let resolver_b = WorkspaceDeks::new(db.clone(), kek_b.clone());
+    let resolved = resolver_b.get_or_create(&ws).await.unwrap();
+    assert_eq!(
+        dochub_crypto::open(&resolved, &blob.0).unwrap(),
+        b"pre-rotation payload",
+    );
+}
+
+/// `rewrap_workspace_dek` bumps `key_version` and changes the wrapped bytes,
+/// but the *plaintext* DEK underneath is unchanged.
+#[tokio::test]
+async fn rewrap_workspace_dek_changes_wrapping_not_dek() {
+    use dochub_crypto::KeyProvider;
+
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let ws = personal_ws(&db, &owner).await;
+
+    let kek_a = dochub_core::dev_master_kek();
+    let kek_b = dochub_core::dev_master_kek_next();
+
+    WorkspaceDeks::new(db.clone(), kek_a.clone())
+        .get_or_create(&ws)
+        .await
+        .unwrap();
+
+    let repo = WorkspaceKeysRepo::new(&db);
+    let before = repo.get(&ws).await.unwrap().expect("row exists");
+    assert_eq!(before.key_version, 1);
+
+    repo.rewrap_workspace_dek(&ws, kek_a.as_ref(), kek_b.as_ref())
+        .await
+        .unwrap();
+
+    let after = repo.get(&ws).await.unwrap().expect("row exists");
+    assert_eq!(after.key_version, 2, "version bumps to the new KEK");
+    assert_ne!(
+        before.ct, after.ct,
+        "wrapped bytes differ (re-sealed under a different KEK + fresh nonce)",
+    );
+
+    // Same underlying DEK: unwrap `before` under A and `after` under B, then
+    // cross-check a seal/open across the two handles.
+    let dek_before = kek_a.unwrap(&before).unwrap();
+    let dek_after = kek_b.unwrap(&after).unwrap();
+    let probe = dochub_crypto::seal(&dek_before, b"same-dek?");
+    assert_eq!(
+        dochub_crypto::open(&dek_after, &probe.0).unwrap(),
+        b"same-dek?",
+        "unwrapped DEK is identical before and after re-wrap",
+    );
+}
+
+/// A workspace whose row does not unwrap under the supplied *old* KEK is
+/// reported in `failed` — never a panic or an abort of the whole run — and its
+/// row is left untouched.
+#[tokio::test]
+async fn rewrap_all_reports_unwrappable_as_failed() {
+    use dochub_crypto::KeyProvider;
+
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let ws = personal_ws(&db, &owner).await;
+
+    let kek_a = dochub_core::dev_master_kek();
+    let kek_b = dochub_core::dev_master_kek_next();
+
+    // Seal the DEK under A.
+    WorkspaceDeks::new(db.clone(), kek_a.clone())
+        .get_or_create(&ws)
+        .await
+        .unwrap();
+
+    // Rotate with the WRONG old key (B): the row cannot be unwrapped under B.
+    let report = WorkspaceKeysRepo::new(&db)
+        .rewrap_all(kek_b.as_ref(), kek_a.as_ref())
+        .await;
+    assert_eq!(report.rotated, 0);
+    assert_eq!(report.failed, vec![ws.clone()]);
+    assert!(!report.is_clean());
+
+    // The row is untouched: still unwraps under A at the original version.
+    let row = WorkspaceKeysRepo::new(&db)
+        .get(&ws)
+        .await
+        .unwrap()
+        .expect("row exists");
+    assert_eq!(
+        row.key_version, 1,
+        "failed rotation leaves the old row in place"
+    );
+    assert!(kek_a.unwrap(&row).is_ok());
+}

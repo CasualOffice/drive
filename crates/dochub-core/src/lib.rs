@@ -12,7 +12,7 @@ pub mod error;
 pub mod id;
 pub mod ingest;
 
-pub use config::{dev_master_kek, Backend, Config, ConfigError, OidcConfig};
+pub use config::{dev_master_kek, dev_master_kek_next, Backend, Config, ConfigError, OidcConfig};
 pub use error::DriveError;
 pub use id::{FileId, FolderId};
 pub use ingest::{guard, DocKind, IngestError, ALLOWED_EXTENSIONS};

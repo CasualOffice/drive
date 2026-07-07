@@ -77,6 +77,42 @@ impl<'a> WorkspaceKeysRepo<'a> {
         .await?;
         Ok(())
     }
+
+    /// Re-seal an existing row's wrapped DEK. Overwrites `wrapped_dek` and
+    /// `key_version` in place — the only column write a KEK rotation performs.
+    /// Document blobs are untouched: the *plaintext* DEK is unchanged, so every
+    /// blob still decrypts. Returns [`DbError::NotFound`] if no row exists for
+    /// the workspace (callers rotate only rows they just read).
+    pub async fn update_wrapped(
+        &self,
+        workspace_id: &str,
+        wrapped: &WrappedDek,
+    ) -> Result<(), DbError> {
+        let b64 = STANDARD.encode(&wrapped.ct);
+        let affected = sqlx::query(
+            "UPDATE workspace_keys SET wrapped_dek = ?, key_version = ? WHERE workspace_id = ?",
+        )
+        .bind(&b64)
+        .bind(i64::from(wrapped.key_version))
+        .bind(workspace_id)
+        .execute(self.db.pool())
+        .await?
+        .rows_affected();
+        if affected == 0 {
+            return Err(DbError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Every workspace that has a persisted DEK. The unit of KEK rotation —
+    /// `rewrap_all` walks this list. Order is unspecified; each row is rotated
+    /// independently.
+    pub async fn list_workspace_ids(&self) -> Result<Vec<String>, DbError> {
+        let rows = sqlx::query("SELECT workspace_id FROM workspace_keys")
+            .fetch_all(self.db.pool())
+            .await?;
+        Ok(rows.into_iter().map(|r| r.get("workspace_id")).collect())
+    }
 }
 
 /// Failure modes for DEK resolution. Neither variant carries key material.

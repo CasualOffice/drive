@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use dochub_auth::AuthState;
 use dochub_core::Config;
-use dochub_db::{Db, DbError, NewUser, UserRepo};
+use dochub_db::{Db, DbError, NewUser, UserRepo, WorkspaceKeysRepo};
 use dochub_http::{access_log, presence::PresenceHub, router, HttpState};
 use dochub_storage::{parse_master_key_hex, Storage};
 use dochub_wopi::WopiState;
@@ -17,6 +17,19 @@ async fn main() -> anyhow::Result<()> {
     init_tracing();
 
     let cfg = Config::from_env()?;
+
+    // Admin subcommands run to completion and exit — they never start the HTTP
+    // server. `rotate-kek` is CLI/admin only by design (no HTTP endpoint): a
+    // master-key rotation is an operator action, not a request.
+    if let Some(cmd) = std::env::args().nth(1) {
+        return match cmd.as_str() {
+            "rotate-kek" => run_rotate_kek(&cfg).await,
+            other => Err(anyhow::anyhow!(
+                "unknown subcommand: {other} (known: rotate-kek)"
+            )),
+        };
+    }
+
     let bind = cfg.bind;
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
@@ -90,6 +103,53 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(addr = %bind, "listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// `rotate-kek` — lossless master-KEK rotation (P1.1). Re-wraps every
+/// per-workspace DEK from the current master KEK (`DOCHUB_MASTER_KEY`) to the
+/// next one (`DOCHUB_MASTER_KEY_NEXT`) without touching a single document blob.
+///
+/// Only runs when the next key is configured. Prints a report and exits
+/// non-zero if any workspace failed to rotate, so an operator's automation can
+/// gate the key cut-over on a clean run.
+async fn run_rotate_kek(cfg: &Config) -> anyhow::Result<()> {
+    let Some(next) = cfg.master_kek_next.as_ref() else {
+        anyhow::bail!(
+            "rotate-kek requires DOCHUB_MASTER_KEY_NEXT (base64 32-byte KEK) — nothing to rotate to"
+        );
+    };
+
+    let db = Db::connect(&cfg.db_url).await?;
+    tracing::info!(backend = ?db.backend(), "metadata db connected for KEK rotation");
+
+    let report = WorkspaceKeysRepo::new(&db)
+        .rewrap_all(cfg.master_kek.as_ref(), next.as_ref())
+        .await;
+
+    tracing::info!(
+        rotated = report.rotated,
+        failed = report.failed.len(),
+        "KEK rotation complete",
+    );
+    println!(
+        "rotate-kek: re-wrapped {} workspace DEK(s); {} failed",
+        report.rotated,
+        report.failed.len(),
+    );
+    for ws in &report.failed {
+        println!("  failed: {ws}");
+    }
+
+    if report.is_clean() {
+        println!("rotate-kek: done — every workspace DEK is now sealed under the next KEK.");
+        println!("Promote DOCHUB_MASTER_KEY_NEXT to DOCHUB_MASTER_KEY and unset the next key.");
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "{} workspace(s) failed to rotate — old KEK left in place for them",
+            report.failed.len()
+        )
+    }
 }
 
 /// Seed the admin user from env if no row matches the configured username.

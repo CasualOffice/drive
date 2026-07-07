@@ -35,7 +35,7 @@ read(key)              →  operator.read(key) → dochub-crypto.open(workspace_
 
 - **Envelope encryption.** Each workspace has a Data Encryption Key (DEK). The DEK is wrapped by a master Key Encryption Key (KEK) supplied via `DOCHUB_MASTER_KEY` or an external KMS; only wrapped DEKs are persisted. Primitive: AES-256-GCM (`ring`/`aws-lc-rs`), random 96-bit nonce per blob, stored as `nonce ‖ ciphertext ‖ tag`.
 - **No plaintext at rest.** No code path writes plaintext document bytes to a backend. Enforced by construction (handlers cannot reach the raw operator) and by test (a spy backend asserts ciphertext).
-- **Key rotation** re-wraps DEKs under a new KEK without rewriting document blobs. Blobs are re-encrypted only on explicit workspace re-key.
+- **Key rotation** re-wraps DEKs under a new KEK without rewriting document blobs. Blobs are re-encrypted only on explicit workspace re-key. Rotate the master KEK by setting `DOCHUB_MASTER_KEY_NEXT` (base64, 32 bytes) alongside the current `DOCHUB_MASTER_KEY`, then running the admin subcommand `dochub rotate-kek`: it unwraps each `workspace_keys` row under the current KEK, re-wraps the same plaintext DEK under the next KEK, and bumps `key_version` — an admin/CLI action only, never an HTTP endpoint. The command prints a per-workspace report (`rotated`, `failed`); a workspace that fails to unwrap under the current KEK is reported, not fatal. On a clean run, promote `DOCHUB_MASTER_KEY_NEXT` to `DOCHUB_MASTER_KEY` and unset the next key.
 - **Backends:** fs / memory / S3 / MinIO / R2 / B2 via OpenDAL. Storage keys are opaque ULIDs, never derived from user input. BYO-bucket credentials are themselves sealed with the same envelope scheme.
 
 ## Immutable version + hash-chain engine
