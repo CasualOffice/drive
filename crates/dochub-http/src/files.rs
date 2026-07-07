@@ -266,7 +266,7 @@ pub(crate) fn storage_key(file_id: &str) -> String {
 /// Build the version registry (build spec §5) from request state. Cheap — the
 /// DEK resolver wraps the master KEK held on `Config`; nothing is persisted
 /// until a version is committed.
-fn version_registry(s: &HttpState) -> dochub_db::Registry {
+pub(crate) fn version_registry(s: &HttpState) -> dochub_db::Registry {
     let deks = dochub_db::WorkspaceDeks::new(s.db.clone(), s.config.master_kek.clone());
     dochub_db::Registry::new(s.db.clone(), s.storage.clone(), deks)
 }
