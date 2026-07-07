@@ -11,6 +11,7 @@ mod about;
 mod access_log;
 mod activity;
 mod admin;
+mod compliance;
 mod direct_upload;
 mod files;
 pub mod headers;
@@ -123,6 +124,7 @@ fn app_origin_router(state: HttpState) -> Router {
     let direct_upload_router: Router = direct_upload::router(state.clone());
     let notes_router: Router = notes::router(state.clone());
     let admin_users_router: Router = admin::admin_router(state.clone());
+    let compliance_router: Router = compliance::router(state.clone());
     let presence_router: Router = presence::router().with_state(state.clone());
     let invitations_router: Router = invitations::router(state.clone());
 
@@ -145,6 +147,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .merge(direct_upload_router)
         .merge(notes_router)
         .merge(admin_users_router)
+        .merge(compliance_router)
         .merge(presence_router)
         .merge(invitations_router)
         // SPA fallback — `/`, `/sign-in`, `/files/...`, hashed asset paths

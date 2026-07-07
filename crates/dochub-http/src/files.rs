@@ -53,6 +53,14 @@ pub(crate) enum FilesError {
     /// trying again, mirrored in the `Retry-After` header.
     #[error("rate limited, retry in {0}s")]
     RateLimited(u64),
+    /// 409 — an active legal hold covers this file (directly, via its project,
+    /// or via its workspace). No destructive path may tombstone or purge it.
+    #[error("under legal hold")]
+    UnderLegalHold,
+    /// 409 — a retention policy forbids a permanent purge of this file's
+    /// in-window / floor-protected versions. Trash / tombstone stays allowed.
+    #[error("under retention")]
+    UnderRetention,
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -94,6 +102,20 @@ impl IntoResponse for FilesError {
                     error: "quota exceeded",
                     used,
                     quota,
+                }),
+            )
+                .into_response(),
+            Self::UnderLegalHold => (
+                StatusCode::CONFLICT,
+                Json(ErrBody {
+                    error: "under legal hold",
+                }),
+            )
+                .into_response(),
+            Self::UnderRetention => (
+                StatusCode::CONFLICT,
+                Json(ErrBody {
+                    error: "under retention",
                 }),
             )
                 .into_response(),
@@ -1023,6 +1045,14 @@ async fn trash_file(
         .await
         .map_err(|_| FilesError::NotFound)?;
     ensure_owner(&file.owner_id, &session)?;
+    // Compliance guard (build spec §3): a file under an active legal hold —
+    // directly, via its project, or via its workspace — cannot be tombstoned.
+    if crate::compliance::is_under_hold(&s.db, &file)
+        .await
+        .map_err(|e| FilesError::Internal(e.to_string()))?
+    {
+        return Err(FilesError::UnderLegalHold);
+    }
     files
         .trash(&id)
         .await
@@ -1083,6 +1113,64 @@ async fn restore_file(
             target_name: Some(file.name),
             ip_address: None,
             metadata: None,
+        },
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /api/files/{id}/purge` — the permanent-purge path (build spec §3).
+///
+/// Distinct from trash: purge is gated by BOTH the legal-hold guard AND
+/// retention. An active hold → `409 UnderLegalHold`; a retention floor / window
+/// → `409 UnderRetention`. When permitted, Phase 1 is retain-only (D2), so a
+/// purge tombstones the file (`files.trashed_at`) rather than erasing bytes —
+/// physical erasure lands in Phase 4. History is never hard-deleted here
+/// (CLAUDE.md inviolable rule 6).
+async fn purge_file(
+    State(s): State<HttpState>,
+    session: AuthSession,
+    Path(id): Path<String>,
+) -> Result<StatusCode, FilesError> {
+    let files = FileRepo::new(&s.db);
+    let file = files
+        .find_by_id(&id)
+        .await
+        .map_err(|_| FilesError::NotFound)?;
+    ensure_owner(&file.owner_id, &session)?;
+
+    // Legal hold blocks purge from every path.
+    if crate::compliance::is_under_hold(&s.db, &file)
+        .await
+        .map_err(|e| FilesError::Internal(e.to_string()))?
+    {
+        return Err(FilesError::UnderLegalHold);
+    }
+    // Retention blocks purge of in-window / floor-protected versions.
+    if crate::compliance::retention_blocks_purge(&s.db, &file)
+        .await
+        .map_err(|e| FilesError::Internal(e.to_string()))?
+    {
+        return Err(FilesError::UnderRetention);
+    }
+
+    // Permitted: tombstone (retain-only in P1). Idempotent if already trashed.
+    if file.trashed_at.is_none() {
+        files
+            .trash(&id)
+            .await
+            .map_err(|e| FilesError::Internal(e.to_string()))?;
+    }
+    AuditRepo::emit(
+        &s.db,
+        NewAuditEvent {
+            actor_id: Some(session.user_id.clone()),
+            actor_username: Some(session.username.clone()),
+            action: dochub_db::action::FILE_TOMBSTONE.into(),
+            target_kind: Some("file".into()),
+            target_id: Some(file.id.clone()),
+            target_name: Some(file.name.clone()),
+            ip_address: None,
+            metadata: Some(r#"{"via":"purge"}"#.into()),
         },
     );
     Ok(StatusCode::NO_CONTENT)
@@ -1284,6 +1372,7 @@ pub(crate) fn router(state: HttpState, body_limit_bytes: usize) -> Router {
         )
         .route("/api/files/{id}", get(get_file_meta).patch(patch_file))
         .route("/api/files/{id}/trash", post(trash_file))
+        .route("/api/files/{id}/purge", post(purge_file))
         .route("/api/files/{id}/restore", post(restore_file))
         .route("/api/files/{id}/download", get(download_file))
         .route(

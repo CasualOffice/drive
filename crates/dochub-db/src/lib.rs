@@ -14,10 +14,12 @@ mod files;
 mod folders;
 mod invitations;
 mod key_rotation;
+mod legal_holds;
 mod notes;
 mod oidc;
 mod pool;
 mod registry;
+mod retention;
 mod search;
 mod sessions;
 mod share_links;
@@ -33,6 +35,7 @@ pub use files::{File, FileRepo, FileStatus, NewFile};
 pub use folders::{Folder, FolderRepo, NewFolder};
 pub use invitations::{NewWorkspaceInvitation, WorkspaceInvitation, WorkspaceInvitationRepo};
 pub use key_rotation::RotationReport;
+pub use legal_holds::{target_kind, LegalHold, LegalHoldsRepo, NewLegalHold};
 pub use notes::{
     order_key_between, parse_wiki_links, NewNote, Note, NoteBacklink, NoteLinksRepo, NoteNode,
     NotesRepo,
@@ -40,6 +43,7 @@ pub use notes::{
 pub use oidc::{NewOidcFlowState, OidcFlowState, OidcFlowStateRepo};
 pub use pool::{Db, DbBackend};
 pub use registry::{Registry, RegistryError};
+pub use retention::{NewRetentionPolicy, RetentionPolicy, RetentionRepo};
 pub use search::{SearchFilters, SearchPaging, SortBy, SortDir, TypeBucket};
 pub use sessions::{NewSession, Session, SessionRepo};
 pub use share_links::{NewShareLink, ShareLink, ShareLinkRepo};

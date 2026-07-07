@@ -57,6 +57,9 @@ pub(crate) enum DirectError {
         quota: u64,
     },
     NotUploading,
+    /// 409 — an active legal hold covers this file; even a not-yet-finalized
+    /// row cannot be hard-deleted while held (build spec §3).
+    UnderLegalHold,
     /// §13.6a — first-bytes sniff at finalize rejected the upload.
     /// Carries the detected extension/type so the SPA can surface
     /// "we don't accept .exe" inline.
@@ -102,6 +105,13 @@ impl IntoResponse for DirectError {
                 StatusCode::CONFLICT,
                 Json(Err {
                     error: "file is not in 'uploading' state",
+                }),
+            )
+                .into_response(),
+            Self::UnderLegalHold => (
+                StatusCode::CONFLICT,
+                Json(Err {
+                    error: "under legal hold",
                 }),
             )
                 .into_response(),
@@ -418,6 +428,15 @@ pub(crate) async fn abort(
         // Only abort uploading rows — refuse to nuke ready files via
         // this endpoint.
         return Err(DirectError::NotUploading);
+    }
+
+    // Compliance guard (build spec §3): a hard-delete is a destructive path, so
+    // an active legal hold blocks the abort just like it blocks trash/purge.
+    if crate::compliance::is_under_hold(&s.db, &row)
+        .await
+        .map_err(|e| DirectError::Internal(e.to_string()))?
+    {
+        return Err(DirectError::UnderLegalHold);
     }
 
     // Best-effort delete of the object. We swallow errors because the

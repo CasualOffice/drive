@@ -63,6 +63,12 @@ pub mod action {
     pub const KEY_WORKSPACE_CREATED: &str = "key.workspace_created";
     /// A boot invariant failed; the process is refusing to start.
     pub const BOOT_INVARIANT_FAILED: &str = "boot.invariant_failed";
+    /// A legal hold was placed on a file / project / workspace (P1.2 compliance).
+    pub const HOLD_PLACED: &str = "hold.placed";
+    /// A legal hold was released (`released_at` stamped).
+    pub const HOLD_RELEASED: &str = "hold.released";
+    /// A workspace retention policy was set (P1.2 compliance).
+    pub const RETENTION_SET: &str = "retention.set";
 }
 
 /// Outcome of [`AuditRepo::verify_audit_chain`].
