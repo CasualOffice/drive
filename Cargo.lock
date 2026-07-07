@@ -767,6 +767,7 @@ dependencies = [
  "bytes",
  "dochub-auth",
  "dochub-core",
+ "dochub-crypto",
  "dochub-db",
  "dochub-storage",
  "dochub-wopi",

@@ -25,6 +25,7 @@ mod search;
 mod share;
 mod spa;
 mod state;
+mod versions;
 mod wopi_docs;
 mod workspace_storage;
 mod workspaces;
@@ -114,6 +115,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .saturating_mul(1024)
         .saturating_mul(1024);
     let files_router: Router = files::router(state.clone(), body_limit_bytes);
+    let versions_router: Router = versions::router(state.clone());
     let share_router: Router = share::router(state.clone());
     let workspaces_router: Router = workspaces::router(state.clone());
     let workspace_storage_router: Router = workspace_storage::router(state.clone());
@@ -135,6 +137,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .merge(wopi_router)
         .merge(auth_router)
         .merge(files_router)
+        .merge(versions_router)
         .merge(share_router)
         .merge(workspaces_router)
         .merge(workspace_storage_router)

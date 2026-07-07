@@ -212,6 +212,26 @@ impl Registry {
         Ok(head.map_or(0, |h| u64::try_from(h.size).unwrap_or(0)))
     }
 
+    /// Decrypt and return the bytes of a specific version `seq` of `file_id`.
+    ///
+    /// Resolves the workspace DEK from the file row and `get_blob`s the seq's
+    /// content-addressed ciphertext through the encrypted facade. This is the
+    /// read path the version-history API's `versions/{seq}/content` endpoint
+    /// binds to — distinct from [`Registry::read_or_backfill`], which always
+    /// serves the head (and backfills legacy files). Errors
+    /// [`RegistryError::VersionNotFound`] when `(file_id, seq)` has no committed
+    /// version.
+    pub async fn read_version(&self, file_id: &str, seq: i64) -> Result<Vec<u8>, RegistryError> {
+        let workspace = self.workspace_of(file_id).await?;
+        let version = FileVersionsRepo::new(&self.db)
+            .get(file_id, seq)
+            .await?
+            .ok_or(RegistryError::VersionNotFound)?;
+        let dek = self.deks.get_or_create(&workspace).await?;
+        let key = StorageKey::from_stored(version.storage_key);
+        Ok(self.storage.get_blob(&dek, &key).await?)
+    }
+
     /// Resolve the workspace a file lives in, erroring if the row is missing or
     /// has no workspace (a pre-workspaces legacy row that can't be keyed).
     async fn workspace_of(&self, file_id: &str) -> Result<String, RegistryError> {
