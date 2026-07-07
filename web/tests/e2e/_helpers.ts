@@ -5,8 +5,9 @@ import { expect, type Page } from "@playwright/test";
  * so a misconfigured (non-demo) build fails loudly rather than mysteriously. */
 export async function signInDemo(page: Page) {
   await page.goto("/");
-  // Sign-in card title.
-  await expect(page.getByRole("heading", { name: "Casual Drive" })).toBeVisible({
+  // Sign-in card title. Renamed Casual Drive → Doc-Hub in the M4
+  // branding sweep; the heading now reads "Doc-Hub".
+  await expect(page.getByRole("heading", { name: "Doc-Hub" })).toBeVisible({
     timeout: 10_000,
   });
   // Pre-filled credentials are the demo-mode signal — empty inputs mean we

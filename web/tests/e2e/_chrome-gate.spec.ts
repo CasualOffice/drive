@@ -70,7 +70,9 @@ async function openSheetEditor(page: Page) {
   await card.scrollIntoViewIfNeeded();
   await card.click();
   await page.getByRole("button", { name: /Open in editor/i }).click();
-  await expect(page).toHaveURL(/\/file\//, { timeout: 10_000 });
+  // P2.1 made `/document/<id>/edit` the canonical editor route; `/file/<id>`
+  // survives as a compatibility alias. Accept either.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 10_000 });
   await page.getByTestId("file-fullscreen").waitFor({ timeout: 15_000 });
 }
 
@@ -79,7 +81,8 @@ test("UX-EDITOR-6: PreviewModal Expand button routes to fullscreen", async ({ pa
   await page.getByText("Q2 planning.xlsx").first().click();
   await page.getByTestId("preview-expand").waitFor();
   await page.getByTestId("preview-expand").click();
-  await expect(page).toHaveURL(/\/file\//, { timeout: 5_000 });
+  // Canonical `/document/<id>/edit` (P2.1); `/file/<id>` alias also valid.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 5_000 });
   await page.getByTestId("file-fullscreen").waitFor();
 });
 
