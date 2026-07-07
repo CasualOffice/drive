@@ -18,6 +18,7 @@ mod legal_holds;
 mod notes;
 mod oidc;
 mod pool;
+mod provenance_keys;
 mod registry;
 mod retention;
 mod search;
@@ -42,6 +43,7 @@ pub use notes::{
 };
 pub use oidc::{NewOidcFlowState, OidcFlowState, OidcFlowStateRepo};
 pub use pool::{Db, DbBackend};
+pub use provenance_keys::{ProvenanceKeyError, ProvenanceKeypair, ProvenanceKeysRepo};
 pub use registry::{Registry, RegistryError};
 pub use retention::{NewRetentionPolicy, RetentionPolicy, RetentionRepo};
 pub use search::{SearchFilters, SearchPaging, SortBy, SortDir, TypeBucket};

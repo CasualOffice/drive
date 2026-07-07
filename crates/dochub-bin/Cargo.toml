@@ -22,6 +22,9 @@ dochub-storage = { path = "../dochub-storage" }
 dochub-wopi    = { path = "../dochub-wopi" }
 dochub-auth    = { path = "../dochub-auth" }
 dochub-http    = { path = "../dochub-http" }
+# Offline `verify-provenance` CLI (Phase 1 §2.1): parse a manifest JSON and
+# re-verify its Ed25519 signature + hash chain with no DB or network.
+dochub-crypto  = { path = "../dochub-crypto" }
 
 axum               = { workspace = true }
 tokio              = { workspace = true }
@@ -30,3 +33,8 @@ anyhow             = { workspace = true }
 time               = { workspace = true }
 tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
+serde_json         = { workspace = true }
+
+[dev-dependencies]
+tempfile           = { workspace = true }
+base64             = { workspace = true }

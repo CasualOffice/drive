@@ -72,6 +72,12 @@ rand              = "0.9"
 aws-lc-rs         = "1"
 zeroize           = { version = "1", features = ["derive"] }
 
+# Ed25519 provenance signing (Phase 1 §2.1, `dochub-crypto`). ed25519-dalek is
+# the canonical audited pure-Rust EdDSA impl (BSD-3-Clause — in the deny
+# allowlist); `verify_strict` rejects malleable / non-canonical signatures.
+# `rand` (above) supplies the CSPRNG seed for key generation.
+ed25519-dalek     = { version = "2", default-features = false, features = ["std", "zeroize"] }
+
 # Phase 3 §12 — OIDC. `openidconnect` 5.x is the canonical Rust client;
 # does discovery + ID-token signature verification + PKCE for us.
 # Heavy (~50 transitive deps) but the alternative is hand-rolling

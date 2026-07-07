@@ -2,8 +2,8 @@
 //! comes online when CI gains a Postgres service.
 
 use dochub_db::{
-    Db, DbError, FileRepo, FolderRepo, NewFile, NewFolder, NewSession, NewUser, SessionRepo,
-    UserRepo, WorkspaceDeks, WorkspaceKeysRepo, WorkspaceKind, WorkspaceRepo,
+    Db, DbError, FileRepo, FolderRepo, NewFile, NewFolder, NewSession, NewUser, ProvenanceKeysRepo,
+    SessionRepo, UserRepo, WorkspaceDeks, WorkspaceKeysRepo, WorkspaceKind, WorkspaceRepo,
 };
 
 async fn fresh_db() -> Db {
@@ -454,6 +454,53 @@ async fn workspace_key_persisted_only_wrapped() {
     assert_eq!(wrapped.ct.first(), Some(&0x01));
     assert!(wrapped.ct.len() > 32);
     assert_eq!(wrapped.key_version, 1);
+}
+
+// --- provenance keys / Ed25519 signing key (build spec §2.1, P1.4) --------
+
+/// `get_or_create` is idempotent per workspace: the second call resolves the
+/// SAME key from the persisted (sealed) row. Proven functionally — the seed is
+/// never exposed — by signing under one handle and verifying under the other's
+/// public key.
+#[tokio::test]
+async fn provenance_key_get_or_create_is_persisted_and_idempotent() {
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let ws = personal_ws(&db, &owner).await;
+    let kek = dochub_core::dev_master_kek();
+
+    let repo = ProvenanceKeysRepo::new(&db);
+    let kp1 = repo.get_or_create(&ws, &kek).await.unwrap();
+    let sig = kp1.sign(b"manifest");
+
+    // Second call for the SAME workspace unwraps the persisted row: same public
+    // key, and it verifies kp1's signature.
+    let kp2 = repo.get_or_create(&ws, &kek).await.unwrap();
+    assert_eq!(kp1.public_key(), kp2.public_key());
+    dochub_crypto::verify(kp2.public_key(), b"manifest", &sig).unwrap();
+}
+
+/// Different workspaces get different signing keys.
+#[tokio::test]
+async fn provenance_keys_are_per_workspace() {
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let ws1 = personal_ws(&db, &owner).await;
+    let ws2 = WorkspaceRepo::new(&db)
+        .insert("Team", WorkspaceKind::Team, &owner)
+        .await
+        .unwrap()
+        .id;
+    let kek = dochub_core::dev_master_kek();
+
+    let repo = ProvenanceKeysRepo::new(&db);
+    let kp1 = repo.get_or_create(&ws1, &kek).await.unwrap();
+    let kp2 = repo.get_or_create(&ws2, &kek).await.unwrap();
+    assert_ne!(kp1.public_key(), kp2.public_key());
+
+    // ws1's signature must NOT verify under ws2's key.
+    let sig = kp1.sign(b"x");
+    assert!(dochub_crypto::verify(kp2.public_key(), b"x", &sig).is_err());
 }
 
 // --- KEK rotation / lossless re-wrap (build spec §4, P1.1) ----------------

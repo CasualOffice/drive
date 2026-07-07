@@ -24,6 +24,8 @@ time       = { workspace = true }
 ulid       = { workspace = true }
 tracing    = { workspace = true }
 base64     = { workspace = true }
+# Zeroize the in-memory Ed25519 provenance signing seed on drop.
+zeroize    = { workspace = true }
 
 [dev-dependencies]
 tokio      = { workspace = true }

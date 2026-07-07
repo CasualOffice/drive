@@ -16,6 +16,16 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 async fn main() -> anyhow::Result<()> {
     init_tracing();
 
+    // Offline subcommand — needs no config, DB, or network, so it runs before
+    // `Config::from_env` (which would demand a master KEK etc.). Verifies a
+    // provenance manifest's Ed25519 signature + hash chain from a file on disk.
+    if std::env::args().nth(1).as_deref() == Some("verify-provenance") {
+        let path = std::env::args().nth(2).ok_or_else(|| {
+            anyhow::anyhow!("usage: dochub verify-provenance <path-to-manifest.json>")
+        })?;
+        return run_verify_provenance(&path);
+    }
+
     let cfg = Config::from_env()?;
 
     // Admin subcommands run to completion and exit — they never start the HTTP
@@ -25,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
         return match cmd.as_str() {
             "rotate-kek" => run_rotate_kek(&cfg).await,
             other => Err(anyhow::anyhow!(
-                "unknown subcommand: {other} (known: rotate-kek)"
+                "unknown subcommand: {other} (known: rotate-kek, verify-provenance)"
             )),
         };
     }
@@ -149,6 +159,36 @@ async fn run_rotate_kek(cfg: &Config) -> anyhow::Result<()> {
             "{} workspace(s) failed to rotate — old KEK left in place for them",
             report.failed.len()
         )
+    }
+}
+
+/// `verify-provenance <path>` — offline verification of a signed provenance
+/// manifest (P1.4). Reads the JSON file, re-verifies the Ed25519 signature over
+/// the canonical serialization AND re-walks the hash chain (each `prev_hash`
+/// equals the previous link's `content_hash`, head matches the last link).
+/// Needs no config, DB, or network. Prints `OK`/`FAIL` and exits non-zero on
+/// any failure so automation can gate on the result.
+fn run_verify_provenance(path: &str) -> anyhow::Result<()> {
+    let bytes =
+        std::fs::read(path).map_err(|e| anyhow::anyhow!("cannot read manifest {path}: {e}"))?;
+    let signed: dochub_crypto::provenance::SignedProvenance = serde_json::from_slice(&bytes)
+        .map_err(|e| anyhow::anyhow!("{path} is not a valid provenance manifest: {e}"))?;
+
+    match dochub_crypto::provenance::verify_signed(&signed) {
+        Ok(()) => {
+            let m = &signed.manifest;
+            println!(
+                "OK: provenance for file {} verified — signature valid, {} version(s) chain intact, head {}",
+                m.file_id,
+                m.chain.len(),
+                m.head.as_deref().unwrap_or("(none)"),
+            );
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("FAIL: provenance verification failed: {e}");
+            std::process::exit(1);
+        }
     }
 }
 

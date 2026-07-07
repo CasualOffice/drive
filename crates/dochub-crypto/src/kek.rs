@@ -72,6 +72,21 @@ impl EnvKek {
             key_version,
         })
     }
+
+    /// Seal arbitrary secret bytes under this master KEK, returning the envelope
+    /// (`0x01 ‖ nonce ‖ ct ‖ tag`). Same AES-256-GCM primitive as DEK wrapping;
+    /// used to seal a workspace's Ed25519 provenance signing seed (Phase 1
+    /// §2.1). A fresh random nonce is drawn per call.
+    #[must_use]
+    pub fn seal_secret(&self, plaintext: &[u8]) -> Vec<u8> {
+        seal_bytes(&self.kek, random_nonce(), plaintext)
+    }
+
+    /// Open a `seal_secret` envelope. Returns `Err` — never panics — on any
+    /// malformed, truncated, wrong-version, or tampered input.
+    pub fn open_secret(&self, envelope: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        open_bytes(&self.kek, envelope)
+    }
 }
 
 impl KeyProvider for EnvKek {

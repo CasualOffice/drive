@@ -20,4 +20,10 @@ pub enum CryptoError {
     /// A hash string is not exactly 64 lowercase hex digits (a SHA-256).
     #[error("invalid sha-256 hex: expected 64 lowercase hex digits")]
     BadHash,
+    /// Ed25519 verifying-key bytes are not a valid curve point.
+    #[error("invalid ed25519 public key")]
+    BadPublicKey,
+    /// Ed25519 signature did not verify against the key and message.
+    #[error("ed25519 signature verification failed")]
+    SignatureInvalid,
 }

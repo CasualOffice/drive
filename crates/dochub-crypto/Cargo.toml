@@ -21,6 +21,10 @@ base64    = { workspace = true }
 # `aws-lc-rs` digest already linked for AEAD.
 subtle    = { workspace = true }
 serde     = { workspace = true }
+# Ed25519 provenance signing (Phase 1 §2.1). BSD-3-Clause; `verify_strict`
+# rejects malleable signatures. `rand` seeds key generation from the OS CSPRNG.
+ed25519-dalek = { workspace = true }
+rand      = { workspace = true }
 
 [dev-dependencies]
 proptest   = { workspace = true }

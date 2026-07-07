@@ -670,12 +670,16 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "dochub-auth",
  "dochub-core",
+ "dochub-crypto",
  "dochub-db",
  "dochub-http",
  "dochub-storage",
  "dochub-wopi",
+ "serde_json",
+ "tempfile",
  "time",
  "tokio",
  "tower-http",
@@ -729,7 +733,9 @@ version = "0.0.1"
 dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
+ "ed25519-dalek",
  "proptest",
+ "rand 0.9.4",
  "serde",
  "serde_json",
  "subtle",
@@ -753,6 +759,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
+ "zeroize",
 ]
 
 [[package]]

@@ -385,6 +385,92 @@ async fn verify_reports_intact_then_broken() {
     assert_eq!(body["at_seq"], 2, "break surfaces the 1-based seq");
 }
 
+/// The provenance manifest is signed: it verifies with the returned public key
+/// AND re-walks the hash chain offline; altering any `content_hash` breaks it.
+#[tokio::test]
+async fn provenance_manifest_signs_and_verifies_offline() {
+    use dochub_crypto::provenance::{verify_signed, ProvenanceError, SignedProvenance};
+
+    let app = router(fixture().await);
+    let cookie = sign_in(&app, "admin", "hunter2").await;
+    let id = upload(&app, &cookie, b"v1").await;
+    put_content(&app, &cookie, &id, b"v2").await;
+    put_content(&app, &cookie, &id, b"v3").await;
+
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            &format!("/api/files/{id}/provenance"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let raw = json_body(r).await;
+
+    // Manifest shape: file_id, head, chain of 3 links seq-ascending.
+    assert_eq!(raw["manifest"]["file_id"], id);
+    let chain = raw["manifest"]["chain"].as_array().unwrap();
+    assert_eq!(chain.len(), 3);
+    assert_eq!(chain[0]["seq"], 1);
+    assert!(chain[0]["prev_hash"].is_null());
+    assert_eq!(chain[2]["seq"], 3);
+    assert_eq!(raw["manifest"]["head"], chain[2]["content_hash"]);
+    assert!(raw["signature"].as_str().unwrap().len() > 8);
+    assert!(raw["public_key"].as_str().unwrap().len() > 8);
+
+    // Parse into the crypto type and verify fully offline.
+    let signed: SignedProvenance = serde_json::from_value(raw.clone()).unwrap();
+    verify_signed(&signed).expect("genuine manifest verifies");
+
+    // Altering any content_hash breaks the signature (bytes no longer match).
+    let mut tampered = signed;
+    tampered.manifest.chain[1].content_hash = "0".repeat(64);
+    assert!(matches!(
+        verify_signed(&tampered),
+        Err(ProvenanceError::Signature(_))
+    ));
+}
+
+/// Provenance is authenticated + owner-gated: 401 without a session, 403 for a
+/// non-owner.
+#[tokio::test]
+async fn provenance_enforces_auth_and_ownership() {
+    let app = router(fixture().await);
+    let owner = sign_in(&app, "admin", "hunter2").await;
+    let id = upload(&app, &owner, b"secret").await;
+
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/files/{id}/provenance"))
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+
+    let bob = sign_in(&app, "bob", "bobpass").await;
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            &format!("/api/files/{id}/provenance"),
+            &bob,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+}
+
 /// The version surface is authenticated and owner-gated, exactly like the
 /// sibling file endpoints.
 #[tokio::test]

@@ -17,6 +17,11 @@
 //! digest with constant-time equality, plus [`hash_content`]/[`entry_hash`] and
 //! an append-only [`verify_chain`] — shared by the version engine and the audit
 //! log. SHA-256 reuses the same `aws-lc-rs` digest, no new crypto crate.
+//!
+//! The [`sign`] primitive ([`generate_signing_key`]/[`sign`]/[`verify`]) adds
+//! Ed25519 detached signatures via `ed25519-dalek`, and [`provenance`] builds on
+//! it: the canonical serialization + offline verification of a signed
+//! provenance manifest for a file's hash chain (Phase 1 build §2.1).
 
 #![forbid(unsafe_code)]
 
@@ -24,6 +29,8 @@ mod chain;
 mod envelope;
 mod error;
 mod kek;
+pub mod provenance;
+mod sign;
 
 pub use chain::{
     entry_hash, hash_content, verify_chain, BreakReason, ChainLink, ChainStatus, Sha256Hex,
@@ -31,6 +38,7 @@ pub use chain::{
 pub use envelope::{generate_dek, open, seal, Dek, SealedBlob};
 pub use error::CryptoError;
 pub use kek::{EnvKek, KeyProvider, WrappedDek};
+pub use sign::{generate_signing_key, sign, verify, Sig, SigningKeyBytes, VerifyingKeyBytes};
 
 #[cfg(test)]
 mod tests;

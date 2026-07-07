@@ -297,7 +297,7 @@ pub(crate) fn version_registry(s: &HttpState) -> dochub_db::Registry {
 /// Personal workspace for the rare pre-workspaces legacy row whose
 /// `workspace_id` is still NULL — the same resolution the save path uses, so
 /// reads and writes agree on which DEK seals the chain.
-async fn file_workspace(
+pub(crate) async fn file_workspace(
     s: &HttpState,
     file: &File,
     session: &AuthSession,

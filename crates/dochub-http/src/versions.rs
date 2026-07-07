@@ -10,6 +10,7 @@
 //! - `GET  /api/files/{id}/versions/{seq}/content` — decrypted bytes of a version
 //! - `POST /api/files/{id}/restore/{seq}`          — restore a version as new head
 //! - `GET  /api/files/{id}/verify`                 — verify the hash chain
+//! - `GET  /api/files/{id}/provenance`             — signed provenance manifest (§2.1)
 //!
 //! No code path here mutates history: `restore` is additive (a new head), and
 //! everything else is a read. Reuses [`crate::files::FilesError`] for status +
@@ -23,14 +24,25 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use dochub_crypto::provenance::{
+    canonical_bytes, ProvenanceLink, ProvenanceManifest, SignedProvenance,
+};
 use dochub_crypto::ChainStatus;
 use dochub_db::{
-    action, AuditRepo, FileRepo, FileVersionsRepo, NewAuditEvent, RegistryError, Version,
+    action, AuditRepo, FileRepo, FileVersionsRepo, NewAuditEvent, ProvenanceKeysRepo,
+    RegistryError, Version,
 };
 use serde::Serialize;
 
-use crate::files::{version_registry, FilesError};
+use crate::files::{file_workspace, version_registry, FilesError};
 use crate::HttpState;
+
+/// RFC-3339 UTC rendering of a timestamp, matching the version-list surface.
+fn rfc3339(t: time::OffsetDateTime) -> String {
+    t.format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default()
+}
 
 /// One row of a file's version history. Mirrors [`dochub_db::Version`] minus the
 /// internal `storage_key` (never leaked — it's the content-addressed cipher key)
@@ -210,6 +222,60 @@ async fn verify(
     Ok(Json(body))
 }
 
+/// `GET /api/files/{id}/provenance` — a signed provenance manifest (build spec
+/// §2.1). Builds the manifest from the file's hash chain (seq-ascending),
+/// stamps `generated_at` here (never in the crypto layer), signs the canonical
+/// serialization with the file's per-workspace Ed25519 key, and returns the
+/// manifest plus the detached signature and public key. A recipient verifies
+/// the signature and re-walks the chain offline (see the `verify-provenance`
+/// CLI). Owner-gated like the sibling version endpoints.
+async fn provenance(
+    State(s): State<HttpState>,
+    session: dochub_auth::AuthSession,
+    Path(id): Path<String>,
+) -> Result<Json<SignedProvenance>, FilesError> {
+    let file = owned_file(&s, &id, &session).await?;
+    let workspace = file_workspace(&s, &file, &session).await?;
+
+    let chain = FileVersionsRepo::new(&s.db)
+        .list_chain(&id)
+        .await
+        .map_err(|e| FilesError::Internal(e.to_string()))?;
+
+    let links: Vec<ProvenanceLink> = chain
+        .iter()
+        .map(|v| ProvenanceLink {
+            seq: v.seq,
+            content_hash: v.content_hash.clone(),
+            prev_hash: v.prev_hash.clone(),
+            created_at: rfc3339(v.created_at),
+            author_id: v.author_id.clone(),
+        })
+        .collect();
+    let head = chain.last().map(|v| v.content_hash.clone());
+
+    let manifest = ProvenanceManifest {
+        file_id: id,
+        chain: links,
+        head,
+        generated_at: rfc3339(time::OffsetDateTime::now_utc()),
+    };
+
+    let keypair = ProvenanceKeysRepo::new(&s.db)
+        .get_or_create(&workspace, s.config.master_kek.as_ref())
+        .await
+        .map_err(|e| FilesError::Internal(e.to_string()))?;
+
+    let signature = STANDARD.encode(keypair.sign(&canonical_bytes(&manifest)));
+    let public_key = STANDARD.encode(keypair.public_key());
+
+    Ok(Json(SignedProvenance {
+        manifest,
+        signature,
+        public_key,
+    }))
+}
+
 pub(crate) fn router(state: HttpState) -> Router {
     Router::new()
         .route("/api/files/{id}/versions", get(list_versions))
@@ -219,5 +285,6 @@ pub(crate) fn router(state: HttpState) -> Router {
         )
         .route("/api/files/{id}/restore/{seq}", post(restore_version))
         .route("/api/files/{id}/verify", get(verify))
+        .route("/api/files/{id}/provenance", get(provenance))
         .with_state(state)
 }
