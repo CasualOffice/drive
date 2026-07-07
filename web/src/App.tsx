@@ -91,15 +91,15 @@ export function App() {
         position="bottom-center"
         toastOptions={{
           style: {
-            background: "var(--ink)",
-            color: "var(--paper)",
-            border: "none",
-            borderRadius: 13,
+            background: "var(--bg-raised)",
+            color: "var(--fg-default)",
+            border: "1px solid var(--border-hair)",
+            borderRadius: "var(--radius-md)",
             fontFamily: "var(--font-sans)",
             fontSize: "var(--text-sm)",
             fontWeight: 500,
-            padding: "12px 18px",
-            boxShadow: "0 10px 30px rgba(15, 23, 42,.3)",
+            padding: "10px 14px",
+            boxShadow: "var(--shadow-md)",
           },
         }}
       />

@@ -6,16 +6,15 @@ import {
   FolderClosed,
   Gauge,
   Home,
+  Lock,
   NotebookPen,
   Plus,
   Settings,
   Share2,
   Sheet,
-  ShieldCheck,
   Star,
   Trash2,
   Upload,
-  Users,
 } from "lucide-react";
 
 import { Logo, Wordmark } from "./Logo.tsx";
@@ -69,7 +68,6 @@ export function Sidebar({
   onNewDocument,
   onNewSpreadsheet,
   username,
-  storage,
 }: {
   current: NavId;
   onSelect: (id: NavId) => void;
@@ -79,6 +77,8 @@ export function Sidebar({
   onNewDocument: () => void;
   onNewSpreadsheet: () => void;
   username: string;
+  /** Kept for source compatibility with prior callers; no longer rendered
+   * in the dense rail (§7). */
   storage?: { usedBytes: number; quotaBytes?: number };
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -86,30 +86,25 @@ export function Sidebar({
   return (
     <aside
       style={{
-        // Slate Console (re-skin Phase B) — the rail stays dark even
-        // when the rest of the app is in light mode. Tokens shipped
-        // in Phase A's tokens.css.
-        width: 248,
+        // Dark ink rail (§7.1 dark-on-light) — stays dark even when the
+        // rest of the app is in light mode.
+        width: 240,
         flexShrink: 0,
         height: "100vh",
-        padding: "22px 16px",
+        padding: "16px 12px",
         display: "flex",
         flexDirection: "column",
-        gap: 6,
+        gap: 4,
         background: "var(--rail)",
         color: "var(--rail-text)",
         borderRight: "1px solid var(--rail-line)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 8px 16px" }}>
-        {/* Logo's square fills with `currentColor` and the cloud
-            paints with `var(--mark-fg)` so this single wrapper flips
-            both. On the rail we want a cyan square + paper-coloured
-            cloud — readable, brand-locked. */}
-        <div style={{ color: "var(--accent)", ["--mark-fg" as string]: "#FFFFFF" }}>
-          <Logo size={36} />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 8px 12px" }}>
+        {/* Amber square + paper cloud, brand-locked on the dark rail. */}
+        <div style={{ color: "var(--accent)", ["--mark-fg" as string]: "#F5F3EE" }}>
+          <Logo size={30} />
         </div>
-        {/* Wordmark inherits via currentColor on the wrapping span. */}
         <div style={{ color: "var(--rail-active-text)" }}>
           <Wordmark tone="rail" />
         </div>
@@ -118,42 +113,42 @@ export function Sidebar({
       <RealWorkspaceSwitcher />
       <AvatarStack />
 
-      <div style={{ position: "relative", marginTop: 12, marginBottom: 14 }}>
+      <div style={{ position: "relative", marginTop: 10, marginBottom: 10 }}>
         <button
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
           aria-expanded={menuOpen}
           style={{
-            // Slate Console — the New button is the primary cyan
-            // fill (formerly ink-on-paper). Its hover lift uses the
-            // cyan-tinted `--shadow-button` from Phase A tokens.
             display: "flex",
             alignItems: "center",
-            gap: 10,
+            gap: 8,
             width: "100%",
             border: "none",
             cursor: "pointer",
             background: "var(--accent)",
-            color: "var(--fg-onAccent)",
+            color: "var(--accent-fg)",
             fontFamily: "var(--font-sans)",
             fontSize: "var(--text-md)",
-            fontWeight: 500,
-            padding: "13px 16px",
-            borderRadius: 10,
-            transition: "transform 250ms var(--ease), box-shadow 250ms, background 200ms",
+            fontWeight: "var(--weight-medium)",
+            height: 32,
+            padding: "0 12px",
+            borderRadius: "var(--radius-sm)",
+            transition: "background var(--dur-fast) var(--ease-out), transform var(--dur-instant)",
           }}
           onMouseOver={(e) => {
-            e.currentTarget.style.transform = "translateY(-1px)";
-            e.currentTarget.style.boxShadow = "var(--shadow-button)";
             e.currentTarget.style.background = "var(--accent-hover)";
           }}
           onMouseOut={(e) => {
-            e.currentTarget.style.transform = "";
-            e.currentTarget.style.boxShadow = "";
             e.currentTarget.style.background = "var(--accent)";
           }}
+          onMouseDown={(e) => {
+            e.currentTarget.style.transform = "translateY(1px)";
+          }}
+          onMouseUp={(e) => {
+            e.currentTarget.style.transform = "";
+          }}
         >
-          <Plus size={16} strokeWidth={2} />
+          <Plus size={16} strokeWidth={1.5} />
           <span>New</span>
         </button>
         {menuOpen && (
@@ -215,33 +210,24 @@ export function Sidebar({
 
       <div style={{ flex: 1 }} />
 
-      {storage && <StorageCard {...storage} />}
-
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <AvatarRow username={username} />
         </div>
         <ThemeToggle />
       </div>
+
+      <EncryptionFooterChip />
     </aside>
   );
 }
-
-// The real switcher lives in WorkspaceSwitcher.tsx; this stub was
-// removed once the workspaces API landed.
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <>
       <span
-        style={{
-          fontSize: 10,
-          letterSpacing: "2.5px",
-          textTransform: "uppercase",
-          color: "var(--rail-muted)",
-          fontWeight: 600,
-          padding: "10px 12px 4px",
-        }}
+        className="caps-label"
+        style={{ color: "var(--rail-muted)", padding: "10px 10px 4px" }}
       >
         {label}
       </span>
@@ -250,7 +236,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
           listStyle: "none",
           display: "flex",
           flexDirection: "column",
-          gap: 2,
+          gap: 1,
           margin: 0,
           padding: 0,
         }}
@@ -278,56 +264,63 @@ function NavRow({
       <button
         type="button"
         onClick={onClick}
+        aria-current={active ? "page" : undefined}
         style={{
-          // Slate Console rail row. Active = cyan-wash fill +
-          // bright-cyan text (`--rail-active-text`); idle = transparent
-          // + `--rail-text`. Hover gets a thin white wash so the row
-          // affords without flashing colour.
+          // Active = amber-wash fill + 2px left amber rule + paper text
+          // (semibold); idle = transparent + rail-text.
+          position: "relative",
           display: "flex",
           alignItems: "center",
-          gap: 12,
+          gap: 8,
           width: "100%",
-          padding: "9px 12px",
-          borderRadius: 10,
+          height: 28,
+          padding: "0 10px",
+          borderRadius: "var(--radius-sm)",
           background: active ? "var(--rail-active)" : "transparent",
           color: active ? "var(--rail-active-text)" : "var(--rail-text)",
           border: "none",
           cursor: "pointer",
           fontFamily: "var(--font-sans)",
-          fontSize: "var(--text-md)",
-          fontWeight: active ? 500 : 400,
+          fontSize: "var(--text-base)",
+          fontWeight: active ? "var(--weight-semibold)" : "var(--weight-body)",
           textAlign: "left",
-          transition: "background 180ms, color 180ms",
+          transition: "background var(--dur-base) var(--ease-out), color var(--dur-base)",
         }}
         onMouseOver={(e) => {
-          if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+          if (!active) e.currentTarget.style.background = "var(--rail-2)";
         }}
         onMouseOut={(e) => {
           if (!active) e.currentTarget.style.background = "transparent";
         }}
       >
-        <Icon size={17} strokeWidth={1.7} style={{ opacity: active ? 1 : 0.85 }} />
+        {active && (
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 4,
+              bottom: 4,
+              width: 2,
+              borderRadius: 2,
+              background: "var(--accent)",
+            }}
+          />
+        )}
+        <Icon size={16} strokeWidth={1.5} style={{ opacity: active ? 1 : 0.9 }} />
         <span style={{ flex: 1 }}>{item.label}</span>
         {item.comingSoon && (
-          <span
-            style={{
-              fontSize: 10,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              color: active ? "var(--rail-muted)" : "var(--rail-muted)",
-              fontWeight: 600,
-            }}
-          >
+          <span className="caps-label" style={{ color: "var(--rail-muted)" }}>
             soon
           </span>
         )}
         {badge !== undefined && badge > 0 && !item.comingSoon && (
           <span
-            className="tabular-nums"
+            className="tnum"
             style={{
               fontSize: "var(--text-sm)",
               color: active ? "var(--rail-active-text)" : "var(--rail-muted)",
-              opacity: active ? 0.7 : 1,
+              opacity: active ? 0.8 : 1,
             }}
           >
             {badge}
@@ -335,6 +328,31 @@ function NavRow({
         )}
       </button>
     </li>
+  );
+}
+
+/** Always-on trust cue: encryption at rest is a product invariant, so the
+ * footer chip reminds the user that empty ≠ unprotected. Non-interactive. */
+function EncryptionFooterChip() {
+  return (
+    <div
+      title="All documents are encrypted at rest with AES-256-GCM"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "8px 10px 4px",
+        color: "var(--rail-muted)",
+        fontSize: "var(--text-2xs)",
+        fontWeight: "var(--weight-medium)",
+        lineHeight: 1.3,
+        cursor: "default",
+        userSelect: "none",
+      }}
+    >
+      <Lock size={12} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+      <span>Encrypted at rest · AES-256-GCM</span>
+    </div>
   );
 }
 
@@ -360,19 +378,19 @@ function NewMenu({
         top: "calc(100% + 6px)",
         left: 0,
         width: "100%",
-        background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: 13,
-        boxShadow: "var(--shadow-hover)",
-        padding: 6,
+        background: "var(--bg-raised)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-md)",
+        padding: 4,
         zIndex: 20,
-        animation: "cd-menu-in 200ms var(--ease)",
+        animation: "cd-menu-in var(--dur-base) var(--ease-out)",
       }}
     >
-      <MenuItem icon={<FolderClosed size={16} />} label="New folder" onClick={onNewFolder} />
-      <MenuItem icon={<FileText size={16} />} label="New document" onClick={onNewDocument} />
-      <MenuItem icon={<Sheet size={16} />} label="New spreadsheet" onClick={onNewSpreadsheet} />
-      <MenuItem icon={<Upload size={16} />} label="Upload files" onClick={onUpload} />
+      <MenuItem icon={<FolderClosed size={16} strokeWidth={1.5} />} label="New folder" onClick={onNewFolder} />
+      <MenuItem icon={<FileText size={16} strokeWidth={1.5} />} label="New document" onClick={onNewDocument} />
+      <MenuItem icon={<Sheet size={16} strokeWidth={1.5} />} label="New spreadsheet" onClick={onNewSpreadsheet} />
+      <MenuItem icon={<Upload size={16} strokeWidth={1.5} />} label="Upload files" onClick={onUpload} />
       <style>{`
         @keyframes cd-menu-in {
           from { opacity: 0; transform: translateY(-6px); }
@@ -400,100 +418,26 @@ function MenuItem({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 11,
+        gap: 10,
         width: "100%",
         border: "none",
         background: "transparent",
         cursor: "pointer",
-        padding: "10px 12px",
-        borderRadius: 9,
+        height: 30,
+        padding: "0 10px",
+        borderRadius: "var(--radius-sm)",
         fontFamily: "var(--font-sans)",
-        fontSize: "var(--text-sm)",
-        color: "var(--ink)",
+        fontSize: "var(--text-base)",
+        color: "var(--fg-default)",
         textAlign: "left",
-        transition: "background 150ms",
+        transition: "background var(--dur-fast)",
       }}
       onMouseOver={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
       onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
     >
-      <span style={{ color: "var(--muted)" }}>{icon}</span>
+      <span style={{ color: "var(--fg-muted)", display: "inline-flex" }}>{icon}</span>
       <span>{label}</span>
     </button>
-  );
-}
-
-function StorageCard({ usedBytes, quotaBytes }: { usedBytes: number; quotaBytes?: number }) {
-  const pct =
-    quotaBytes && quotaBytes > 0 ? Math.min(100, Math.round((usedBytes / quotaBytes) * 100)) : null;
-  return (
-    <div
-      style={{
-        // Raised-on-rail card: `--rail-2` is slightly lighter than
-        // `--rail` so the card lifts off the sidebar background
-        // without breaking the dark frame.
-        background: "var(--rail-2)",
-        border: "1px solid var(--rail-line)",
-        borderRadius: "var(--radius)",
-        padding: 14,
-        marginBottom: 8,
-        color: "var(--rail-text)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          marginBottom: 10,
-        }}
-      >
-        <span
-          style={{
-            fontSize: "var(--text-sm)",
-            fontWeight: 500,
-            color: "var(--rail-active-text)",
-          }}
-        >
-          Storage
-        </span>
-        {pct !== null && (
-          <span
-            className="tabular-nums"
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "var(--text-sm)",
-              color: "var(--rail-muted)",
-            }}
-          >
-            {pct}%
-          </span>
-        )}
-      </div>
-      <div
-        style={{
-          height: 6,
-          borderRadius: 6,
-          background: "rgba(255, 255, 255, 0.08)",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            display: "block",
-            height: "100%",
-            width: pct !== null ? `${pct}%` : 0,
-            borderRadius: 6,
-            background: "linear-gradient(90deg, var(--accent), var(--accent-bright))",
-            transition: "width 1200ms var(--ease)",
-          }}
-        />
-      </div>
-      <div style={{ fontSize: "var(--text-xs)", color: "var(--rail-muted)", marginTop: 9 }}>
-        {pct !== null
-          ? `${formatBytes(usedBytes)} of ${formatBytes(quotaBytes!)} used`
-          : `${formatBytes(usedBytes)} used`}
-      </div>
-    </div>
   );
 }
 
@@ -505,38 +449,33 @@ function AvatarRow({ username }: { username: string }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 11,
+        gap: 8,
         width: "100%",
-        padding: "8px 12px",
+        padding: "6px 8px",
         background: "transparent",
         border: "none",
-        borderRadius: 10,
+        borderRadius: "var(--radius-sm)",
         cursor: "pointer",
         textAlign: "left",
-        transition: "background 150ms",
+        transition: "background var(--dur-fast)",
       }}
-      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+      onMouseOver={(e) => (e.currentTarget.style.background = "var(--rail-2)")}
       onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <span
         style={{
-          // Cyan monogram chip on the dark rail — same accent that
-          // fills the New button so the user's avatar reads as "yours
-          // in this product" rather than a generic stock chip.
-          width: 32,
-          height: 32,
+          width: 26,
+          height: 26,
           borderRadius: "50%",
-          background: "linear-gradient(135deg, var(--accent), var(--accent-bright))",
-          color: "var(--fg-onAccent)",
+          background: "var(--accent)",
+          color: "var(--accent-fg)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           fontFamily: "var(--font-display)",
-          fontWeight: 600,
+          fontWeight: "var(--weight-semibold)",
           fontSize: "var(--text-sm)",
           flexShrink: 0,
-          border: "2px solid var(--rail-2)",
-          boxShadow: "0 0 0 1px var(--rail-line)",
         }}
       >
         {monogram}
@@ -546,7 +485,7 @@ function AvatarRow({ username }: { username: string }) {
           style={{
             display: "block",
             fontSize: "var(--text-sm)",
-            fontWeight: 500,
+            fontWeight: "var(--weight-medium)",
             color: "var(--rail-active-text)",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -555,32 +494,7 @@ function AvatarRow({ username }: { username: string }) {
         >
           {username}
         </span>
-        <span
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: "var(--text-xs)",
-            color: "var(--rail-muted)",
-          }}
-        >
-          <ShieldCheck size={11} strokeWidth={1.8} />
-          Admin
-        </span>
       </span>
-      <Users size={14} style={{ color: "var(--rail-muted)" }} />
     </button>
   );
-}
-
-function formatBytes(b: number) {
-  if (b === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let v = b;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${i === 0 ? v : v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }

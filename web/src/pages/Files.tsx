@@ -1,5 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight as ChevronRightSeparator, Link2, MoreHorizontal, UploadCloud } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight as ChevronRightSeparator,
+  File as FileGeneric,
+  FileSpreadsheet,
+  FileText,
+  Folder as FolderIcon,
+  FolderPlus,
+  Link2,
+  Lock,
+  MoreHorizontal,
+  Upload,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { toast } from "sonner";
 
@@ -23,7 +37,9 @@ import { useActiveWorkspaceId } from "../state/WorkspaceContext.tsx";
 import { SearchToolbar } from "../components/SearchToolbar.tsx";
 import { generateThumbnail } from "../api/thumbnail.ts";
 import { forbiddenUploadExtension } from "../api/uploadPolicy.ts";
-import { EmptyState } from "../components/EmptyState.tsx";
+import { EmptyState, EmptyStateButton } from "../components/EmptyState.tsx";
+import { StatusChip } from "../components/ds/StatusChip.tsx";
+import { SkeletonRow, VAULT_GRID } from "../components/ds/SkeletonRow.tsx";
 import { EntryContextMenu, EntryKebab, type Entry as MenuEntry, type EntryMenuHandlers } from "../components/EntryMenu.tsx";
 import { FileMiniIcon, FileThumb, inferKind, type FileKind } from "../components/FileThumb.tsx";
 import { FileViewingDot } from "../components/FileViewingDot.tsx";
@@ -1042,9 +1058,9 @@ export function Files({
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        background: "var(--paper)",
+        background: "var(--bg-canvas)",
         overflow: "auto",
-        padding: "26px 40px 60px",
+        padding: "var(--space-4) var(--space-6) 40px",
       }}
     >
       <Header
@@ -1099,13 +1115,12 @@ export function Files({
       <Stage key={current.id ?? "root"}>
         {state.kind === "loading" && <GridSkeleton view={view} />}
         {state.kind === "ready" && total === 0 && uploading.length === 0 && (
-          <div style={{ marginTop: 40 }}>
+          <div style={{ marginTop: 24 }}>
             {/* SR12 — when the search came back empty AND there's
                 at least one filter to relax, surface the recovery
-                panel; otherwise fall back to the generic
-                empty-state ("Try a different search."). The panel's
-                computeRelaxations() returns [] when nothing's
-                actionable, so we check before rendering. */}
+                panel; otherwise fall back to the registry-motif
+                empty-state. computeRelaxations() returns [] when
+                nothing's actionable, so we check before rendering. */}
             {inSearchMode ? (
               <NoResultsRecovery
                 query={query}
@@ -1113,22 +1128,78 @@ export function Files({
                 onRelax={(next) => setSearchFilters(next)}
               />
             ) : null}
-            {!inSearchMode || !hasActiveFilters(searchFilters) ? (
+            {inSearchMode && !hasActiveFilters(searchFilters) ? (
               <EmptyState
-                title={
-                  query
-                    ? `No files match "${query}"`
-                    : path.length > 1
-                      ? "This folder is empty."
-                      : "Your Drive is empty."
-                }
-                subtitle={
-                  query
-                    ? "Try a different search."
-                    : "Drop files here or use the New button to add something."
+                title={`No matches for "${query}"`}
+                body="Search covers full document text, not just names."
+                illustration="file-search"
+                primary={
+                  <EmptyStateButton
+                    icon={<X size={14} strokeWidth={1.5} />}
+                    onClick={() => {
+                      setSearchFilters(defaultFilters());
+                      window.dispatchEvent(
+                        new CustomEvent<string>("cd:search-query", { detail: "" }),
+                      );
+                    }}
+                  >
+                    Clear search
+                  </EmptyStateButton>
                 }
               />
             ) : null}
+            {!inSearchMode &&
+              (path.length > 1 ? (
+                <EmptyState
+                  title="This folder is empty"
+                  body="Upload a document or create one here. Every version is chained; nothing is ever overwritten."
+                  illustration="file-text"
+                  primary={
+                    <EmptyStateButton
+                      icon={<Upload size={14} strokeWidth={1.5} />}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Upload
+                    </EmptyStateButton>
+                  }
+                  secondary={
+                    <EmptyStateButton
+                      variant="ghost"
+                      icon={<FolderPlus size={14} strokeWidth={1.5} />}
+                      onClick={() => setNewFolderOpen(true)}
+                    >
+                      New folder
+                    </EmptyStateButton>
+                  }
+                  hint={<span>Drag files anywhere to upload.</span>}
+                />
+              ) : (
+                <EmptyState
+                  title="Your locker is empty"
+                  body="This is your private, encrypted space. Documents you add here are versioned and hash-chained from the first upload."
+                  illustration="lock"
+                  primary={
+                    <EmptyStateButton
+                      icon={<Upload size={14} strokeWidth={1.5} />}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Upload documents
+                    </EmptyStateButton>
+                  }
+                  secondary={
+                    <EmptyStateButton
+                      variant="ghost"
+                      icon={<FolderPlus size={14} strokeWidth={1.5} />}
+                      onClick={() => setNewFolderOpen(true)}
+                    >
+                      New folder
+                    </EmptyStateButton>
+                  }
+                  hint={
+                    <span>Accepts docx, xlsx, pptx, pdf, md, txt, csv, json, yaml.</span>
+                  }
+                />
+              ))}
           </div>
         )}
         {/* SR-NOTES: in search mode, surface matching notes above the
@@ -1197,6 +1268,16 @@ export function Files({
                 }
               }}
               onEntryDoubleClick={openInEditorRoute}
+              onToggleSelect={(entry) => {
+                const id = entryId(entry);
+                setSelection((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                });
+                setSelectionAnchor(id);
+              }}
               handlersFor={handlersFor}
             />
           ))}
@@ -1233,15 +1314,15 @@ export function Files({
                   justifyContent: "center",
                   gap: 10,
                   padding: "20px 0 30px",
-                  color: "var(--muted)",
+                  color: "var(--fg-muted)",
                   fontSize: "var(--text-xs)",
                   letterSpacing: "0.06em",
                   textTransform: "uppercase",
                 }}
               >
-                <span style={{ flex: 1, maxWidth: 60, height: 1, background: "var(--line)" }} />
+                <span style={{ flex: 1, maxWidth: 60, height: 1, background: "var(--border-hair)" }} />
                 End of results
-                <span style={{ flex: 1, maxWidth: 60, height: 1, background: "var(--line)" }} />
+                <span style={{ flex: 1, maxWidth: 60, height: 1, background: "var(--border-hair)" }} />
               </div>
             )}
           </>
@@ -1253,7 +1334,7 @@ export function Files({
           style={{
             position: "absolute",
             inset: 0,
-            background: "rgba(232, 237, 242,.85)",
+            background: "rgba(245, 243, 238, 0.82)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -1270,12 +1351,12 @@ export function Files({
               padding: "24px 32px",
               border: "2px dashed var(--accent)",
               borderRadius: "var(--radius-xl)",
-              background: "var(--card)",
-              color: "var(--ink)",
+              background: "var(--bg-raised)",
+              color: "var(--fg-default)",
               boxShadow: "var(--shadow-md)",
             }}
           >
-            <UploadCloud size={32} strokeWidth={1.8} style={{ color: "var(--accent)" }} />
+            <UploadCloud size={28} strokeWidth={1.5} style={{ color: "var(--accent)" }} />
             <span style={{ fontSize: "var(--text-md)", fontWeight: 500 }}>
               Drop to upload to {current.name}
             </span>
@@ -2043,6 +2124,7 @@ function ListView({
   selection,
   onEntryClick,
   onEntryDoubleClick,
+  onToggleSelect,
   handlersFor,
 }: {
   entries: Entry[];
@@ -2050,39 +2132,21 @@ function ListView({
   selection: Set<string>;
   onEntryClick: (e: React.MouseEvent, entry: Entry) => void;
   onEntryDoubleClick?: (entry: Entry) => void;
+  onToggleSelect: (entry: Entry) => void;
   handlersFor: (entry: MenuEntry) => EntryMenuHandlers;
 }) {
   return (
     <div
+      role="table"
+      aria-label="Documents"
       style={{
-        background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: "var(--radius)",
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-md)",
         overflow: "hidden",
-        boxShadow: "var(--shadow)",
       }}
     >
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "2.5fr 1fr 1fr 80px 42px",
-          alignItems: "center",
-          padding: "var(--cd-list-row-pad-y) var(--cd-list-row-pad-x)",
-          gap: 16,
-          fontSize: "var(--text-xs)",
-          letterSpacing: "1.5px",
-          textTransform: "uppercase",
-          color: "var(--muted-2)",
-          fontWeight: 600,
-          borderBottom: "1px solid var(--line)",
-        }}
-      >
-        <span>Name</span>
-        <span>Type</span>
-        <span>Modified</span>
-        <span style={{ textAlign: "right" }}>Size</span>
-        <span />
-      </div>
+      <VaultHeader />
       {entries.map((e, i) => {
         const last = i === entries.length - 1 && uploading.length === 0;
         if (e.kind === "folder") {
@@ -2090,16 +2154,18 @@ function ListView({
           const handlers = handlersFor(entry);
           return (
             <EntryContextMenu key={e.folder.id} entry={entry} handlers={handlers}>
-              <ListRow
+              <VaultRow
                 name={e.folder.name}
                 kind="fold"
-                type="Folder"
+                kindLabel="Folder"
+                version={null}
                 modified={relative(e.folder.modified_at)}
-                size="—"
+                encrypted={false}
                 last={last}
                 selected={selection.has(e.folder.id)}
                 onClick={(ev) => onEntryClick(ev, e)}
                 onDoubleClick={onEntryDoubleClick ? () => onEntryDoubleClick(e) : undefined}
+                onToggle={() => onToggleSelect(e)}
                 kebab={<EntryKebab entry={entry} handlers={handlers} />}
               />
             </EntryContextMenu>
@@ -2110,127 +2176,273 @@ function ListView({
         const handlers = handlersFor(entry);
         return (
           <EntryContextMenu key={e.file.id} entry={entry} handlers={handlers}>
-            <ListRow
+            <VaultRow
               fileId={e.file.id}
               name={e.file.name}
               kind={kind}
-              type={labelForKind(kind)}
+              kindLabel={docKindLabel(e.file.name, e.file.content_type)}
+              version={e.file.version}
               modified={relative(e.file.modified_at)}
-              size={formatBytes(e.file.size)}
+              encrypted
+              status={e.file.status}
               selected={selection.has(e.file.id)}
               onClick={(ev) => onEntryClick(ev, e)}
               onDoubleClick={onEntryDoubleClick ? () => onEntryDoubleClick(e) : undefined}
+              onToggle={() => onToggleSelect(e)}
               last={last}
               kebab={<EntryKebab entry={entry} handlers={handlers} />}
-              thumbnail={e.file.thumbnail}
-              thumbUrls={e.file.thumb_urls}
             />
           </EntryContextMenu>
         );
       })}
       {uploading.map((name) => (
-        <ListRow key={name} name={name} kind="generic" type="Uploading…" modified="" size="" ghost last />
+        <VaultRow
+          key={name}
+          name={name}
+          kind="generic"
+          kindLabel="Uploading…"
+          version={null}
+          modified=""
+          encrypted={false}
+          status="uploading"
+          ghost
+          last
+        />
       ))}
+      <style>{`
+        [data-density="compact"] .cd-vault-row { height: 28px; }
+        .cd-vault-row:hover { background: var(--bg-hover); }
+        .cd-vault-row:hover .cd-vault-kebab,
+        .cd-vault-row:focus-within .cd-vault-kebab { opacity: 1; }
+        .cd-vault-row:hover .cd-vault-select,
+        .cd-vault-row:focus-within .cd-vault-select { opacity: 1; }
+      `}</style>
+    </div>
+  );
+}
+
+/** Dense vault table header — 36px, sticky under the toolbar. Numeric
+ * columns are right-hairline aligned per ui-system. */
+function VaultHeader() {
+  const cell: React.CSSProperties = {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+  return (
+    <div
+      role="row"
+      style={{
+        display: "grid",
+        gridTemplateColumns: VAULT_GRID,
+        alignItems: "center",
+        height: 36,
+        padding: "0 var(--space-3)",
+        gap: "var(--space-3)",
+        position: "sticky",
+        top: 0,
+        zIndex: 1,
+        background: "var(--bg-surface)",
+        borderBottom: "1px solid var(--border-hair)",
+        fontSize: "var(--text-sm)",
+        fontWeight: "var(--weight-semibold)",
+        color: "var(--fg-muted)",
+      }}
+    >
+      <span aria-hidden />
+      <span style={cell}>Name</span>
+      <span style={cell}>Kind</span>
+      <span style={cell}>Version</span>
+      <span style={cell}>Updated</span>
+      <span style={cell}>Lock</span>
+      <span style={cell}>Encryption</span>
+      <span aria-hidden />
     </div>
   );
 }
 
 // Same `asChild` forwardRef contract as `Card` — without it the
-// list-row right-click context menu silently no-ops.
-const ListRow = React.forwardRef<
+// row's right-click context menu silently no-ops.
+const VaultRow = React.forwardRef<
   HTMLDivElement,
   {
-    /** Optional — only the file rows have it; the upload-ghost row
-     * passes nothing because there's no committed id yet. When
-     * present, used to look up peer-viewing state for the dot. */
+    /** Only file rows carry it; the upload-ghost row has no id yet. */
     fileId?: string;
     name: string;
     kind: FileKind;
-    type: string;
+    kindLabel: string;
+    version: number | null;
     modified: string;
-    size: string;
+    /** Encryption-at-rest invariant — true for committed documents. */
+    encrypted: boolean;
+    status?: "uploading" | "ready" | "failed";
     onClick?: (e: React.MouseEvent) => void;
+    onDoubleClick?: () => void;
+    onToggle?: () => void;
     last?: boolean;
     ghost?: boolean;
     kebab?: React.ReactNode;
-    thumbnail?: string | null;
-    thumbUrls?: { small: string; medium: string; large: string } | null;
     selected?: boolean;
-  } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick">
->(function ListRow(
-  { fileId, name, kind, type, modified, size, onClick, last, ghost, kebab, thumbnail, thumbUrls, selected, ...rest },
+  } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "onDoubleClick">
+>(function VaultRow(
+  {
+    fileId,
+    name,
+    kind,
+    kindLabel,
+    version,
+    modified,
+    encrypted,
+    status,
+    onClick,
+    onDoubleClick,
+    onToggle,
+    last,
+    ghost,
+    kebab,
+    selected,
+    ...rest
+  },
   ref,
 ) {
+  const Icon = kindIconFor(kind);
+  const failed = status === "failed";
+  const uploading = status === "uploading";
+  const cell: React.CSSProperties = {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
   return (
     <div
       ref={ref}
+      role="row"
+      tabIndex={ghost ? undefined : 0}
       onClick={onClick}
-      className="cd-list-row"
+      onDoubleClick={onDoubleClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && onDoubleClick) {
+          e.preventDefault();
+          onDoubleClick();
+        }
+      }}
+      className="cd-vault-row"
       {...rest}
       style={{
         display: "grid",
-        gridTemplateColumns: "2.5fr 1fr 1fr 80px 42px",
+        gridTemplateColumns: VAULT_GRID,
         alignItems: "center",
-        padding: "var(--cd-list-row-pad-y) var(--cd-list-row-pad-x)",
-        gap: 16,
-        fontSize: "var(--text-base)",
+        height: 32,
+        padding: "0 var(--space-3)",
+        gap: "var(--space-3)",
         cursor: onClick ? "pointer" : "default",
-        borderBottom: last ? "none" : "1px solid var(--line)",
+        borderBottom: last ? "none" : "1px solid var(--border-hair)",
         opacity: ghost ? 0.6 : 1,
         background: selected ? "var(--bg-selected)" : "transparent",
         boxShadow: selected ? "inset 2px 0 0 var(--accent)" : "none",
-        transition: "background 150ms",
         userSelect: "none",
-      }}
-      onMouseOver={(e) => {
-        if (onClick && !selected) e.currentTarget.style.background = "var(--bg-row-hover)";
-      }}
-      onMouseOut={(e) => {
-        e.currentTarget.style.background = selected ? "var(--bg-selected)" : "transparent";
+        outlineOffset: -2,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, fontWeight: 500 }}>
+      {/* Select */}
+      <span
+        className="cd-vault-select"
+        style={{ display: "flex", alignItems: "center", opacity: selected ? 1 : 0 }}
+      >
+        {!ghost && (
+          <input
+            type="checkbox"
+            checked={!!selected}
+            aria-label={`Select ${name}`}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() => onToggle?.()}
+            style={{ width: 14, height: 14, accentColor: "var(--accent)", cursor: "pointer" }}
+          />
+        )}
+      </span>
+
+      {/* Name */}
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", minWidth: 0 }}>
+        {ghost || uploading ? (
+          <UploadCloud size={16} strokeWidth={1.5} style={{ color: "var(--accent)", flexShrink: 0 }} />
+        ) : (
+          <Icon size={16} strokeWidth={1.5} style={{ color: "var(--fg-muted)", flexShrink: 0 }} />
+        )}
+        {fileId && <FileViewingDot fileId={fileId} placement="list" />}
         <span
           style={{
-            width: "var(--cd-list-row-thumb)",
-            height: "var(--cd-list-row-thumb)",
-            borderRadius: 7,
-            overflow: "hidden",
-            flexShrink: 0,
-            display: "flex",
+            ...cell,
+            fontSize: "var(--text-base)",
+            fontWeight: "var(--weight-medium)",
+            color: "var(--fg-default)",
           }}
         >
-          <FileThumb name={name} kind={kind} size="small" thumbnail={thumbnail} thumbUrls={thumbUrls} />
+          {name}
         </span>
-        {fileId && <FileViewingDot fileId={fileId} placement="list" />}
-        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
       </div>
-      <span style={{ color: "var(--muted)", fontSize: "var(--text-sm)" }}>{type}</span>
-      <span style={{ color: "var(--muted)", fontSize: "var(--text-sm)" }}>{modified}</span>
+
+      {/* Kind */}
       <span
-        className="tabular-nums"
-        style={{ color: "var(--muted)", fontSize: "var(--text-sm)", textAlign: "right" }}
+        style={{
+          ...cell,
+          fontSize: "var(--text-sm)",
+          color: failed ? "var(--status-danger-700)" : "var(--fg-muted)",
+        }}
       >
-        {size}
+        {failed ? "Failed" : uploading ? "Uploading…" : kindLabel}
       </span>
+
+      {/* Version */}
+      <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+        {version === null || version === undefined ? "—" : `v${version}`}
+      </span>
+
+      {/* Updated */}
+      <span style={{ ...cell, fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+        {modified}
+      </span>
+
+      {/* Lock — ambient encryption-at-rest glyph */}
+      <span style={{ display: "flex", alignItems: "center" }}>
+        {encrypted ? (
+          <span
+            title="Encrypted at rest"
+            aria-label="Encrypted at rest"
+            style={{ display: "inline-flex", color: "var(--fg-subtle)" }}
+          >
+            <Lock size={13} strokeWidth={1.5} />
+          </span>
+        ) : (
+          <span style={{ color: "var(--fg-subtle)", fontSize: "var(--text-sm)" }}>—</span>
+        )}
+      </span>
+
+      {/* Encryption cluster */}
+      <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+        {encrypted ? (
+          <StatusChip
+            icon={<Lock size={11} strokeWidth={1.5} />}
+            label="AES-256-GCM"
+            tone="ambient"
+            title="Encrypted at rest with AES-256-GCM"
+          />
+        ) : (
+          <span style={{ color: "var(--fg-subtle)", fontSize: "var(--text-2xs)" }}>—</span>
+        )}
+      </span>
+
+      {/* Actions */}
       <span
-        className="cd-row-kebab"
+        className="cd-vault-kebab"
         style={{
           display: "flex",
           justifyContent: "flex-end",
-          /* Discoverable by default — was opacity:0 so the menu was
-           * invisible until hover, which on touch + casual desktop
-           * use looked like "no actions exist." */
           opacity: 0.55,
-          transition: "opacity 180ms",
+          transition: "opacity var(--dur-base)",
         }}
       >
         {kebab}
       </span>
-      <style>{`
-        .cd-list-row:hover .cd-row-kebab,
-        .cd-list-row:focus-within .cd-row-kebab { opacity: 1; }
-      `}</style>
     </div>
   );
 });
@@ -2248,42 +2460,78 @@ function GridSkeleton({ view }: { view: ViewMode }) {
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
+            className="skeleton"
             style={{
-              background: "var(--card)",
-              border: "1px solid var(--line)",
-              borderRadius: "var(--radius)",
+              border: "1px solid var(--border-hair)",
+              borderRadius: "var(--radius-md)",
               height: 188,
-              animation: "cd-shimmer 1.4s ease-in-out infinite alternate",
             }}
           />
         ))}
-        <style>{`@keyframes cd-shimmer { from { opacity:.6 } to { opacity:1 } }`}</style>
       </div>
     );
   }
   return (
     <div
       style={{
-        background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: "var(--radius)",
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-md)",
         overflow: "hidden",
       }}
     >
+      <VaultHeader />
       {Array.from({ length: 6 }).map((_, i) => (
-        <div
-          key={i}
-          style={{
-            height: 48,
-            borderBottom: i === 5 ? "none" : "1px solid var(--line)",
-            animation: "cd-shimmer 1.4s ease-in-out infinite alternate",
-            background: "rgba(15, 23, 42,.02)",
-          }}
-        />
+        <SkeletonRow key={i} />
       ))}
-      <style>{`@keyframes cd-shimmer { from { opacity:.6 } to { opacity:1 } }`}</style>
     </div>
   );
+}
+
+/** Lucide kind icon for the dense vault row (docs-only; no media). */
+function kindIconFor(kind: FileKind) {
+  switch (kind) {
+    case "fold":
+      return FolderIcon;
+    case "sheet":
+      return FileSpreadsheet;
+    case "doc":
+    case "pdf":
+      return FileText;
+    default:
+      return FileGeneric;
+  }
+}
+
+/** Human kind label restricted to the documents-only ingest allowlist —
+ * no Video/Audio/Archive branches (they can't be uploaded). */
+function docKindLabel(name: string, contentType: string | null): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "docx":
+      return "Document";
+    case "xlsx":
+    case "xlsm":
+      return "Spreadsheet";
+    case "pptx":
+      return "Slides";
+    case "pdf":
+      return "PDF";
+    case "md":
+      return "Markdown";
+    case "csv":
+      return "CSV";
+    case "json":
+      return "JSON";
+    case "yaml":
+    case "yml":
+      return "YAML";
+    case "txt":
+      return "Text";
+    default:
+      if (contentType?.startsWith("text/")) return "Text";
+      return ext.toUpperCase() || "Document";
+  }
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────
@@ -2320,23 +2568,9 @@ function labelForKind(k: ReturnType<typeof inferKind>): string {
       return "PDF";
     case "img":
       return "Image";
-    case "vid":
-      return "Video";
     default:
-      return "File";
+      return "Document";
   }
-}
-
-function formatBytes(b: number): string {
-  if (b === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let v = b;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${i === 0 ? v : v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
 function relative(iso: string): string {

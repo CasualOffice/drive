@@ -1,68 +1,186 @@
-import { FolderOpen } from "lucide-react";
+import type { ReactNode } from "react";
 
+import { RegistryMotif, type MotifOverlay } from "./ds/RegistryMotif.tsx";
+
+/**
+ * EmptyState — the shared registry-motif empty block (ui-empty-states §1).
+ * Compact by design (max-width 420px, ≤32px top padding), never a
+ * full-viewport hero. Default illustration is the document-stack motif.
+ *
+ * Backward-compatible: legacy call sites pass `{title, subtitle, cta, icon}`
+ * and still work — `subtitle→body`, `cta→primary`, `icon` replaces the
+ * default motif.
+ */
 export function EmptyState({
   title,
+  // new anatomy
+  body,
+  illustration,
+  primary,
+  secondary,
+  hint,
+  role = "status",
+  tone = "calm",
+  // legacy props (mapped)
   subtitle,
   cta,
-  icon = <FolderOpen size={42} strokeWidth={1.4} />,
+  icon,
 }: {
   title: string;
+  body?: string;
+  illustration?: MotifOverlay;
+  primary?: ReactNode;
+  secondary?: ReactNode;
+  hint?: ReactNode;
+  role?: "status" | "alert";
+  tone?: "calm" | "alarm";
   subtitle?: string;
-  cta?: React.ReactNode;
-  icon?: React.ReactNode;
+  cta?: ReactNode;
+  icon?: ReactNode;
 }) {
+  const bodyText = body ?? subtitle;
+  const primaryNode = primary ?? cta;
+
   return (
     <div
+      role={role}
+      aria-live={role === "alert" ? "assertive" : "polite"}
       style={{
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         textAlign: "center",
-        padding: "70px 0",
+        maxWidth: 420,
+        margin: "0 auto",
+        gap: "var(--space-4)",
+        paddingTop: "var(--space-8)",
+        animation: "cd-empty-in var(--dur-base) var(--ease-out)",
       }}
     >
-      <div
-        style={{
-          width: 96,
-          height: 96,
-          borderRadius: 24,
-          background: "rgba(15, 23, 42,.035)",
-          border: "1px solid var(--line)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: 18,
-          color: "var(--muted-2)",
-        }}
-      >
-        {icon}
+      <div style={{ display: "flex" }}>
+        {icon ?? (
+          <RegistryMotif
+            overlay={illustration}
+            tone={tone === "alarm" ? "danger" : "subtle"}
+          />
+        )}
       </div>
-      <h3
-        style={{
-          margin: 0,
-          fontFamily: "var(--font-display)",
-          fontWeight: 400,
-          fontSize: "var(--text-lg)",
-          color: "var(--ink)",
-          letterSpacing: "var(--tracking-tight)",
-        }}
-      >
-        {title}
-      </h3>
-      {subtitle && (
-        <p
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+        <h3
           style={{
-            marginTop: 6,
-            marginBottom: cta ? 18 : 0,
-            fontSize: "var(--text-base)",
-            color: "var(--muted)",
+            margin: 0,
+            fontFamily: "var(--font-display)",
+            fontWeight: "var(--weight-semibold)",
+            fontSize: "var(--text-lg)",
+            lineHeight: "var(--leading-lg)",
+            color: "var(--fg-default)",
           }}
         >
-          {subtitle}
-        </p>
+          {title}
+        </h3>
+        {bodyText && (
+          <p
+            style={{
+              margin: 0,
+              fontSize: "var(--text-sm)",
+              lineHeight: "var(--leading-sm)",
+              fontWeight: "var(--weight-medium)",
+              color: "var(--fg-muted)",
+            }}
+          >
+            {bodyText}
+          </p>
+        )}
+      </div>
+
+      {(primaryNode || secondary) && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-3)",
+            flexWrap: "wrap",
+            justifyContent: "center",
+          }}
+        >
+          {primaryNode}
+          {secondary}
+        </div>
       )}
-      {cta}
+
+      {hint && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flexWrap: "wrap",
+            justifyContent: "center",
+            fontSize: "var(--text-sm)",
+            lineHeight: "var(--leading-sm)",
+            color: "var(--fg-subtle)",
+          }}
+        >
+          {hint}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes cd-empty-in { from { opacity: 0; } to { opacity: 1; } }
+      `}</style>
     </div>
+  );
+}
+
+/**
+ * EmptyStateButton — the single amber primary an empty block is allowed.
+ * A compact 28px on-system button; ghost variant for the secondary.
+ */
+export function EmptyStateButton({
+  children,
+  onClick,
+  icon,
+  variant = "primary",
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  icon?: ReactNode;
+  variant?: "primary" | "ghost";
+}) {
+  const primary = variant === "primary";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        height: 28,
+        padding: "0 12px",
+        borderRadius: "var(--radius-sm)",
+        border: primary ? "none" : "1px solid var(--border-hair)",
+        background: primary ? "var(--accent)" : "transparent",
+        color: primary ? "var(--accent-fg)" : "var(--fg-muted)",
+        fontFamily: "var(--font-sans)",
+        fontSize: "var(--text-md)",
+        fontWeight: "var(--weight-medium)",
+        cursor: "pointer",
+        transition: "background var(--dur-fast) var(--ease-out)",
+      }}
+      onMouseOver={(e) => {
+        e.currentTarget.style.background = primary
+          ? "var(--accent-hover)"
+          : "var(--bg-hover)";
+      }}
+      onMouseOut={(e) => {
+        e.currentTarget.style.background = primary ? "var(--accent)" : "transparent";
+      }}
+    >
+      {icon}
+      {children}
+    </button>
   );
 }

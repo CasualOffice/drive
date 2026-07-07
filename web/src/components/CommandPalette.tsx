@@ -5,14 +5,15 @@
  * file search (`/api/search?q=`), and note search (`/api/notes/search?q=`).
  *
  * Open with `⌘K` / `Ctrl-K` from anywhere; closes on `Esc`. Results are
- * grouped (Go to · Files · Notes), arrow-key navigable, enter activates.
- * Mounted once at the Shell level so it survives tab switches.
+ * grouped (Go to · Folders · Files · Notes), arrow-key navigable, enter
+ * activates. Mounted once at the Shell level so it survives tab switches.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Command } from "cmdk";
 import {
   Activity as ActivityIcon,
   FileText,
+  Folder,
   Gauge,
   HelpCircle,
   Home,
@@ -32,6 +33,8 @@ import {
   searchAll,
 } from "../api/client.ts";
 import { useActiveWorkspaceId } from "../state/WorkspaceContext.tsx";
+import { EmptyState } from "./EmptyState.tsx";
+import { Kbd } from "./ds/Kbd.tsx";
 import type { NavId } from "./Sidebar.tsx";
 
 type NavAction = {
@@ -145,6 +148,15 @@ export function CommandPalette({
 
   if (!open) return null;
 
+  const navResults = NAV_ACTIONS.filter((a) => navMatches(a, query));
+  const showEmpty =
+    query.trim().length >= 2 &&
+    !loading &&
+    folders.length === 0 &&
+    files.length === 0 &&
+    notes.length === 0 &&
+    navResults.length === 0;
+
   return (
     <div
       role="dialog"
@@ -155,34 +167,58 @@ export function CommandPalette({
       style={overlayStyle()}
     >
       <div style={panelStyle()}>
+        <style>{`
+          [cmdk-group-heading] {
+            font-size: var(--text-2xs);
+            line-height: 1;
+            font-weight: var(--weight-semibold);
+            letter-spacing: var(--tracking-wider);
+            text-transform: uppercase;
+            color: var(--fg-subtle);
+            padding: 6px 10px 4px;
+          }
+          [cmdk-item][data-selected="true"] {
+            background: var(--bg-selected);
+            color: var(--fg-default);
+          }
+          [cmdk-item]:hover { background: var(--bg-hover); }
+        `}</style>
         <Command label="Command palette" loop shouldFilter={false} filter={itemFilter}>
           <div style={inputRowStyle()}>
-            <Search size={16} strokeWidth={2} style={{ color: "var(--muted)" }} />
+            <Search size={16} strokeWidth={1.5} style={{ color: "var(--fg-subtle)" }} />
             <Command.Input
               autoFocus
               value={query}
               onValueChange={setQuery}
-              placeholder="Search files, notes, or jump to anywhere…"
+              placeholder="Search documents, notes, or jump to anywhere…"
               style={inputStyle()}
             />
-            <kbd style={kbdStyle()}>Esc</kbd>
+            <Kbd>⌘K</Kbd>
           </div>
 
           <Command.List style={listStyle()}>
-            <Command.Empty style={emptyStyle()}>
-              {query.trim().length < 2
-                ? "Type to search files + notes, or pick a destination."
-                : loading
-                  ? "Searching…"
-                  : "No matches."}
-            </Command.Empty>
+            {showEmpty ? (
+              <div style={{ padding: "8px 0 20px" }}>
+                <EmptyState
+                  title={`No matches for "${query.trim()}"`}
+                  body="Search covers document names, notes, and destinations."
+                  illustration="file-search"
+                />
+              </div>
+            ) : (
+              <Command.Empty style={emptyStyle()}>
+                {query.trim().length < 2
+                  ? "Type to search documents + notes, or pick a destination."
+                  : loading
+                    ? "Searching…"
+                    : "No matches."}
+              </Command.Empty>
+            )}
 
             {/* Navigation — always visible so Cmd-K → click to jump works
                 even before typing. */}
             <Command.Group heading="Go to" style={groupStyle()}>
-              {NAV_ACTIONS.filter((a) =>
-                navMatches(a, query),
-              ).map((a) => {
+              {navResults.map((a) => {
                 const Icon = a.icon;
                 return (
                   <Command.Item
@@ -194,7 +230,9 @@ export function CommandPalette({
                     }}
                     style={itemStyle()}
                   >
-                    <Icon size={15} strokeWidth={1.7} />
+                    <span style={iconBoxStyle()}>
+                      <Icon size={14} strokeWidth={1.5} />
+                    </span>
                     <span style={{ flex: 1 }}>{a.label}</span>
                     {a.hint && <span style={hintStyle()}>{a.hint}</span>}
                   </Command.Item>
@@ -209,9 +247,11 @@ export function CommandPalette({
                 }}
                 style={itemStyle()}
               >
-                <HelpCircle size={15} strokeWidth={1.7} />
+                <span style={iconBoxStyle()}>
+                  <HelpCircle size={14} strokeWidth={1.5} />
+                </span>
                 <span style={{ flex: 1 }}>Keyboard shortcuts</span>
-                <kbd style={kbdStyle()}>?</kbd>
+                <Kbd>?</Kbd>
               </Command.Item>
             </Command.Group>
 
@@ -229,8 +269,8 @@ export function CommandPalette({
                     }}
                     style={itemStyle()}
                   >
-                    <span style={iconBoxStyle("rgba(200,164,92,0.18)")}>
-                      <FileText size={14} strokeWidth={1.6} />
+                    <span style={iconBoxStyle()}>
+                      <Folder size={14} strokeWidth={1.5} />
                     </span>
                     <span style={{ flex: 1 }}>{f.name}</span>
                     <span style={hintStyle()}>Folder</span>
@@ -240,7 +280,7 @@ export function CommandPalette({
             )}
 
             {files.length > 0 && (
-              <Command.Group heading="Files" style={groupStyle()}>
+              <Command.Group heading="Documents" style={groupStyle()}>
                 {files.map((f) => (
                   <Command.Item
                     key={`file:${f.id}`}
@@ -251,13 +291,23 @@ export function CommandPalette({
                     }}
                     style={itemStyle()}
                   >
-                    <span style={iconBoxStyle("rgba(15, 23, 42,0.06)")}>
-                      <FileText size={14} strokeWidth={1.6} />
+                    <span style={iconBoxStyle()}>
+                      <FileText size={14} strokeWidth={1.5} />
                     </span>
-                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       {f.name}
                     </span>
-                    <span style={hintStyle()}>{formatBytes(f.size)}</span>
+                    <span className="mono" style={hintStyle()}>
+                      {formatBytes(f.size)}
+                    </span>
                   </Command.Item>
                 ))}
               </Command.Group>
@@ -275,8 +325,8 @@ export function CommandPalette({
                     }}
                     style={itemStyle()}
                   >
-                    <span style={iconBoxStyle("rgba(47,125,63,0.16)")}>
-                      <NotebookPen size={14} strokeWidth={1.6} />
+                    <span style={iconBoxStyle()}>
+                      <NotebookPen size={14} strokeWidth={1.5} />
                     </span>
                     <span style={{ flex: 1 }}>{n.title}</span>
                     <span style={hintStyle()}>Note</span>
@@ -288,14 +338,13 @@ export function CommandPalette({
 
           <div style={footerStyle()}>
             <span>
-              <kbd style={kbdStyle()}>↑</kbd> <kbd style={kbdStyle()}>↓</kbd>{" "}
-              navigate
+              <Kbd>↑</Kbd> <Kbd>↓</Kbd> navigate
             </span>
             <span>
-              <kbd style={kbdStyle()}>↵</kbd> select
+              <Kbd>↵</Kbd> select
             </span>
             <span>
-              <kbd style={kbdStyle()}>⌘K</kbd> toggle
+              <Kbd>Esc</Kbd> close
             </span>
           </div>
         </Command>
@@ -328,13 +377,13 @@ function formatBytes(b: number): string {
   return `${i === 0 ? v : v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
-// ── styles (inline for now; tokens.css owns the colour palette) ─────
+// ── styles ───────────────────────────────────────────────────────────
 
 function overlayStyle(): React.CSSProperties {
   return {
     position: "fixed",
     inset: 0,
-    background: "rgba(15,15,19,0.42)",
+    background: "var(--bg-overlay)",
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "center",
@@ -347,14 +396,14 @@ function overlayStyle(): React.CSSProperties {
 function panelStyle(): React.CSSProperties {
   return {
     width: "100%",
-    maxWidth: 640,
-    background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 14,
-    boxShadow: "0 22px 60px rgba(15, 23, 42,.28)",
+    maxWidth: 560,
+    background: "var(--bg-raised)",
+    border: "1px solid var(--border-hair)",
+    borderRadius: "var(--radius-lg)",
+    boxShadow: "var(--shadow-md)",
     overflow: "hidden",
     fontFamily: "var(--font-sans)",
-    color: "var(--ink)",
+    color: "var(--fg-default)",
     margin: "0 16px",
     animation: "cd-cmd-pop 180ms var(--ease)",
   };
@@ -365,8 +414,8 @@ function inputRowStyle(): React.CSSProperties {
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: "12px 14px",
-    borderBottom: "1px solid var(--line)",
+    padding: "10px 12px",
+    borderBottom: "1px solid var(--border-hair)",
   };
 }
 
@@ -377,8 +426,8 @@ function inputStyle(): React.CSSProperties {
     background: "transparent",
     outline: "none",
     fontFamily: "var(--font-sans)",
-    fontSize: "var(--text-md, 1rem)",
-    color: "var(--ink)",
+    fontSize: "var(--text-md)",
+    color: "var(--fg-default)",
     padding: "4px 0",
   };
 }
@@ -395,14 +444,14 @@ function emptyStyle(): React.CSSProperties {
   return {
     padding: "20px 14px",
     fontSize: "var(--text-sm)",
-    color: "var(--muted)",
+    color: "var(--fg-muted)",
     textAlign: "center" as const,
   };
 }
 
 function groupStyle(): React.CSSProperties {
   return {
-    padding: "6px 0",
+    padding: "4px 0",
   };
 }
 
@@ -411,25 +460,25 @@ function itemStyle(): React.CSSProperties {
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: "8px 10px",
-    borderRadius: 8,
-    fontSize: "var(--text-sm)",
-    color: "var(--ink-soft)",
+    padding: "7px 10px",
+    borderRadius: "var(--radius-sm)",
+    fontSize: "var(--text-base)",
+    color: "var(--fg-default)",
     cursor: "pointer",
     userSelect: "none",
   };
 }
 
-function iconBoxStyle(bg: string): React.CSSProperties {
+function iconBoxStyle(): React.CSSProperties {
   return {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    background: bg,
+    width: 22,
+    height: 22,
+    borderRadius: "var(--radius-xs)",
+    background: "var(--bg-sunken)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "var(--ink-soft)",
+    color: "var(--fg-muted)",
     flexShrink: 0,
   };
 }
@@ -437,20 +486,8 @@ function iconBoxStyle(bg: string): React.CSSProperties {
 function hintStyle(): React.CSSProperties {
   return {
     fontSize: "var(--text-xs)",
-    color: "var(--muted-2)",
+    color: "var(--fg-subtle)",
     fontVariantNumeric: "tabular-nums",
-  };
-}
-
-function kbdStyle(): React.CSSProperties {
-  return {
-    fontFamily: "var(--font-mono)",
-    fontSize: "0.72rem",
-    padding: "2px 6px",
-    border: "1px solid var(--line-strong)",
-    borderRadius: 4,
-    color: "var(--muted)",
-    background: "var(--bg-subtle)",
   };
 }
 
@@ -458,10 +495,10 @@ function footerStyle(): React.CSSProperties {
   return {
     display: "flex",
     gap: 14,
-    padding: "10px 14px",
-    borderTop: "1px solid var(--line)",
+    padding: "8px 12px",
+    borderTop: "1px solid var(--border-hair)",
     fontSize: "var(--text-xs)",
-    color: "var(--muted)",
-    background: "var(--paper-2, var(--bg-subtle))",
+    color: "var(--fg-muted)",
+    background: "var(--bg-sunken)",
   };
 }

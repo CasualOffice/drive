@@ -1,32 +1,55 @@
-import { FileText, Folder, Image as ImageIcon, FileSpreadsheet, File as FileGeneric } from "lucide-react";
+import {
+  File as FileGeneric,
+  FileSpreadsheet,
+  FileText,
+  Folder,
+  Lock,
+} from "lucide-react";
 
 import type { FileDto, FolderDto } from "../api/client.ts";
+import { StatusChip } from "./ds/StatusChip.tsx";
+import { VAULT_GRID } from "./ds/SkeletonRow.tsx";
 
 function fileIcon(name: string, contentType: string | null) {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const ct = contentType ?? "";
-  if (ct.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) {
-    return ImageIcon;
-  }
-  if (ext === "xlsx" || ext === "ods" || ext === "csv" || ct.includes("spreadsheet")) {
+  if (ext === "xlsx" || ext === "xlsm" || ext === "csv" || ct.includes("spreadsheet")) {
     return FileSpreadsheet;
   }
-  if (ext === "docx" || ct.includes("wordprocessingml")) {
+  if (ext === "docx" || ext === "pdf" || ext === "md" || ext === "txt" || ct.includes("wordprocessingml")) {
     return FileText;
   }
   return FileGeneric;
 }
 
-function formatSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let v = bytes;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
+/** Documents-only kind label — no Video/Audio/Archive (ingest allowlist). */
+function kindLabel(name: string, contentType: string | null): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "docx":
+      return "Document";
+    case "xlsx":
+    case "xlsm":
+      return "Spreadsheet";
+    case "pptx":
+      return "Slides";
+    case "pdf":
+      return "PDF";
+    case "md":
+      return "Markdown";
+    case "csv":
+      return "CSV";
+    case "json":
+      return "JSON";
+    case "yaml":
+    case "yml":
+      return "YAML";
+    case "txt":
+      return "Text";
+    default:
+      if (contentType?.startsWith("text/")) return "Text";
+      return ext.toUpperCase() || "Document";
   }
-  return `${i === 0 ? v : v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
 function formatRelative(iso: string): string {
@@ -37,8 +60,6 @@ function formatRelative(iso: string): string {
   if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
   if (diff < 86_400) return `${Math.floor(diff / 3600)} hrs ago`;
   if (diff < 7 * 86_400) return `${Math.floor(diff / 86_400)} days ago`;
-  // Defer to system / preferred timezone via Intl. We honour the user's
-  // timezone preference here when settings land (see project memory).
   return new Date(iso).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -55,11 +76,12 @@ export function FolderRow({
 }) {
   return (
     <Row
-      icon={<Folder size={16} strokeWidth={2} style={{ color: "var(--fg-muted)" }} />}
+      icon={<Folder size={16} strokeWidth={1.5} style={{ color: "var(--fg-muted)" }} />}
       name={folder.name}
       modified={folder.modified_at}
-      size={null}
+      version={null}
       kind="Folder"
+      encrypted={false}
       onOpen={() => onOpen(folder.id)}
     />
   );
@@ -75,92 +97,96 @@ export function FileRowComponent({
   const Icon = fileIcon(file.name, file.content_type);
   return (
     <Row
-      icon={<Icon size={16} strokeWidth={2} style={{ color: "var(--fg-muted)" }} />}
+      icon={<Icon size={16} strokeWidth={1.5} style={{ color: "var(--fg-muted)" }} />}
       name={file.name}
       modified={file.modified_at}
-      size={file.size}
+      version={file.version}
       kind={kindLabel(file.name, file.content_type)}
+      encrypted
       onOpen={() => onDownload(file.id)}
     />
   );
-}
-
-function kindLabel(name: string, contentType: string | null): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "xlsx") return "Spreadsheet";
-  if (ext === "docx") return "Document";
-  if (ext === "pdf") return "PDF";
-  if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) return "Image";
-  if (ext === "svg") return "SVG";
-  if (ext === "mp4" || ext === "mov") return "Video";
-  if (ext === "mp3" || ext === "wav") return "Audio";
-  if (ext === "zip" || ext === "tar" || ext === "gz") return "Archive";
-  if (contentType?.startsWith("text/")) return "Text";
-  return ext.toUpperCase() || "File";
 }
 
 function Row({
   icon,
   name,
   modified,
-  size,
+  version,
   kind,
+  encrypted,
   onOpen,
 }: {
   icon: React.ReactNode;
   name: string;
   modified: string;
-  size: number | null;
+  version: number | null;
   kind: string;
+  encrypted: boolean;
   onOpen: () => void;
 }) {
+  const cell: React.CSSProperties = {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
   return (
     <div
       onDoubleClick={onOpen}
       className="cd-row"
       style={{
         display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr) 160px 96px 120px",
+        gridTemplateColumns: VAULT_GRID,
         alignItems: "center",
-        height: "32px",
-        padding: "0 var(--space-4)",
-        borderRadius: "var(--radius-xs)",
+        height: 32,
+        padding: "0 var(--space-3)",
+        gap: "var(--space-3)",
         cursor: "default",
         userSelect: "none",
-        fontSize: "var(--text-sm)",
+        fontSize: "var(--text-base)",
         color: "var(--fg-default)",
-        gap: "var(--space-3)",
+        borderBottom: "1px solid var(--border-hair)",
         transition: "background var(--dur-fast) var(--ease-out)",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-3)",
-          minWidth: 0,
-        }}
-      >
+      <span aria-hidden />
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", minWidth: 0 }}>
         {icon}
-        <span
-          style={{
-            fontWeight: "var(--weight-medium)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {name}
-        </span>
+        <span style={{ ...cell, fontWeight: "var(--weight-medium)" }}>{name}</span>
       </div>
-      <span style={{ color: "var(--fg-muted)" }}>{formatRelative(modified)}</span>
-      <span
-        className="tabular-nums"
-        style={{ color: "var(--fg-muted)", textAlign: "right" }}
-      >
-        {size === null ? "—" : formatSize(size)}
+      <span style={{ ...cell, color: "var(--fg-muted)", fontSize: "var(--text-sm)" }}>{kind}</span>
+      <span className="mono" style={{ color: "var(--fg-muted)", fontSize: "var(--text-sm)" }}>
+        {version === null ? "—" : `v${version}`}
       </span>
-      <span style={{ color: "var(--fg-muted)" }}>{kind}</span>
+      <span style={{ ...cell, color: "var(--fg-muted)", fontSize: "var(--text-xs)" }}>
+        {formatRelative(modified)}
+      </span>
+      <span style={{ display: "flex", alignItems: "center" }}>
+        {encrypted ? (
+          <span
+            title="Encrypted at rest"
+            aria-label="Encrypted at rest"
+            style={{ display: "inline-flex", color: "var(--fg-subtle)" }}
+          >
+            <Lock size={13} strokeWidth={1.5} />
+          </span>
+        ) : (
+          <span style={{ color: "var(--fg-subtle)", fontSize: "var(--text-sm)" }}>—</span>
+        )}
+      </span>
+      <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+        {encrypted ? (
+          <StatusChip
+            icon={<Lock size={11} strokeWidth={1.5} />}
+            label="AES-256-GCM"
+            tone="ambient"
+            title="Encrypted at rest with AES-256-GCM"
+          />
+        ) : (
+          <span style={{ color: "var(--fg-subtle)", fontSize: "var(--text-2xs)" }}>—</span>
+        )}
+      </span>
+      <span aria-hidden />
       <style>
         {`
           .cd-row:hover { background: var(--bg-hover); }

@@ -129,7 +129,7 @@ export function Shell() {
       />
       <div className="flex-1 flex flex-col" style={{ minWidth: 0 }}>
         {nav === "home" && (
-          <div style={{ padding: "26px 40px 0" }}>
+          <div style={{ padding: "8px var(--space-6) 0" }}>
             <TopBar
               query={query}
               onQueryChange={setQuery}
@@ -273,8 +273,8 @@ function CenteredPane({ children }: { children: React.ReactNode }) {
       style={{
         flex: 1,
         overflow: "auto",
-        background: "var(--paper)",
-        padding: "40px 40px 60px",
+        background: "var(--bg-canvas)",
+        padding: "var(--space-6) var(--space-6) 40px",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

@@ -55,36 +55,36 @@ export function TopBar({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 12,
-        marginBottom: 26,
+        gap: "var(--space-2)",
+        height: 48,
       }}
     >
       <div
         role="search"
-        style={{ position: "relative", flex: "1 1 auto", maxWidth: 300, marginLeft: "auto" }}
+        style={{ position: "relative", flex: "1 1 auto", maxWidth: 320, marginLeft: "auto" }}
       >
         <Search
-          size={16}
-          strokeWidth={2}
+          size={15}
+          strokeWidth={1.5}
           aria-hidden="true"
           style={{
             position: "absolute",
-            left: 14,
+            left: 10,
             top: "50%",
             transform: "translateY(-50%)",
-            color: "var(--muted)",
+            color: "var(--fg-subtle)",
           }}
         />
         <input
           type="text"
-          placeholder="Search files and folders"
+          placeholder="Search documents and folders"
           value={query}
           role="combobox"
           aria-autocomplete="list"
           aria-controls={RECENTS_LISTBOX_ID}
           aria-expanded={popoverOpen}
           aria-activedescendant={popoverOpen ? activeOptionId ?? undefined : undefined}
-          aria-label="Search files and folders"
+          aria-label="Search documents and folders"
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             // SR15 — open a keystroke→paint measurement window if one
             // isn't already pending. Subsequent keystrokes inside the
@@ -104,24 +104,25 @@ export function TopBar({
           }}
           style={{
             width: "100%",
-            border: "1px solid var(--line)",
-            background: "var(--card)",
-            borderRadius: 12,
-            padding: "11px 14px 11px 40px",
+            height: 30,
+            border: "1px solid var(--border-strong)",
+            background: "var(--bg-sunken)",
+            borderRadius: "var(--radius-sm)",
+            padding: "0 12px 0 30px",
             fontFamily: "var(--font-sans)",
-            fontSize: "var(--text-base)",
-            color: "var(--ink)",
+            fontSize: "var(--text-md)",
+            color: "var(--fg-default)",
             outline: "none",
-            transition: "border-color 200ms, box-shadow 200ms",
+            transition: "border-color var(--dur-base), box-shadow var(--dur-base)",
           }}
           onFocus={(e) => {
-            e.currentTarget.style.borderColor = "var(--line-strong)";
-            e.currentTarget.style.boxShadow = "0 0 0 4px rgba(15, 23, 42,.04)";
+            e.currentTarget.style.borderColor = "var(--border-focus)";
+            e.currentTarget.style.boxShadow = "var(--shadow-focus)";
             setInputFocused(true);
             setRecents(getRecent());
           }}
           onBlur={(e) => {
-            e.currentTarget.style.borderColor = "var(--line)";
+            e.currentTarget.style.borderColor = "var(--border-strong)";
             e.currentTarget.style.boxShadow = "";
             // Defer the close so a click on a popover entry
             // (mousedown fires before blur) lands before the popover
@@ -163,96 +164,67 @@ export function TopBar({
       <ViewToggle value={view} onChange={onViewChange} />
       <DensityToggle value={density} onChange={onDensityChange} />
       <NotificationsBell />
-      <button
-        type="button"
-        aria-label="Keyboard shortcuts"
+      <IconButton
+        ariaLabel="Keyboard shortcuts"
         title="Keyboard shortcuts (?)"
         onClick={onShowHelp}
-        style={{
-          width: 36,
-          height: 36,
-          borderRadius: 11,
-          border: "1px solid var(--line)",
-          background: "var(--card)",
-          color: "var(--muted)",
-          cursor: "pointer",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          transition: "background 150ms, border-color 150ms, color 150ms",
-        }}
-        onMouseOver={(e) => {
-          e.currentTarget.style.background = "var(--bg-hover)";
-          e.currentTarget.style.color = "var(--ink)";
-          e.currentTarget.style.borderColor = "var(--line-strong)";
-        }}
-        onMouseOut={(e) => {
-          e.currentTarget.style.background = "var(--card)";
-          e.currentTarget.style.color = "var(--muted)";
-          e.currentTarget.style.borderColor = "var(--line)";
-        }}
       >
-        <HelpCircle size={17} strokeWidth={1.8} />
-      </button>
+        <HelpCircle size={16} strokeWidth={1.5} />
+      </IconButton>
     </header>
   );
 }
 
 function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMode) => void }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        border: "1px solid var(--line)",
-        borderRadius: 11,
-        background: "var(--card)",
-        padding: 3,
-        gap: 2,
-      }}
-    >
+    <ToggleGroup>
       <ToggleButton active={value === "grid"} onClick={() => onChange("grid")} title="Grid view">
-        <Grid3x3 size={17} strokeWidth={1.8} />
+        <Grid3x3 size={16} strokeWidth={1.5} />
       </ToggleButton>
       <ToggleButton active={value === "list"} onClick={() => onChange("list")} title="List view">
-        <List size={17} strokeWidth={1.8} />
+        <List size={16} strokeWidth={1.5} />
       </ToggleButton>
-    </div>
+    </ToggleGroup>
   );
 }
 
-/** SR4 — row-density toggle. `Rows3` = comfortable (3 visible rows in
- * the icon, taller rows in the grid); `Rows4` = compact (more rows
- * visible, tighter padding). Title text spells it out so the choice is
- * obvious even on a touch device where Lucide's icon difference is
- * subtle. */
+/** SR4 — row-density toggle. `Rows3` = comfortable; `Rows4` = compact. */
 function DensityToggle({ value, onChange }: { value: Density; onChange: (d: Density) => void }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        border: "1px solid var(--line)",
-        borderRadius: 11,
-        background: "var(--card)",
-        padding: 3,
-        gap: 2,
-      }}
-      role="group"
-      aria-label="Row density"
-    >
+    <ToggleGroup label="Row density">
       <ToggleButton
         active={value === "comfortable"}
         onClick={() => onChange("comfortable")}
         title="Comfortable density"
       >
-        <Rows3 size={17} strokeWidth={1.8} />
+        <Rows3 size={16} strokeWidth={1.5} />
       </ToggleButton>
       <ToggleButton
         active={value === "compact"}
         onClick={() => onChange("compact")}
         title="Compact density"
       >
-        <Rows4 size={17} strokeWidth={1.8} />
+        <Rows4 size={16} strokeWidth={1.5} />
       </ToggleButton>
+    </ToggleGroup>
+  );
+}
+
+function ToggleGroup({ children, label }: { children: React.ReactNode; label?: string }) {
+  return (
+    <div
+      role={label ? "group" : undefined}
+      aria-label={label}
+      style={{
+        display: "flex",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg-surface)",
+        padding: 2,
+        gap: 2,
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -272,22 +244,70 @@ function ToggleButton({
     <button
       type="button"
       title={title}
+      aria-pressed={active}
       onClick={onClick}
       style={{
         border: "none",
-        background: active ? "var(--ink)" : "transparent",
+        background: active ? "var(--accent-wash)" : "transparent",
         cursor: "pointer",
-        padding: 8,
-        borderRadius: 8,
+        width: 24,
+        height: 24,
+        borderRadius: "var(--radius-xs)",
         display: "flex",
-        color: active ? "var(--paper)" : "var(--muted)",
-        transition: "background 180ms, color 180ms",
+        alignItems: "center",
+        justifyContent: "center",
+        color: active ? "var(--fg-default)" : "var(--fg-muted)",
+        transition: "background var(--dur-base), color var(--dur-base)",
       }}
       onMouseOver={(e) => {
         if (!active) e.currentTarget.style.background = "var(--bg-hover)";
       }}
       onMouseOut={(e) => {
         if (!active) e.currentTarget.style.background = "transparent";
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconButton({
+  ariaLabel,
+  title,
+  onClick,
+  children,
+}: {
+  ariaLabel: string;
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      title={title}
+      onClick={onClick}
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: "var(--radius-sm)",
+        border: "none",
+        background: "transparent",
+        color: "var(--fg-muted)",
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "background var(--dur-fast), color var(--dur-fast)",
+      }}
+      onMouseOver={(e) => {
+        e.currentTarget.style.background = "var(--bg-hover)";
+        e.currentTarget.style.color = "var(--fg-default)";
+      }}
+      onMouseOut={(e) => {
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.color = "var(--fg-muted)";
       }}
     >
       {children}
