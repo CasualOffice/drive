@@ -11,7 +11,11 @@
 export type SaveStatus =
   | { kind: "idle" }
   | { kind: "saving" }
-  | { kind: "saved"; at: number }
+  /** `version` is set when the host knows the freshly-committed head
+   *  (the light text editor reads it off the PUT /content response) so
+   *  the pill can read "Saved as v{n}". The SDK editors don't surface
+   *  the new sequence, so they omit it and fall back to "Saved {ago}". */
+  | { kind: "saved"; at: number; version?: number }
   | { kind: "failed"; message: string };
 
 export type OnSaveStatus = (next: SaveStatus) => void;

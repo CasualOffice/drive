@@ -32,7 +32,13 @@ export function SaveStatusPill({ status }: Props) {
     status.kind === "saving"
       ? [<Loader2 key="i" size={13} className="cd-save-spin" />, "Saving…", "var(--ink-soft)"]
       : status.kind === "saved"
-        ? [<Check key="i" size={13} />, `Saved ${formatAgo(now - status.at)}`, "var(--ink-soft)"]
+        ? [
+            <Check key="i" size={13} />,
+            status.version != null
+              ? `Saved as v${status.version}`
+              : `Saved ${formatAgo(now - status.at)}`,
+            "var(--ink-soft)",
+          ]
         : [<AlertCircle key="i" size={13} />, "Save failed", "var(--danger, #d63a2f)"];
 
   return (

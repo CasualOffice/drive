@@ -53,14 +53,14 @@ export function PreviewModal({
   const file = files[index];
   const hasNav = files.length > 1;
 
-  /** Navigate to `/file/<id>` for the in-Drive fullscreen editor.
-   *  ED1 gap (a). Pushes the FileDto into `history.state` so
-   *  FileFullscreen can mount without an extra metadata round trip
-   *  (Drive has no `GET /api/files/{id}` endpoint yet). Closes the
-   *  modal first so the back-stack reads cleanly. */
+  /** Navigate to `/document/<id>/edit` for the in-Drive fullscreen
+   *  editor (P2.1 canonical surface; `/file/<id>` still resolves as an
+   *  alias). Pushes the FileDto into `history.state` so FileFullscreen
+   *  can mount without an extra metadata round trip. Closes the modal
+   *  first so the back-stack reads cleanly. */
   const openInFullscreen = (target: FileDto) => {
     onClose();
-    const url = `/file/${encodeURIComponent(target.id)}`;
+    const url = `/document/${encodeURIComponent(target.id)}/edit`;
     window.history.pushState({ file: target }, "", url);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };

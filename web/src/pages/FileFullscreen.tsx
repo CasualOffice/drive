@@ -55,6 +55,14 @@ const CasualSheetWorkspace = lazy(() =>
     default: m.CasualSheetWorkspace,
   })),
 );
+// P2.1 — the light embedded editor for the plain-text document kinds
+// (.md/.txt/.csv/.json/.yaml). Loads head bytes + saves each commit as
+// a new version through the same content endpoint the SDK editors use.
+const CodeTextEditor = lazy(() =>
+  import("../components/editor/CodeTextEditor.tsx").then((m) => ({
+    default: m.CodeTextEditor,
+  })),
+);
 // Every non-editor file type (image / pdf / video / audio / text /
 // md / generic) reuses PreviewStage's per-kind renderer at the
 // fullscreen route. Double-click on the file list lands here for
@@ -230,7 +238,11 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
         }}
       />
       <main style={{ flex: 1, minHeight: 0, position: "relative" }}>
-        <FullscreenBody state={state} onSaveStatus={setSaveStatus} />
+        <FullscreenBody
+          state={state}
+          onSaveStatus={setSaveStatus}
+          onSaved={(file) => setState({ kind: "ready", file })}
+        />
       </main>
       {state.kind === "ready" && (
         <DetailsDrawer file={state.file} open={detailsOpen} onClose={() => setDetailsOpen(false)} />
@@ -295,22 +307,39 @@ function FullscreenHeader({
       </button>
       <FilenameField name={file?.name ?? "Loading…"} editable={!!file} onCommit={onRename} />
       {file && file.version > 0 && (
-        <span
+        <button
+          type="button"
           className="mono"
+          data-testid="file-fullscreen-version-chip"
+          title="Version history"
+          onClick={() => {
+            const url = `/document/${encodeURIComponent(file.id)}/history`;
+            window.history.pushState({ file }, "", url);
+            window.dispatchEvent(new PopStateEvent("popstate"));
+          }}
           style={{
             display: "inline-flex",
             alignItems: "center",
-            height: 16,
-            padding: "0 5px",
+            height: 18,
+            padding: "0 6px",
             fontSize: "var(--text-2xs)",
             color: "var(--fg-muted)",
             background: "var(--bg-sunken)",
             border: "1px solid var(--border-hair)",
             borderRadius: "var(--radius-xs)",
+            cursor: "pointer",
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.color = "var(--fg-default)";
+            e.currentTarget.style.borderColor = "var(--border-strong)";
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.color = "var(--fg-muted)";
+            e.currentTarget.style.borderColor = "var(--border-hair)";
           }}
         >
           v{file.version}
-        </span>
+        </button>
       )}
       <SaveStatusPill status={saveStatus} />
       <div style={{ flex: 1 }} />
@@ -487,9 +516,11 @@ function FilenameField({
 function FullscreenBody({
   state,
   onSaveStatus,
+  onSaved,
 }: {
   state: LoadState;
   onSaveStatus: (s: SaveStatus) => void;
+  onSaved: (file: FileDto) => void;
 }) {
   if (state.kind === "loading") {
     return (
@@ -588,9 +619,19 @@ function FullscreenBody({
       </Suspense>
     );
   }
+  // P2.1 — the plain-text document kinds (.md/.txt/.csv/.json/.yaml) get
+  // the light embedded editor; every save commits a new version through
+  // the content endpoint, same contract as the SDK editors.
+  if (kind === "text" || kind === "md") {
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <CodeTextEditor file={file} onSaveStatus={onSaveStatus} onSaved={onSaved} />
+      </Suspense>
+    );
+  }
 
-  // Every other document kind — pdf / text / md / generic / opaque —
-  // falls through to PreviewStage (documents-only; no media renderers).
+  // Every remaining document kind — pdf / generic / opaque — falls
+  // through to PreviewStage (documents-only; no media renderers).
   // The fullscreen route gets the same per-kind viewer the modal uses,
   // just without the surrounding modal chrome. PreviewStage fills the
   // available space and owns its own scroll + padding.
