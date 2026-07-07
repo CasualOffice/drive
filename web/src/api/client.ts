@@ -532,6 +532,42 @@ export async function verifyChain(fileId: string): Promise<VerifyResult> {
   return request<VerifyResult>(`/api/files/${encodeURIComponent(fileId)}/verify`);
 }
 
+// ─── Collab room brokering (P2.3) ─────────────────────────────────────
+// Per-document real-time co-editing. The app origin brokers a room on the
+// `collab` server (Yjs / Hocuspocus) and hands back a short-TTL editor
+// token to authenticate the WebSocket. Spec: docs/design/phase-2-build.md
+// §3. Collab is opt-in (server config `DOCHUB_COLLAB_URL`); when it's off
+// the endpoint 404s and the client falls back to single-user editing.
+
+export interface CollabRoom {
+  /** Per-document room name on the collab server. */
+  room: string;
+  /** WebSocket base URL the `y-websocket` provider connects to; the room
+   *  name + token are appended by the provider. */
+  ws_url: string;
+  /** Short-TTL editor access token, validated by the collab server. */
+  token: string;
+}
+
+/** `GET /api/files/{id}/collab` — broker a co-editing room for a document.
+ *
+ *  Returns `null` when collab is disabled or declined (`404`) so callers
+ *  fall back to single-user editing (P2.1) with no regression. Any other
+ *  transport failure also resolves to `null` — co-editing is additive and
+ *  must never block opening a document. */
+export async function getCollabRoom(fileId: string): Promise<CollabRoom | null> {
+  // The demo backend has no collab server; skip the round trip.
+  if (DEMO_MODE) return null;
+  try {
+    return await request<CollabRoom>(`/api/files/${encodeURIComponent(fileId)}/collab`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    // Network / 5xx / broker unavailable — degrade to single-user.
+    console.warn("collab room broker unavailable; editing single-user:", err);
+    return null;
+  }
+}
+
 // ─── Editor handoff (WOPI) ────────────────────────────────────────────
 
 export interface OpenResp {

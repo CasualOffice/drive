@@ -30,9 +30,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
+import * as Y from "yjs";
 
 import { type FileDto } from "../../api/client.ts";
 import { DriveFileSource } from "../../file-source/DriveFileSource.ts";
+import { type CollabSession, TEXT_KEY } from "../../lib/collab.ts";
 import type { OnSaveStatus } from "./save-status.ts";
 
 export interface CodeTextEditorProps {
@@ -42,6 +44,31 @@ export interface CodeTextEditorProps {
   /** Fires with the freshly-committed FileDto after a successful save so
    *  the host can advance its version chip / details. */
   onSaved?: (file: FileDto) => void;
+  /** P2.3 — live co-editing session brokered by the host. When it carries
+   *  a `doc`, the buffer binds to a shared `Y.Text` so two clients see
+   *  each other's keystrokes; when absent/disabled the editor is exactly
+   *  the single-user P2.1 textarea. */
+  collab?: CollabSession;
+}
+
+/** Marks Yjs transactions this client originated so the shared-text
+ *  observer can skip its own echo (and not fight the local caret). */
+const LOCAL_ORIGIN = Symbol("code-text-local");
+
+/** Minimal prefix/suffix diff → the single contiguous splice between two
+ *  strings. Enough for the keystroke-level edits a textarea produces. */
+function diffSplice(prev: string, next: string): { index: number; removed: number; insert: string } {
+  if (prev === next) return { index: 0, removed: 0, insert: "" };
+  const max = Math.min(prev.length, next.length);
+  let start = 0;
+  while (start < max && prev[start] === next[start]) start++;
+  let endPrev = prev.length;
+  let endNext = next.length;
+  while (endPrev > start && endNext > start && prev[endPrev - 1] === next[endNext - 1]) {
+    endPrev--;
+    endNext--;
+  }
+  return { index: start, removed: endPrev - start, insert: next.slice(start, endNext) };
 }
 
 type Load =
@@ -49,7 +76,7 @@ type Load =
   | { kind: "ready"; text: string }
   | { kind: "error"; message: string };
 
-export function CodeTextEditor({ file, onSaveStatus, onSaved }: CodeTextEditorProps) {
+export function CodeTextEditor({ file, onSaveStatus, onSaved, collab }: CodeTextEditorProps) {
   const source = useMemo(() => new DriveFileSource(file), [file.id]);
 
   const [load, setLoad] = useState<Load>({ kind: "loading" });
@@ -59,6 +86,11 @@ export function CodeTextEditor({ file, onSaveStatus, onSaved }: CodeTextEditorPr
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
+
+  // The bound shared text — non-null only while a collab room is live.
+  // Handlers read it through a ref so their closures never go stale.
+  const ytextRef = useRef<Y.Text | null>(null);
+  const collabDoc = collab?.doc ?? null;
 
   // Latch callbacks so the save closure never goes stale without
   // rebinding the keydown listener on every keystroke.
@@ -89,9 +121,82 @@ export function CodeTextEditor({ file, onSaveStatus, onSaved }: CodeTextEditorPr
     };
   }, [source, file.id]);
 
+  // P2.3 — bind the loaded buffer to a shared `Y.Text` once the room is
+  // live. Seeds the room from our head bytes on a cold (empty) doc; then
+  // mirrors remote edits into the textarea and local edits into the doc.
+  // Tears down cleanly when the room drops or the component unmounts —
+  // the plain single-user path (below) resumes untouched.
+  useEffect(() => {
+    if (!collabDoc || load.kind !== "ready") {
+      ytextRef.current = null;
+      return;
+    }
+    const ytext = collabDoc.getText(TEXT_KEY);
+    ytextRef.current = ytext;
+    const provider = collab?.provider ?? null;
+    const seed = load.text;
+
+    const seedIfEmpty = () => {
+      if (ytext.length === 0 && seed.length > 0) {
+        collabDoc.transact(() => ytext.insert(0, seed), LOCAL_ORIGIN);
+      }
+    };
+    // Adopt a warm room (peer/server already seeded); otherwise seed on
+    // first sync so a client-only room isn't blank.
+    if (ytext.length > 0) {
+      setValue(ytext.toString());
+    } else if (provider?.synced) {
+      seedIfEmpty();
+    } else if (provider) {
+      provider.once("sync", (isSynced: boolean) => {
+        if (isSynced) seedIfEmpty();
+      });
+    }
+
+    const observer = (event: Y.YTextEvent) => {
+      const nextText = ytext.toString();
+      setValue(nextText);
+      // Our own edits already show in the textarea — don't reset the
+      // caret. Only remote edits reconcile the DOM value + selection.
+      if (event.transaction.origin === LOCAL_ORIGIN) return;
+      const ta = taRef.current;
+      if (!ta || ta.value === nextText) return;
+      const { index, removed, insert } = diffSplice(ta.value, nextText);
+      const delta = insert.length - removed;
+      const adjust = (pos: number) =>
+        pos <= index ? pos : pos >= index + removed ? pos + delta : index + insert.length;
+      const selStart = adjust(ta.selectionStart);
+      const selEnd = adjust(ta.selectionEnd);
+      ta.value = nextText;
+      ta.selectionStart = selStart;
+      ta.selectionEnd = selEnd;
+    };
+    ytext.observe(observer);
+    return () => {
+      ytext.unobserve(observer);
+      ytextRef.current = null;
+    };
+  }, [collabDoc, collab?.provider, load.kind, load.kind === "ready" ? load.text : null]);
+
+  // Route a local buffer value into the shared doc as a minimal splice.
+  // No-op when collab is off — the single-user path just holds `value`.
+  const pushLocal = useCallback((next: string) => {
+    const ytext = ytextRef.current;
+    const doc = collabDoc;
+    if (!ytext || !doc) return;
+    const prev = ytext.toString();
+    if (prev === next) return;
+    const { index, removed, insert } = diffSplice(prev, next);
+    doc.transact(() => {
+      if (removed > 0) ytext.delete(index, removed);
+      if (insert.length > 0) ytext.insert(index, insert);
+    }, LOCAL_ORIGIN);
+  }, [collabDoc]);
+
   const save = useCallback(async () => {
     if (load.kind !== "ready" || saving) return;
-    const current = taRef.current?.value ?? value;
+    // In a live room the shared text is the source of truth; snapshot it.
+    const current = ytextRef.current?.toString() ?? taRef.current?.value ?? value;
     setSaving(true);
     onSaveStatusRef.current?.({ kind: "saving" });
     try {
@@ -150,6 +255,7 @@ export function CodeTextEditor({ file, onSaveStatus, onSaved }: CodeTextEditorPr
       const next = value.slice(0, start) + "  " + value.slice(end);
       setValue(next);
       setDirty(true);
+      pushLocal(next);
       requestAnimationFrame(() => {
         ta.selectionStart = ta.selectionEnd = start + 2;
       });
@@ -265,8 +371,10 @@ export function CodeTextEditor({ file, onSaveStatus, onSaved }: CodeTextEditorPr
           spellCheck={false}
           data-testid="code-text-editor-textarea"
           onChange={(e) => {
-            setValue(e.target.value);
+            const next = e.target.value;
+            setValue(next);
             setDirty(true);
+            pushLocal(next);
           }}
           onKeyDown={onTextKeyDown}
           onScroll={syncScroll}

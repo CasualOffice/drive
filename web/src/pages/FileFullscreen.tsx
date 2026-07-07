@@ -24,23 +24,41 @@
  *     `<SignIn />`. The fullscreen route only renders when authed.
  *   - File picker / sidebar — the editor wants the whole viewport.
  *     Use the back arrow (or browser back) to return to `/home`.
- *   - Co-edit toggle — already inherited from `<CasualDocEditor>`
- *     via `VITE_DRIVE_COLLAB_BACKEND_URL`. The wrapper handles it.
+ *   - Co-edit: P2.3 wires a live collab room here via `useCollabSession`
+ *     (GET /api/files/{id}/collab → Yjs `y-websocket`). The plain-text
+ *     editor binds a shared `Y.Text` for true co-editing; the SDK iframe
+ *     editors consume the session for the presence indicator only (their
+ *     CRDT lives behind the iframe protocol — a follow-up). A 404 / no
+ *     collab server falls back to single-user editing, unchanged.
  */
 
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Info, Share2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { downloadUrl, getFile, renameFile, trashFile, type FileDto } from "../api/client.ts";
+import { useAuth } from "../auth/AuthContext.tsx";
 import { DetailsPanel } from "../components/DetailsPanel.tsx";
 import { EntryKebab } from "../components/EntryMenu.tsx";
 import { FilePresenceStack } from "../components/FilePresenceStack.tsx";
 import { inferKind } from "../components/FileThumb.tsx";
+import { CollabPresence } from "../components/editor/CollabPresence.tsx";
 import { SaveStatusPill } from "../components/editor/SaveStatusPill.tsx";
 import type { SaveStatus } from "../components/editor/save-status.ts";
 import { ShareDialog } from "../components/ShareDialog.tsx";
 import { useReportViewing } from "../state/PresenceContext.tsx";
+import {
+  tintFor,
+  useCollabSession,
+  type CollabIdentity,
+  type CollabSession,
+} from "../lib/collab.ts";
+
+/** Editor surfaces that host a live editing session (and thus a collab
+ *  room). Viewers (pdf / generic preview) get no room. */
+function isEditableKind(kind: string): boolean {
+  return kind === "doc" || kind === "sheet" || kind === "text" || kind === "md";
+}
 
 // Same lazy-load pattern as PreviewStage — both surfaces share the
 // same SDK chunks but tax different routes, so the Suspense
@@ -198,6 +216,20 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
   // round-trips. The pill collapses to nothing in the idle state.
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: "idle" });
 
+  // P2.3 — live co-editing room. Only editable surfaces join; viewers and
+  // non-editor kinds stay `disabled` (single-user). Identity is published
+  // over Yjs awareness so peers render in the presence indicator.
+  const { status: authStatus } = useAuth();
+  const file = state.kind === "ready" ? state.file : null;
+  const editable = file ? isEditableKind(inferKind(file.name, file.content_type)) : false;
+  const identity = useMemo<CollabIdentity>(() => {
+    const name = authStatus.kind === "authed" ? authStatus.me.admin : "You";
+    const userId =
+      (authStatus.kind === "authed" ? authStatus.me.user_id : null) ?? name ?? "anon";
+    return { userId, name, tint: tintFor(userId), activity: "editing" };
+  }, [authStatus]);
+  const collab = useCollabSession(fileId, identity, { enabled: editable });
+
   // Details drawer state — opens via the header Details pill, slides
   // in from the right edge with the same DetailsPanel the modal uses.
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -217,6 +249,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
       <FullscreenHeader
         state={state}
         saveStatus={saveStatus}
+        collab={collab}
         onBack={goBack}
         onRename={onRename}
         onOpenDetails={() => setDetailsOpen(true)}
@@ -240,6 +273,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
       <main style={{ flex: 1, minHeight: 0, position: "relative" }}>
         <FullscreenBody
           state={state}
+          collab={collab}
           onSaveStatus={setSaveStatus}
           onSaved={(file) => setState({ kind: "ready", file })}
         />
@@ -254,6 +288,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
 function FullscreenHeader({
   state,
   saveStatus,
+  collab,
   onBack,
   onRename,
   onOpenDetails,
@@ -262,6 +297,7 @@ function FullscreenHeader({
 }: {
   state: LoadState;
   saveStatus: SaveStatus;
+  collab: CollabSession;
   onBack: () => void;
   onRename: (name: string) => void;
   onOpenDetails: () => void;
@@ -343,6 +379,7 @@ function FullscreenHeader({
       )}
       <SaveStatusPill status={saveStatus} />
       <div style={{ flex: 1 }} />
+      <CollabPresence session={collab} />
       <FilePresenceStack fileId={file?.id} />
       {file && (
         <>
@@ -515,10 +552,12 @@ function FilenameField({
 
 function FullscreenBody({
   state,
+  collab,
   onSaveStatus,
   onSaved,
 }: {
   state: LoadState;
+  collab: CollabSession;
   onSaveStatus: (s: SaveStatus) => void;
   onSaved: (file: FileDto) => void;
 }) {
@@ -625,7 +664,7 @@ function FullscreenBody({
   if (kind === "text" || kind === "md") {
     return (
       <Suspense fallback={<LoadingFallback />}>
-        <CodeTextEditor file={file} onSaveStatus={onSaveStatus} onSaved={onSaved} />
+        <CodeTextEditor file={file} collab={collab} onSaveStatus={onSaveStatus} onSaved={onSaved} />
       </Suspense>
     );
   }
