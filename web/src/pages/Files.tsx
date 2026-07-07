@@ -853,7 +853,7 @@ export function Files({
       enterFolder(entry.folder);
       return;
     }
-    const url = `/file/${encodeURIComponent(entry.file.id)}`;
+    const url = `/document/${encodeURIComponent(entry.file.id)}/edit`;
     window.history.pushState({ file: entry.file }, "", url);
     window.dispatchEvent(new PopStateEvent("popstate"));
   }
@@ -873,7 +873,7 @@ export function Files({
     // (CasualDoc / CasualSheet / image viewer / video / PDF / text /
     // generic download), so this works for non-editor types too.
     const openInEditor = (target: FileDto) => {
-      const url = `/file/${encodeURIComponent(target.id)}`;
+      const url = `/document/${encodeURIComponent(target.id)}/edit`;
       window.history.pushState({ file: target }, "", url);
       window.dispatchEvent(new PopStateEvent("popstate"));
     };

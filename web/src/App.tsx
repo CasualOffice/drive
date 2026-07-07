@@ -37,6 +37,17 @@ function historyRouteId(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** `/document/<id>/edit` — Phase-2 (P2.1) canonical embedded-editor
+ *  surface: opens the head version in its native editor (Sheet / Docs /
+ *  light text) inside the Doc-Hub shell, every save landing as a new
+ *  hash-chained version. `/file/<id>` remains as a compatibility alias
+ *  for existing open-from-list navigation. */
+function editRouteId(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = window.location.pathname.match(/^\/document\/([^/?#]+)\/edit/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 /** `/invite/<token>` MU1 accept page. Public-safe — the page itself
  *  decides whether to show "Sign in to join" or "Join workspace"
  *  based on current auth status. */
@@ -81,6 +92,8 @@ function Router() {
   // Authed paths.
   const historyId = historyRouteId();
   if (historyId) return <VersionHistoryPage fileId={historyId} />;
+  const editId = editRouteId();
+  if (editId) return <FileFullscreen fileId={editId} />;
   const fileId = fileRouteId();
   if (fileId) return <FileFullscreen fileId={fileId} />;
   return <Shell />;
