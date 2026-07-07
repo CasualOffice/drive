@@ -92,7 +92,15 @@ export function DetailsPanel({ file, onCreateShare }: DetailsPanelProps) {
         {active === "info" && <InfoTab file={file} />}
         {active === "people" && <PeopleTab file={file} onCreateShare={onCreateShare} />}
         {active === "history" && (
-          <VersionHistory fileId={file.id} fileName={file.name} variant="panel" />
+          // Wrapper carries the panel testid for parity with the Info /
+          // People panels. The History tab hosts the real (M2) hash-chained
+          // version-history surface, not the former "coming soon" card.
+          <div
+            data-testid="details-tab-history-panel"
+            style={{ height: "100%", minHeight: 0 }}
+          >
+            <VersionHistory fileId={file.id} fileName={file.name} variant="panel" />
+          </div>
         )}
       </div>
     </section>

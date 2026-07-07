@@ -9,7 +9,16 @@
 // boundary in demo mode; we just need the flow to feel real. The pre-filled
 // `demo` / `demo` credentials shown on the SignIn page are just defaults.
 
-import type { About, FileDto, FolderDto, FolderDetail, ListResp, Me } from "./client.ts";
+import type {
+  About,
+  FileDto,
+  FileVersion,
+  FolderDto,
+  FolderDetail,
+  ListResp,
+  Me,
+  VersionsResp,
+} from "./client.ts";
 
 interface DemoShare {
   id: string;
@@ -401,16 +410,6 @@ function seedFiles(): FileDto[] {
       modified_at: t("05-18"),
     },
     {
-      id: "f_demo",
-      parent_id: null,
-      name: "Demo walkthrough.mp4",
-      size: 18_400_000,
-      content_type: "video/mp4",
-      version: 1,
-      created_at: t("05-20"),
-      modified_at: t("05-20"),
-    },
-    {
       id: "f_readme",
       parent_id: null,
       name: "README.md",
@@ -421,6 +420,49 @@ function seedFiles(): FileDto[] {
       modified_at: t("06-01"),
     },
   ];
+}
+
+/** Synthesize a deterministic, hash-chained version timeline for a demo
+ *  file from its current version count. Not cryptographic — the demo holds
+ *  no real bytes — but shaped exactly like the real `GET .../versions`
+ *  response so the M2 VersionHistory surface renders real content. */
+function demoVersions(file: FileDto): VersionsResp {
+  const count = Math.max(1, file.version);
+  const created = new Date(file.created_at).getTime();
+  const modified = new Date(file.modified_at).getTime();
+  const span = Math.max(0, modified - created);
+  const versions: FileVersion[] = [];
+  let prev: string | null = null;
+  for (let seq = 1; seq <= count; seq++) {
+    const content_hash = fakeHash(`${file.id}:${seq}`);
+    const at = created + (count === 1 ? 0 : Math.round((span * (seq - 1)) / (count - 1)));
+    versions.push({
+      seq,
+      content_hash,
+      prev_hash: prev,
+      size: file.size,
+      author_name: state.username ?? "demo",
+      reason: seq === 1 ? "Initial upload" : `Autosave · revision ${seq}`,
+      created_at: new Date(at).toISOString(),
+    });
+    prev = content_hash;
+  }
+  return { file_id: file.id, head_seq: count, chain_verified: true, versions };
+}
+
+/** Deterministic 64-hex digest for the demo's version hash chips
+ *  (click-to-copy). FNV-1a-ish; sufficient for display only. */
+function fakeHash(seed: string): string {
+  let h = 0x811c9dc5 >>> 0;
+  const out: string[] = [];
+  for (let i = 0; i < 32; i++) {
+    for (let j = 0; j < seed.length; j++) {
+      h ^= seed.charCodeAt(j) + i;
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    out.push((h & 0xff).toString(16).padStart(2, "0"));
+  }
+  return out.join("");
 }
 
 function listChildren(parentId: string | null): ListResp {
@@ -761,6 +803,29 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
   if (openMatch && method === "GET") {
     if (!state.signedIn) throw makeError(401, "not signed in");
     throw makeError(503, "editor not configured");
+  }
+
+  // M2 version-history surface. `GET /api/files/{id}/versions` returns the
+  // append-only, hash-chained timeline (head-first ordering applied client
+  // side); `GET /api/files/{id}/verify` recomputes it. The demo has no real
+  // version store, so it synthesizes a deterministic chain from the file's
+  // version count — enough for the History tab (DetailsPanel +
+  // /document/{id}/history) to render the real surface, not an error state.
+  const versionsMatch = p.match(/^\/api\/files\/([^/]+)\/versions$/);
+  if (versionsMatch && method === "GET") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const fid = decodeURIComponent(versionsMatch[1]);
+    const file = state.files.find((f) => f.id === fid);
+    if (!file) throw makeError(404, "file not found");
+    return demoVersions(file) as unknown as T;
+  }
+  const verifyMatch = p.match(/^\/api\/files\/([^/]+)\/verify$/);
+  if (verifyMatch && method === "GET") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const fid = decodeURIComponent(verifyMatch[1]);
+    const file = state.files.find((f) => f.id === fid);
+    if (!file) throw makeError(404, "file not found");
+    return { status: "intact" } as unknown as T;
   }
 
   // SDK content endpoints — `GET /api/files/{id}/content` returns the

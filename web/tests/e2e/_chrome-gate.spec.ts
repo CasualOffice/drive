@@ -128,9 +128,10 @@ test("UX-EDITOR-5: docx preview shows friendly fallback instead of parse error",
   test.setTimeout(60_000);
   await page.getByText("Product brief.docx").first().click();
   // The demo's seeded blob is empty → SDK fires casual.error
-  // → ErrorAwareDoc swaps the iframe for FailureFallback.
-  // Friendly card carries the "Couldn't load preview" string.
-  await expect(page.getByText(/Couldn't load preview/i)).toBeVisible({
+  // → ErrorAwareDoc swaps the iframe for FailureFallback. The M5 preview
+  // restyle worded the friendly card "Couldn't load the preview." — match
+  // with or without the article.
+  await expect(page.getByText(/Couldn't load.*preview/i)).toBeVisible({
     timeout: 15_000,
   });
   // The SDK's own red "Failed to Load Document" UI must NOT show.
@@ -142,7 +143,7 @@ test("UX-EDITOR-5: xlsx preview shows friendly fallback instead of parse error",
 }) => {
   test.setTimeout(60_000);
   await page.getByText("Q2 planning.xlsx").first().click();
-  await expect(page.getByText(/Couldn't load preview/i)).toBeVisible({
+  await expect(page.getByText(/Couldn't load.*preview/i)).toBeVisible({
     timeout: 15_000,
   });
   await expect(page.getByText(/Failed to load workbook/i)).toHaveCount(0);
@@ -183,24 +184,26 @@ test("UX-EDITOR-8: Details People tab → empty state + Create share CTA", async
   await expect(page.getByTestId("details-people-create-share")).toBeVisible();
 });
 
-test("UX-EDITOR-8: Details History tab → friendly Coming soon", async ({ page }) => {
-  test.setTimeout(60_000);
-  await page.getByText("Q2 planning.xlsx").first().click();
-  await page.getByTestId("details-tab-history").click();
-  await expect(page.getByTestId("details-tab-history-panel")).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByText(/Version history is coming/i)).toBeVisible();
-});
-
-test("UX-EDITOR-7: video preview mounts the vidstack player, not browser default", async ({
+test("UX-EDITOR-8: Details History tab → hash-chained version-history surface", async ({
   page,
 }) => {
   test.setTimeout(60_000);
-  await page.getByText("Demo walkthrough.mp4").first().click();
-  // The vidstack default-layout adds a wrapping element with the
-  // 'cd-media-shell--video' class. The browser's bare <video controls>
-  // would have NO surrounding wrapper.
-  await expect(page.locator(".cd-media-shell--video")).toBeVisible({ timeout: 5_000 });
+  await page.getByText("Q2 planning.xlsx").first().click();
+  await page.getByTestId("details-tab-history").click();
+  // M2 replaced the former "coming soon" placeholder with the real
+  // append-only, hash-chained version-history surface (VersionHistory).
+  await expect(page.getByTestId("details-tab-history-panel")).toBeVisible({ timeout: 5_000 });
+  // The panel primary — always present on the history surface.
+  await expect(page.getByRole("button", { name: /Verify chain/i })).toBeVisible();
+  // Once the chain loads, the footer states the append-only guarantee.
+  await expect(page.getByText(/Append-only/i)).toBeVisible({ timeout: 5_000 });
 });
+
+// NB: the former "UX-EDITOR-7: video preview mounts the vidstack player"
+// gate is intentionally removed. Video is out of the documents-only product
+// scope (CLAUDE.md — the ingest allowlist has no media types); the vidstack
+// player and its 'cd-media-shell--video' shell were dropped, and the demo's
+// "Demo walkthrough.mp4" seed removed with it. No video renderer to gate.
 
 // NB: the former "UX-EDITOR-2: iframe stays light-themed under
 // prefers-color-scheme:dark" gate is intentionally removed. It locked in

@@ -29,8 +29,8 @@ test("uploading a file appears as a new card", async ({ page }) => {
   });
   // Demo mode adds 90–150ms latency to feel real — wait long enough.
   await expect(page.getByText("playwright-upload.txt")).toBeVisible({ timeout: 5_000 });
-  // Item count bumps from 9 → 10.
-  await expect(page.getByText(/^10 items$/)).toBeVisible();
+  // Item count bumps from 8 → 9 (3 folders + 5 files seeded, + this upload).
+  await expect(page.getByText(/^9 items$/)).toBeVisible();
 });
 
 // TODO(e2e-rename): wiring the right-click ContextMenu reliably through
