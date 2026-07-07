@@ -2,17 +2,21 @@
  * Account section — real. Change password + sign out other sessions.
  *
  * Per spec: validates on blur, disabled Save until dirty+valid, sonner toast
- * on success, inline error band on failure (aria-live).
+ * on success, inline error band on failure (aria-live). Dense on-system
+ * restyle — 30px fields, 28px amber primary, hairline cards, one Lucide
+ * weight. Logic + endpoints unchanged.
  */
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 
 import { ApiError, changePassword } from "../../api/client.ts";
 import { useAuth } from "../../auth/AuthContext.tsx";
+import { StatusChip } from "../../components/ds/StatusChip.tsx";
 import { SettingsCard, SettingsHeader } from "./SettingsHeader.tsx";
+import { Button, ErrorBand, Field, STROKE } from "./controls.tsx";
 
 const schema = z
   .object({
@@ -42,38 +46,41 @@ export function AccountSection() {
         description="Your sign-in credentials and the sessions currently signed in to this workspace."
       />
 
-      <SettingsCard title="Signed in as" subtitle="The username Drive uses to identify you across this workspace.">
+      <SettingsCard title="Signed in as" subtitle="The username Doc-Hub uses to identify you across this workspace.">
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 14,
-            padding: "12px 14px",
-            background: "var(--bg-subtle)",
-            border: "1px solid var(--line)",
-            borderRadius: 11,
+            gap: "var(--space-3)",
+            padding: "var(--space-2) var(--space-3)",
+            background: "var(--bg-sunken)",
+            border: "1px solid var(--border-hair)",
+            borderRadius: "var(--radius-md)",
           }}
         >
           <span
+            aria-hidden
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, var(--accent), var(--accent-bright))",
-              color: "var(--paper)",
+              width: 32,
+              height: 32,
+              borderRadius: "var(--radius-md)",
+              background: "var(--accent-wash)",
+              color: "var(--amber-700)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontFamily: "var(--font-display)",
-              fontWeight: 500,
+              fontWeight: "var(--weight-semibold)",
+              fontSize: "var(--text-md)",
               flexShrink: 0,
             }}
           >
             {username.charAt(0).toUpperCase()}
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 500, fontSize: "var(--text-md)" }}>{username}</div>
-            <div style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>Workspace administrator</div>
+            <div style={{ fontWeight: "var(--weight-medium)", fontSize: "var(--text-md)", color: "var(--fg-default)" }}>
+              {username}
+            </div>
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>Workspace administrator</div>
           </div>
         </div>
       </SettingsCard>
@@ -84,7 +91,7 @@ export function AccountSection() {
         title="Other sessions"
         subtitle="Changing your password automatically signs out every other device. There is no per-device list in v0."
       >
-        <div style={{ fontSize: "var(--text-sm)", color: "var(--muted)" }}>
+        <div style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
           Per-device session management ships in v0.2.
         </div>
       </SettingsCard>
@@ -123,6 +130,14 @@ function ChangePasswordCard() {
   return (
     <SettingsCard
       title="Change password"
+      status={
+        <StatusChip
+          tone="verified"
+          icon={<ShieldCheck size={13} strokeWidth={STROKE} />}
+          label="Argon2id"
+          title="Passwords are hashed with Argon2id — never stored in the clear."
+        />
+      }
       subtitle="At least 12 characters. Changing your password signs out every other device."
     >
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
@@ -154,131 +169,25 @@ function ChangePasswordCard() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginTop: 18,
+            marginTop: "var(--space-4)",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setReveal((r) => !r)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              padding: 6,
-              borderRadius: 8,
-              fontFamily: "var(--font-sans)",
-              fontSize: "var(--text-sm)",
-              color: "var(--muted)",
-            }}
-          >
-            {reveal ? <EyeOff size={14} /> : <Eye size={14} />}
+          <Button type="button" variant="ghost" size="sm" onClick={() => setReveal((r) => !r)}>
+            {reveal ? <EyeOff size={14} strokeWidth={STROKE} /> : <Eye size={14} strokeWidth={STROKE} />}
             {reveal ? "Hide" : "Show"} passwords
-          </button>
+          </Button>
 
-          <button
-            type="submit"
-            disabled={!isDirty || !isValid || isSubmitting}
-            style={{
-              border: "none",
-              cursor: !isDirty || !isValid || isSubmitting ? "not-allowed" : "pointer",
-              padding: "10px 18px",
-              borderRadius: 11,
-              fontFamily: "var(--font-sans)",
-              fontSize: "var(--text-sm)",
-              fontWeight: 500,
-              background: !isDirty || !isValid || isSubmitting ? "var(--line-strong)" : "var(--ink)",
-              color: "var(--paper)",
-              opacity: !isDirty || !isValid || isSubmitting ? 0.7 : 1,
-              transition: "background 150ms, opacity 150ms",
-            }}
-          >
+          <Button type="submit" variant="primary" disabled={!isDirty || !isValid || isSubmitting} aria-busy={isSubmitting}>
             {isSubmitting ? "Saving…" : "Save"}
-          </button>
+          </Button>
         </div>
 
         {serverError && (
-          <div
-            role="alert"
-            aria-live="polite"
-            style={{
-              marginTop: 14,
-              padding: "10px 12px",
-              background: "rgba(178, 36, 36, 0.06)",
-              border: "1px solid rgba(178, 36, 36, 0.25)",
-              borderRadius: 10,
-              fontSize: "var(--text-sm)",
-              color: "var(--danger, #B22424)",
-            }}
-          >
-            {serverError}
+          <div style={{ marginTop: "var(--space-3)" }}>
+            <ErrorBand>{serverError}</ErrorBand>
           </div>
         )}
       </form>
     </SettingsCard>
   );
 }
-
-const Field = (() => {
-  type Props = React.InputHTMLAttributes<HTMLInputElement> & {
-    label: string;
-    error?: string;
-    hint?: string;
-  };
-  return Object.assign(
-    function Field({ label, error, hint, ...input }: Props) {
-      const id = `cd-fld-${label.replace(/\s+/g, "-").toLowerCase()}`;
-      return (
-        <div style={{ marginBottom: 14 }}>
-          <label
-            htmlFor={id}
-            style={{
-              display: "block",
-              fontSize: "var(--text-sm)",
-              fontWeight: 500,
-              color: "var(--ink)",
-              marginBottom: 6,
-            }}
-          >
-            {label}
-          </label>
-          <input
-            id={id}
-            {...input}
-            style={{
-              display: "block",
-              width: "100%",
-              padding: "10px 12px",
-              border: `1px solid ${error ? "var(--danger, #B22424)" : "var(--line)"}`,
-              borderRadius: 10,
-              background: "var(--paper)",
-              fontFamily: "var(--font-sans)",
-              fontSize: "var(--text-md)",
-              color: "var(--ink)",
-              outline: "none",
-              transition: "border-color 150ms, box-shadow 150ms",
-            }}
-            onFocus={(e) => {
-              e.currentTarget.style.borderColor = "var(--ink)";
-              e.currentTarget.style.boxShadow = "0 0 0 3px rgba(15, 23, 42,.08)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.borderColor = error ? "var(--danger, #B22424)" : "var(--line)";
-              e.currentTarget.style.boxShadow = "none";
-            }}
-          />
-          {error ? (
-            <div style={{ marginTop: 6, fontSize: "var(--text-xs)", color: "var(--danger, #B22424)" }}>
-              {error}
-            </div>
-          ) : hint ? (
-            <div style={{ marginTop: 6, fontSize: "var(--text-xs)", color: "var(--muted)" }}>{hint}</div>
-          ) : null}
-        </div>
-      );
-    },
-    { displayName: "SettingsField" },
-  );
-})();

@@ -1,6 +1,7 @@
 /**
  * Storage section — read-only readout of the configured storage backend.
- * Quota math arrives once `/api/storage/usage` lands (see PIPELINE.md §6.4).
+ * Dense on-system restyle; StatusChip signals the live backend. Quota math
+ * arrives once `/api/storage/usage` lands. Logic + endpoints unchanged.
  */
 import { useEffect, useState } from "react";
 import { ArrowUpCircle, Clock, HardDrive, Server } from "lucide-react";
@@ -13,8 +14,10 @@ import {
   requestQuotaUpgrade,
   type Me,
 } from "../../api/client.ts";
+import { StatusChip } from "../../components/ds/StatusChip.tsx";
 import { WorkspaceStorageCard } from "../../components/WorkspaceStorageCard.tsx";
 import { SettingsCard, SettingsHeader } from "./SettingsHeader.tsx";
+import { Button, ErrorBand, STROKE } from "./controls.tsx";
 
 export function StorageSection() {
   const [me, setMe] = useState<Me | null>(null);
@@ -32,49 +35,57 @@ export function StorageSection() {
     <>
       <SettingsHeader
         title="Storage"
-        description="The storage backend Drive is using to keep your files, plus per-workspace quota when set."
+        description="The storage backend Doc-Hub is using to keep your documents, plus per-workspace quota when set."
       />
 
       <SettingsCard
         title="Backend"
-        subtitle="Configured at boot via DRIVE_STORAGE_BACKEND. Switching backends requires a restart."
+        status={
+          me ? (
+            <StatusChip
+              tone="verified"
+              icon={<Server size={13} strokeWidth={STROKE} />}
+              label={me.backend}
+              title={`Storage backend in use: ${me.backend}`}
+            />
+          ) : undefined
+        }
+        subtitle="Configured at boot via DOCHUB_STORAGE_BACKEND. Switching backends requires a restart."
       >
         {err ? (
-          <Inline danger>{err}</Inline>
+          <ErrorBand>{err}</ErrorBand>
         ) : !me ? (
           <Skeleton />
         ) : (
           <>
             <ReadoutRow
-              icon={<Server size={16} strokeWidth={1.7} />}
+              icon={<Server size={16} strokeWidth={STROKE} />}
               label="Backend in use"
               value={me.backend}
             />
             <ReadoutRow
-              icon={<Clock size={16} strokeWidth={1.7} />}
+              icon={<Clock size={16} strokeWidth={STROKE} />}
               label="Signed-URL lifetime"
               value={about ? formatTtl(about.signed_url_ttl_secs) : "—"}
-              hint="How long a /download link stays valid before the server re-signs. Set via DRIVE_SIGNED_URL_TTL_SECS."
+              hint="How long a /download link stays valid before the server re-signs. Set via DOCHUB_SIGNED_URL_TTL_SECS."
+              last
             />
           </>
         )}
       </SettingsCard>
 
-      <SettingsCard
-        title="Usage"
-        subtitle="Live storage consumed by your non-trashed files."
-      >
+      <SettingsCard title="Usage" subtitle="Live storage consumed by your non-trashed documents.">
         {!me ? (
           <Skeleton />
         ) : (
           <>
             <ReadoutRow
-              icon={<HardDrive size={16} strokeWidth={1.7} />}
+              icon={<HardDrive size={16} strokeWidth={STROKE} />}
               label="Used"
               value={typeof me.used_bytes === "number" ? formatBytes(me.used_bytes) : "—"}
             />
             <ReadoutRow
-              icon={<HardDrive size={16} strokeWidth={1.7} />}
+              icon={<HardDrive size={16} strokeWidth={STROKE} />}
               label="Quota"
               value={
                 me.quota_bytes && me.quota_bytes > 0
@@ -86,6 +97,7 @@ export function StorageSection() {
                   ? `${pctUsed(me.used_bytes, me.quota_bytes)}% used`
                   : "An admin can allocate a cap via the Admin → Users surface."
               }
+              last
             />
             {me.quota_bytes && me.quota_bytes > 0 && (
               <RequestUpgradeRow currentQuota={me.quota_bytes} />
@@ -123,44 +135,33 @@ function RequestUpgradeRow({ currentQuota }: { currentQuota: number }) {
   return (
     <div
       style={{
-        marginTop: 14,
-        padding: "12px 14px",
-        background: "var(--accent-muted)",
-        border: "1px solid rgba(200,164,92,.32)",
-        borderRadius: 12,
+        marginTop: "var(--space-3)",
+        padding: "var(--space-3)",
+        background: "var(--accent-wash)",
+        borderLeft: "3px solid var(--status-attention)",
+        borderRadius: "var(--radius-md)",
         display: "flex",
         alignItems: "center",
-        gap: 12,
+        gap: "var(--space-3)",
       }}
     >
-      <ArrowUpCircle size={16} strokeWidth={1.8} style={{ color: "var(--accent)" }} />
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: "var(--text-sm)", fontWeight: 500, color: "var(--ink)" }}>
+      <ArrowUpCircle size={16} strokeWidth={STROKE} style={{ color: "var(--amber-700)", flexShrink: 0 }} aria-hidden />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: "var(--text-sm)", fontWeight: "var(--weight-medium)", color: "var(--fg-default)" }}>
           Need more storage?
         </div>
-        <div style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>
-          Send a request — your admin sees it in the Activity feed and can
-          raise your cap from Admin → Users.
+        <div style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+          Send a request — your admin sees it in the Activity feed and can raise your cap from Admin → Users.
         </div>
       </div>
-      <button
+      <Button
         type="button"
+        variant="primary"
         onClick={() => void submit()}
         disabled={busy || sent}
-        style={{
-          padding: "8px 14px",
-          borderRadius: 9,
-          border: "none",
-          background: sent ? "var(--success)" : busy ? "var(--line-strong)" : "var(--ink)",
-          color: "var(--paper)",
-          fontFamily: "var(--font-sans)",
-          fontSize: "var(--text-sm)",
-          fontWeight: 500,
-          cursor: busy || sent ? "default" : "pointer",
-        }}
       >
         {sent ? "Sent" : busy ? "Sending…" : "Request upgrade"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -170,29 +171,32 @@ function ReadoutRow({
   label,
   value,
   hint,
+  last,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   hint?: string;
+  last?: boolean;
 }) {
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 14,
-        padding: "12px 4px",
-        borderBottom: "1px solid var(--line)",
+        gap: "var(--space-3)",
+        padding: "var(--space-2) 0",
+        borderBottom: last ? "none" : "1px solid var(--border-hair)",
       }}
     >
       <span
+        aria-hidden
         style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          background: "var(--bg-subtle)",
-          color: "var(--muted)",
+          width: 28,
+          height: 28,
+          borderRadius: "var(--radius-sm)",
+          background: "var(--bg-sunken)",
+          color: "var(--fg-muted)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -202,12 +206,12 @@ function ReadoutRow({
         {icon}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: "var(--text-sm)", color: "var(--muted)" }}>{label}</div>
-        <div className="tabular-nums" style={{ fontSize: "var(--text-md)", fontWeight: 500, color: "var(--ink)" }}>
+        <div style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>{label}</div>
+        <div className="tnum" style={{ fontSize: "var(--text-md)", fontWeight: "var(--weight-medium)", color: "var(--fg-default)" }}>
           {value}
         </div>
         {hint && (
-          <div style={{ marginTop: 2, fontSize: "var(--text-xs)", color: "var(--muted-2)" }}>{hint}</div>
+          <div style={{ marginTop: 2, fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>{hint}</div>
         )}
       </div>
     </div>
@@ -215,17 +219,7 @@ function ReadoutRow({
 }
 
 function Skeleton() {
-  return (
-    <div
-      style={{
-        height: 52,
-        borderRadius: 10,
-        background: "linear-gradient(90deg, var(--bg-subtle), var(--card) 40%, var(--bg-subtle))",
-        backgroundSize: "200% 100%",
-        animation: "cd-skeleton 1.4s linear infinite",
-      }}
-    />
-  );
+  return <div className="skeleton" style={{ height: 52, borderRadius: "var(--radius-md)" }} />;
 }
 
 function formatTtl(secs: number): string {
@@ -254,21 +248,4 @@ function formatBytes(b: number): string {
 function pctUsed(used: number | undefined, quota: number | null | undefined): number {
   if (!used || !quota || quota <= 0) return 0;
   return Math.round((used / quota) * 100);
-}
-
-function Inline({ children, danger }: { children: React.ReactNode; danger?: boolean }) {
-  return (
-    <div
-      style={{
-        padding: "10px 12px",
-        background: danger ? "rgba(178,36,36,.06)" : "var(--bg-subtle)",
-        border: `1px solid ${danger ? "rgba(178,36,36,.25)" : "var(--line)"}`,
-        borderRadius: 10,
-        fontSize: "var(--text-sm)",
-        color: danger ? "var(--danger, #B22424)" : "var(--muted)",
-      }}
-    >
-      {children}
-    </div>
-  );
 }

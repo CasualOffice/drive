@@ -5,18 +5,14 @@
  *
  * Two stacked cards:
  *   1. **Active members** — read-only list (owner badge + joined date).
- *      Per-member remove ships with MU2 role tiers.
- *   2. **Pending invitations** — every row from the workspace's
- *      `workspace_invitations` table with its status + a Revoke button
- *      for active ones. Owner clicks "Invite to <Workspace>" in the
- *      WorkspaceSwitcher footer to mint a fresh one (the dialog lives
- *      there, not here, to keep the management surface read-leaning).
+ *   2. **Pending invitations** — each row with its status (StatusChip) + a
+ *      Revoke button for active ones. Owner mints a fresh invite from the
+ *      WorkspaceSwitcher footer.
  *
- * Personal workspaces show a friendly placeholder — there's no
- * "members" concept when the workspace is 1-to-1 with a user.
+ * Dense on-system restyle. Logic + endpoints unchanged.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Trash2, Users } from "lucide-react";
+import { Ban, Clock, Link2, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -28,8 +24,11 @@ import {
   type Workspace,
   type WorkspaceMember,
 } from "../../api/client.ts";
+import { StatusChip, type StatusTone } from "../../components/ds/StatusChip.tsx";
 import { useActiveWorkspaceId } from "../../state/WorkspaceContext.tsx";
 import { ConfirmDialog } from "../../components/ConfirmDialog.tsx";
+import { SettingsCard, SettingsHeader } from "./SettingsHeader.tsx";
+import { Button, STROKE } from "./controls.tsx";
 
 export function MembersSection() {
   const workspaceId = useActiveWorkspaceId();
@@ -75,30 +74,23 @@ export function MembersSection() {
   const isPersonal = workspace?.kind === "personal";
 
   return (
-    <div>
-      <Header />
+    <>
+      <SettingsHeader
+        title="Members"
+        description="Who has access to this workspace and which invitations are still live."
+      />
 
       {isPersonal ? (
-        <Card>
-          <p
-            style={{
-              margin: 0,
-              fontSize: "var(--text-sm)",
-              color: "var(--muted)",
-              lineHeight: 1.6,
-            }}
-          >
+        <SettingsCard title="Personal workspace">
+          <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--fg-muted)", lineHeight: "var(--leading-md)" }}>
             This is your personal workspace — it's just for you. To collaborate, switch to a team
             workspace or create one from the workspace switcher in the sidebar.
           </p>
-        </Card>
+        </SettingsCard>
       ) : (
         <>
           <ActiveMembersCard members={members} workspace={workspace} />
-          <PendingInvitationsCard
-            invitations={invitations}
-            onRevoke={(inv) => setConfirming(inv)}
-          />
+          <PendingInvitationsCard invitations={invitations} onRevoke={(inv) => setConfirming(inv)} />
         </>
       )}
 
@@ -115,115 +107,26 @@ export function MembersSection() {
           if (target) await doRevoke(target);
         }}
       />
-    </div>
+    </>
   );
 }
 
-function Header() {
+function CountPill({ count }: { count: number | null }) {
+  if (count === null) return null;
   return (
-    <div style={{ marginBottom: 22 }}>
-      <h1
-        style={{
-          margin: 0,
-          fontFamily: "var(--font-display)",
-          fontSize: "var(--text-2xl)",
-          fontWeight: 600,
-          color: "var(--ink)",
-          letterSpacing: "-0.01em",
-        }}
-      >
-        Members
-      </h1>
-      <p
-        style={{
-          margin: "6px 0 0",
-          fontSize: "var(--text-sm)",
-          color: "var(--muted)",
-          lineHeight: 1.55,
-        }}
-      >
-        Who has access to this workspace and which invitations are still live.
-      </p>
-    </div>
-  );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <section
+    <span
+      className="tnum"
       style={{
-        marginBottom: 18,
-        padding: "18px 20px",
-        border: "1px solid var(--line)",
-        borderRadius: 14,
-        background: "var(--card)",
-        boxShadow: "var(--shadow)",
+        fontSize: "var(--text-xs)",
+        color: "var(--fg-muted)",
+        background: "var(--bg-sunken)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-xs)",
+        padding: "1px 6px",
       }}
     >
-      {children}
-    </section>
-  );
-}
-
-function CardTitle({
-  icon,
-  label,
-  count,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count: number | null;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        marginBottom: 14,
-        color: "var(--ink)",
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          width: 28,
-          height: 28,
-          borderRadius: 8,
-          background: "var(--bg-subtle)",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--muted)",
-        }}
-      >
-        {icon}
-      </span>
-      <span
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: "var(--text-md)",
-          fontWeight: 600,
-        }}
-      >
-        {label}
-      </span>
-      {count !== null && (
-        <span
-          style={{
-            marginLeft: "auto",
-            fontSize: "var(--text-xs)",
-            color: "var(--muted)",
-            background: "var(--bg-subtle)",
-            border: "1px solid var(--line)",
-            borderRadius: 6,
-            padding: "2px 8px",
-          }}
-        >
-          {count}
-        </span>
-      )}
-    </div>
+      {count}
+    </span>
   );
 }
 
@@ -235,18 +138,11 @@ function ActiveMembersCard({
   workspace: Workspace | null;
 }) {
   return (
-    <Card>
-      <CardTitle
-        icon={<Users size={14} strokeWidth={1.8} />}
-        label="Active"
-        count={members?.length ?? null}
-      />
+    <SettingsCard title="Active" status={<CountPill count={members?.length ?? null} />}>
       {members === null ? (
-        <p style={{ margin: 0, color: "var(--muted)", fontSize: "var(--text-sm)" }}>Loading…</p>
+        <Muted>Loading…</Muted>
       ) : members.length === 0 ? (
-        <p style={{ margin: 0, color: "var(--muted)", fontSize: "var(--text-sm)" }}>
-          No members yet.
-        </p>
+        <Muted>No members yet.</Muted>
       ) : (
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {members.map((m, i) => (
@@ -259,7 +155,7 @@ function ActiveMembersCard({
           ))}
         </ul>
       )}
-    </Card>
+    </SettingsCard>
   );
 }
 
@@ -277,24 +173,24 @@ function MemberRow({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 12,
-        padding: "10px 4px",
-        borderBottom: last ? "none" : "1px solid var(--line)",
+        gap: "var(--space-3)",
+        minHeight: 32,
+        padding: "var(--space-1) 0",
+        borderBottom: last ? "none" : "1px solid var(--border-hair)",
       }}
     >
       <span
-        aria-hidden="true"
+        aria-hidden
         style={{
-          width: 28,
-          height: 28,
-          borderRadius: "50%",
-          background: "linear-gradient(135deg, var(--accent), var(--accent-bright))",
-          color: "var(--paper)",
+          width: 26,
+          height: 26,
+          borderRadius: "var(--radius-sm)",
+          background: "var(--bg-sunken)",
+          color: "var(--fg-muted)",
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          fontFamily: "var(--font-display)",
-          fontWeight: 500,
+          fontWeight: "var(--weight-medium)",
           fontSize: "var(--text-sm)",
           flexShrink: 0,
         }}
@@ -304,8 +200,8 @@ function MemberRow({
       <span
         style={{
           fontSize: "var(--text-sm)",
-          fontWeight: 500,
-          color: "var(--ink)",
+          fontWeight: "var(--weight-medium)",
+          color: "var(--fg-default)",
           flex: 1,
           minWidth: 0,
           overflow: "hidden",
@@ -318,11 +214,11 @@ function MemberRow({
       <span
         style={{
           fontSize: "var(--text-xs)",
-          color: isOwner ? "var(--accent-strong)" : "var(--muted)",
-          background: isOwner ? "var(--accent-muted)" : "var(--bg-subtle)",
-          border: "1px solid var(--line)",
-          borderRadius: 6,
-          padding: "2px 8px",
+          color: isOwner ? "var(--amber-700)" : "var(--fg-muted)",
+          background: isOwner ? "var(--accent-wash)" : "var(--bg-sunken)",
+          border: "1px solid var(--border-hair)",
+          borderRadius: "var(--radius-xs)",
+          padding: "1px 7px",
           textTransform: "capitalize",
         }}
       >
@@ -341,18 +237,11 @@ function PendingInvitationsCard({
 }) {
   const active = invitations?.filter((i) => !i.revoked) ?? [];
   return (
-    <Card>
-      <CardTitle
-        icon={<Users size={14} strokeWidth={1.8} />}
-        label="Pending invitations"
-        count={active.length}
-      />
+    <SettingsCard title="Pending invitations" status={<CountPill count={active.length} />}>
       {invitations === null ? (
-        <p style={{ margin: 0, color: "var(--muted)", fontSize: "var(--text-sm)" }}>Loading…</p>
+        <Muted>Loading…</Muted>
       ) : invitations.length === 0 ? (
-        <p style={{ margin: 0, color: "var(--muted)", fontSize: "var(--text-sm)" }}>
-          No invitations yet. Generate one from the workspace switcher in the sidebar.
-        </p>
+        <Muted>No invitations yet. Generate one from the workspace switcher in the sidebar.</Muted>
       ) : (
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {invitations.map((inv, i) => (
@@ -365,7 +254,7 @@ function PendingInvitationsCard({
           ))}
         </ul>
       )}
-    </Card>
+    </SettingsCard>
   );
 }
 
@@ -384,38 +273,37 @@ function InvitationRow({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 12,
-        padding: "10px 4px",
-        borderBottom: last ? "none" : "1px solid var(--line)",
+        gap: "var(--space-3)",
+        padding: "var(--space-2) 0",
+        borderBottom: last ? "none" : "1px solid var(--border-hair)",
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
           <span
             style={{
               fontSize: "var(--text-sm)",
-              fontWeight: 500,
-              color: "var(--ink)",
+              fontWeight: "var(--weight-medium)",
+              color: "var(--fg-default)",
               textTransform: "capitalize",
             }}
           >
             {inv.role}
           </span>
-          <StatusBadge status={status} />
+          <StatusChip {...statusChip(status)} />
         </div>
         <div
+          className="tnum"
           style={{
             fontSize: "var(--text-xs)",
-            color: "var(--muted)",
-            marginTop: 4,
+            color: "var(--fg-muted)",
+            marginTop: 2,
             display: "flex",
-            gap: 8,
+            gap: "var(--space-2)",
             flexWrap: "wrap",
           }}
         >
-          <span>
-            {inv.used_count} / {inv.max_uses} used
-          </span>
+          <span>{inv.used_count} / {inv.max_uses} used</span>
           <span aria-hidden>·</span>
           <span>{inv.expires_at ? `Expires ${formatRelative(inv.expires_at)}` : "Never expires"}</span>
           <span aria-hidden>·</span>
@@ -423,37 +311,10 @@ function InvitationRow({
         </div>
       </div>
       {status === "active" && (
-        <button
-          type="button"
-          onClick={onRevoke}
-          aria-label="Revoke invitation"
-          title="Revoke invitation"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 10px",
-            borderRadius: 8,
-            border: "1px solid var(--line)",
-            background: "transparent",
-            color: "var(--danger)",
-            fontFamily: "var(--font-sans)",
-            fontSize: "var(--text-xs)",
-            cursor: "pointer",
-            transition: "background 120ms, border-color 120ms",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--bg-hover)";
-            e.currentTarget.style.borderColor = "var(--danger)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.borderColor = "var(--line)";
-          }}
-        >
-          <Trash2 size={12} strokeWidth={1.8} />
+        <Button type="button" variant="danger" size="sm" onClick={onRevoke} aria-label="Revoke invitation">
+          <Trash2 size={12} strokeWidth={STROKE} />
           Revoke
-        </button>
+        </Button>
       )}
     </li>
   );
@@ -468,30 +329,21 @@ function computeStatus(inv: InvitationListEntry): Status {
   return "active";
 }
 
-function StatusBadge({ status }: { status: Status }) {
-  const palette: Record<Status, { fg: string; bg: string; label: string }> = {
-    active: { fg: "var(--success)", bg: "var(--bg-subtle)", label: "Active" },
-    exhausted: { fg: "var(--muted)", bg: "var(--bg-subtle)", label: "Exhausted" },
-    expired: { fg: "var(--muted)", bg: "var(--bg-subtle)", label: "Expired" },
-    revoked: { fg: "var(--danger)", bg: "var(--bg-subtle)", label: "Revoked" },
-  };
-  const p = palette[status];
-  return (
-    <span
-      style={{
-        fontSize: "var(--text-xs)",
-        color: p.fg,
-        background: p.bg,
-        border: "1px solid var(--line)",
-        borderRadius: 6,
-        padding: "1px 7px",
-        fontWeight: 600,
-        letterSpacing: "0.02em",
-      }}
-    >
-      {p.label}
-    </span>
-  );
+function statusChip(status: Status): { tone: StatusTone; icon: React.ReactNode; label: string } {
+  switch (status) {
+    case "active":
+      return { tone: "info", icon: <Link2 size={13} strokeWidth={STROKE} />, label: "Active" };
+    case "exhausted":
+      return { tone: "ambient", icon: <Ban size={13} strokeWidth={STROKE} />, label: "Exhausted" };
+    case "expired":
+      return { tone: "ambient", icon: <Clock size={13} strokeWidth={STROKE} />, label: "Expired" };
+    case "revoked":
+      return { tone: "danger", icon: <XCircle size={13} strokeWidth={STROKE} />, label: "Revoked" };
+  }
+}
+
+function Muted({ children }: { children: React.ReactNode }) {
+  return <p style={{ margin: 0, color: "var(--fg-muted)", fontSize: "var(--text-sm)" }}>{children}</p>;
 }
 
 function formatRelative(iso: string): string {
