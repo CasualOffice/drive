@@ -29,6 +29,7 @@ import { toast } from "sonner";
 
 import { listShares, type FileDto, type ShareDto } from "../api/client.ts";
 import { inferKind } from "./FileThumb.tsx";
+import { VersionHistory } from "./VersionHistory.tsx";
 
 export interface DetailsPanelProps {
   file: FileDto;
@@ -80,10 +81,19 @@ export function DetailsPanel({ file, onCreateShare }: DetailsPanelProps) {
           />
         ))}
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 22px" }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: active === "history" ? "hidden" : "auto",
+          padding: active === "history" ? "12px 16px" : "16px 22px",
+        }}
+      >
         {active === "info" && <InfoTab file={file} />}
         {active === "people" && <PeopleTab file={file} onCreateShare={onCreateShare} />}
-        {active === "history" && <HistoryTab />}
+        {active === "history" && (
+          <VersionHistory fileId={file.id} fileName={file.name} variant="panel" />
+        )}
       </div>
     </section>
   );
@@ -326,21 +336,6 @@ function ShareRow({ share }: { share: ShareDto }) {
         {share.has_password && <span>· password</span>}
       </div>
     </li>
-  );
-}
-
-// ── History ───────────────────────────────────────────────────────────
-
-function HistoryTab() {
-  return (
-    <div data-testid="details-tab-history-panel" style={emptyStateStyle()}>
-      <Clock size={20} style={{ color: "var(--muted)" }} />
-      <div style={{ fontSize: "var(--text-sm)", fontWeight: 500 }}>Version history is coming</div>
-      <div style={{ fontSize: "var(--text-xs)", color: "var(--muted)", maxWidth: 260 }}>
-        Casual Drive will keep a snapshot every time you save, with who changed what and the option
-        to restore.
-      </div>
-    </div>
   );
 }
 

@@ -905,6 +905,11 @@ export function Files({
       onOpen: () => open(file.id),
       onPreview: () => preview(file.id),
       onDetails: () => details(file.id),
+      onHistory: () => {
+        const url = `/document/${encodeURIComponent(file.id)}/history`;
+        window.history.pushState({ file }, "", url);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      },
       onRename: () => setRenaming(entry),
       onShare: () => setSharing(file),
       onDownload: () => {

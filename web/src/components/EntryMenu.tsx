@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Eye,
   FolderInput,
+  History,
   Info,
   MoreHorizontal,
   Pencil,
@@ -39,6 +40,8 @@ export interface EntryMenuHandlers {
   onDownload?: () => void;
   onDetails?: () => void;
   onShare?: () => void;
+  /** Opens the version-history + integrity surface (UX-18). */
+  onHistory?: () => void;
 }
 
 interface ItemDef {
@@ -92,6 +95,12 @@ function buildGroups(entry: Entry, h: EntryMenuHandlers): Group[] {
       label: "See details",
       icon: <Info size={14} strokeWidth={1.8} />,
       onSelect: h.onDetails ?? (() => {}),
+    });
+    meta.push({
+      label: "Version history",
+      icon: <History size={14} strokeWidth={1.8} />,
+      onSelect: h.onHistory ?? (() => stub("Version history")),
+      shortcut: "H",
     });
   }
   meta.push({ label: "Activity", icon: <Activity size={14} strokeWidth={1.8} />, onSelect: () => stub("Activity") });

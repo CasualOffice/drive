@@ -235,6 +235,10 @@ export interface ActivityEvent {
 export interface ActivityPage {
   events: ActivityEvent[];
   next_before: string | null;
+  /** Result of `verify_audit_chain` over the returned window. Absent on
+   * older servers — the surface treats `undefined` as verified (the
+   * quiet default) and only alarms on an explicit `false`. */
+  chain_verified?: boolean;
 }
 
 export async function getActivity(before?: string | null, limit = 50): Promise<ActivityPage> {
@@ -465,6 +469,67 @@ export async function trashFile(id: string): Promise<void> {
 export function downloadUrl(id: string): string {
   if (DEMO_MODE) return demoDownloadUrl(id);
   return `/api/files/${encodeURIComponent(id)}/download`;
+}
+
+// ─── Version history + integrity (UX-18) ──────────────────────────────
+// The flagship compliance surface. The append-only, hash-chained version
+// list for a document, plus per-version download, additive restore, and
+// chain verification. Spec: docs/ux/18-version-history-surface.md.
+
+export interface FileVersion {
+  /** Append-only sequence number; the highest is the head (current). */
+  seq: number;
+  /** `SHA-256(ciphertext)` of this version — mono/tabular in the UI. */
+  content_hash: string;
+  /** The predecessor's `content_hash`; `null` at the origin (v1). */
+  prev_hash: string | null;
+  size: number;
+  /** Author may arrive as a flat name or a nested `{ id, name }`. */
+  author_id?: string | null;
+  author_name?: string | null;
+  author?: { id: string; name: string } | null;
+  reason?: string | null;
+  created_at: string;
+  /** Under an active legal hold (§7.7). */
+  held?: boolean;
+  /** Past a tombstone marker — retained, never hidden. */
+  tombstoned?: boolean;
+}
+
+export interface VersionsResp {
+  file_id: string;
+  head_seq: number;
+  /** `verify_chain` outcome over the returned chain. */
+  chain_verified: boolean;
+  versions: FileVersion[];
+}
+
+/** `GET /api/files/{id}/versions` — the append-only chain, head first. */
+export async function listVersions(fileId: string): Promise<VersionsResp> {
+  return request<VersionsResp>(`/api/files/${encodeURIComponent(fileId)}/versions`);
+}
+
+/** Decrypt-and-stream a single version's bytes (read-only). */
+export function versionContentUrl(fileId: string, seq: number): string {
+  return `/api/files/${encodeURIComponent(fileId)}/versions/${seq}/content`;
+}
+
+/** `POST /api/files/{id}/restore/{seq}` — appends a new head byte-equal
+ * to `seq`. Additive: nothing is destroyed. Returns the updated file. */
+export async function restoreVersion(fileId: string, seq: number): Promise<FileDto> {
+  return request<FileDto>(
+    `/api/files/${encodeURIComponent(fileId)}/restore/${seq}`,
+    { method: "POST" },
+  );
+}
+
+/** `GET /api/files/{id}/verify` — recomputes and links the hash chain. */
+export type VerifyResult =
+  | { status: "intact" }
+  | { status: "broken"; at_seq: number };
+
+export async function verifyChain(fileId: string): Promise<VerifyResult> {
+  return request<VerifyResult>(`/api/files/${encodeURIComponent(fileId)}/verify`);
 }
 
 // ─── Editor handoff (WOPI) ────────────────────────────────────────────

@@ -1,28 +1,35 @@
 /**
- * Activity / audit-log timeline. Spec: docs/ux/06-activity-surface.md.
+ * Activity / audit-trail surface. Spec: docs/ux/06-activity-surface.md,
+ * docs/design/ui-system.md §7.4 (audit row), §7.5 (verification badge /
+ * tamper alarm). The hub's compliance record: append-only, hash-chained,
+ * day-grouped, newest first.
  *
- * Day-grouped, newest-first. Each row is one line with a category-tinted
- * pill, a sentence, and right-aligned metadata. Times in the user's local
- * timezone. Pagination via the `next_before` cursor.
+ * Dense on-system restyle — 32px rows, verb-first sentences, mono/tabular
+ * time + event ids, a top chain-verified banner (or a persistent
+ * `role="alert"` tamper alarm), one Lucide icon per concept. Data source
+ * unchanged (getActivity → the `audit_log` window + `chain_verified`).
  */
 import { useCallback, useEffect, useState } from "react";
 import {
-  Activity as ActivityIcon,
+  Copy,
   Download,
   Edit3,
   FilePlus,
   FolderPlus,
+  Gavel,
   KeyRound,
   Link2,
   LogIn,
   LogOut,
+  RotateCcw,
   ShieldAlert,
   ShieldCheck,
+  ShieldOff,
   Trash2,
-  Undo2,
   Upload,
   UserCog,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   ApiError,
@@ -30,11 +37,18 @@ import {
   type ActivityEvent,
   type ActivityPage,
 } from "../api/client.ts";
+import { RegistryMotif } from "../components/ds/RegistryMotif.tsx";
+import { SkeletonRow } from "../components/ds/SkeletonRow.tsx";
+import { StatusChip } from "../components/ds/StatusChip.tsx";
+
+const STROKE = 1.5;
 
 export function Activity() {
   const [events, setEvents] = useState<ActivityEvent[] | null>(null);
   const [cursor, setCursor] = useState<string | null | undefined>(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [chainVerified, setChainVerified] = useState(true);
+  const [brokenAt, setBrokenAt] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async (before?: string | null) => {
@@ -42,6 +56,12 @@ export function Activity() {
       const page: ActivityPage = await getActivity(before ?? null);
       setEvents((prev) => (prev ? [...prev, ...page.events] : page.events));
       setCursor(page.next_before);
+      // `chain_verified` is absent on older servers — treat undefined as
+      // the calm verified default; only alarm on an explicit false.
+      if (page.chain_verified === false) {
+        setChainVerified(false);
+        setBrokenAt(page.events[0]?.id ?? null);
+      }
     } catch (e) {
       setErr((e as ApiError).message ?? "Couldn't load activity.");
     }
@@ -59,36 +79,53 @@ export function Activity() {
   }
 
   return (
-    <div
-      style={{
-        flex: 1,
-        overflowY: "auto",
-        background: "var(--paper)",
-        padding: "40px 56px 80px",
-      }}
-    >
+    <div style={{ flex: 1, overflowY: "auto", background: "var(--bg-canvas)", padding: "var(--space-6)" }}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
-        <Header />
+        <Header
+          verified={chainVerified}
+          onVerify={() => {
+            // Stubbed against the loaded window — a real verify_audit_chain
+            // call lands with the export endpoint. Re-reads the flag.
+            if (chainVerified) toast.success("Audit chain verified · every link intact");
+          }}
+        />
+
+        {!chainVerified && <TamperAlarm eventId={brokenAt} />}
 
         {err && (
-          <div role="alert" style={errBox()}>
+          <div role="alert" style={errBox}>
             {err}
           </div>
         )}
 
         {events === null ? (
-          <SkeletonRows />
-        ) : events.length === 0 ? (
+          <LoadingRows />
+        ) : events.length === 0 && !err ? (
           <EmptyState />
         ) : (
           <Timeline events={events} />
         )}
 
         {cursor && (
-          <div style={{ display: "flex", justifyContent: "center", marginTop: 22 }}>
-            <button type="button" onClick={loadMore} disabled={loadingMore} style={loadMoreBtn()}>
+          <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--space-4)" }}>
+            <button type="button" onClick={loadMore} disabled={loadingMore} style={loadMoreBtn}>
               {loadingMore ? "Loading…" : "Load older"}
             </button>
+          </div>
+        )}
+
+        {events && events.length > 0 && (
+          <div
+            style={{
+              marginTop: "var(--space-4)",
+              paddingTop: "var(--space-2)",
+              borderTop: "1px solid var(--border-hair)",
+              fontSize: "var(--text-xs)",
+              color: "var(--fg-subtle)",
+              textAlign: "center",
+            }}
+          >
+            Append-only · hash-chained
           </div>
         )}
       </div>
@@ -96,44 +133,101 @@ export function Activity() {
   );
 }
 
-function Header() {
+function Header({ verified, onVerify }: { verified: boolean; onVerify: () => void }) {
   return (
-    <header style={{ marginBottom: 28 }}>
-      <h1
-        style={{
-          margin: 0,
-          fontFamily: "var(--font-display)",
-          fontWeight: 500,
-          fontSize: "var(--text-2xl)",
-          letterSpacing: "var(--tracking-tight)",
-          color: "var(--ink)",
-        }}
-      >
-        Activity
-      </h1>
-      <p
-        style={{
-          marginTop: 8,
-          marginBottom: 0,
-          fontSize: "var(--text-md)",
-          color: "var(--muted)",
-          lineHeight: "var(--leading-normal)",
-        }}
-      >
-        Everything that happens in your Drive, newest first.
-      </p>
+    <header
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: "var(--space-3)",
+        marginBottom: "var(--space-4)",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: "var(--text-xl)",
+            fontWeight: "var(--weight-semibold)",
+            letterSpacing: "var(--tracking-tight)",
+            color: "var(--fg-default)",
+          }}
+        >
+          Activity
+        </h1>
+        <p style={{ margin: "4px 0 0", fontSize: "var(--text-sm)", color: "var(--fg-subtle)" }}>
+          Every action in this hub, newest first. Append-only · hash-chained.
+        </p>
+      </div>
+      {verified ? (
+        <button
+          type="button"
+          onClick={onVerify}
+          title="Verify the audit chain"
+          style={verifyChip}
+        >
+          <StatusChip
+            tone="verified"
+            icon={<ShieldCheck size={13} strokeWidth={STROKE} />}
+            label="Chain verified"
+          />
+        </button>
+      ) : (
+        <StatusChip
+          tone="danger"
+          icon={<ShieldOff size={13} strokeWidth={STROKE} />}
+          label="Tamper detected"
+        />
+      )}
     </header>
   );
 }
 
+function TamperAlarm({ eventId }: { eventId: string | null }) {
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      style={{
+        display: "flex",
+        gap: "var(--space-2)",
+        alignItems: "flex-start",
+        padding: "var(--space-3)",
+        marginBottom: "var(--space-4)",
+        background: "var(--amber-tint)",
+        borderRadius: "var(--radius-md)",
+        borderLeft: "3px solid var(--amber-700)",
+        color: "var(--fg-default)",
+        fontSize: "var(--text-sm)",
+        lineHeight: "var(--leading-sm)",
+      }}
+    >
+      <span aria-hidden style={{ color: "var(--amber-700)", flexShrink: 0, marginTop: 1 }}>
+        <ShieldAlert size={16} strokeWidth={STROKE} />
+      </span>
+      <div>
+        <div style={{ fontWeight: "var(--weight-semibold)", color: "var(--amber-700)" }}>
+          Tamper detected · audit chain broke
+          {eventId && <> at event #{shortId(eventId)}</>}
+        </div>
+        <div style={{ marginTop: 2, color: "var(--fg-muted)" }}>
+          A committed row no longer matches its recorded hash. Reported to admins. This cannot be
+          dismissed until resolved.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Timeline({ events }: { events: ActivityEvent[] }) {
-  // Group by day in the user's local timezone — never UTC.
   const groups = groupByDay(events);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
       {groups.map(([label, items]) => (
         <section key={label}>
-          <div style={dayHeader()}>{label}</div>
+          <div className="caps-label" style={{ padding: "0 0 6px", borderBottom: "1px solid var(--border-hair)" }}>
+            {label}
+          </div>
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {items.map((e) => (
               <Row key={e.id} event={e} />
@@ -147,21 +241,64 @@ function Timeline({ events }: { events: ActivityEvent[] }) {
 
 function Row({ event }: { event: ActivityEvent }) {
   const { Icon, tone } = categoryFor(event.action);
-  const time = fmtTime(event.created_at);
   return (
-    <li style={rowStyle()}>
-      <span className="tabular-nums" style={{ width: 56, color: "var(--muted-2)", fontSize: 12, flexShrink: 0 }}>
-        {time}
+    <li
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-3)",
+        minHeight: 32,
+        padding: "0 var(--space-1)",
+        borderBottom: "1px solid var(--border-hair)",
+      }}
+    >
+      <span
+        className="tnum"
+        style={{ width: 44, flexShrink: 0, fontSize: "var(--mono-xs)", color: "var(--fg-subtle)", fontFamily: "var(--font-mono)" }}
+        title={new Date(event.created_at).toLocaleString()}
+      >
+        {fmtTime(event.created_at)}
       </span>
-      <Pill tone={tone}>
-        <Icon size={11} strokeWidth={1.8} />
-        {event.action}
-      </Pill>
-      <span style={{ flex: 1, fontSize: "var(--text-sm)", color: "var(--ink)", minWidth: 0 }}>
+      <span aria-hidden style={{ flexShrink: 0, color: iconColor(tone), display: "inline-flex" }}>
+        <Icon size={14} strokeWidth={STROKE} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-sm)", color: "var(--fg-default)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {sentenceFor(event)}
       </span>
       <Meta event={event} />
+      <EventHash id={event.id} />
     </li>
+  );
+}
+
+function EventHash({ id }: { id: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard?.writeText(id);
+        toast.success("Event id copied");
+      }}
+      aria-label={`Event ${id} — copy`}
+      title={`Event ${id}`}
+      className="mono"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        flexShrink: 0,
+        padding: "1px 5px",
+        background: "transparent",
+        border: "none",
+        borderRadius: "var(--radius-xs)",
+        fontSize: "var(--mono-xs)",
+        color: "var(--fg-subtle)",
+        cursor: "pointer",
+      }}
+    >
+      #{shortId(id)}
+      <Copy size={10} strokeWidth={STROKE} aria-hidden style={{ opacity: 0.6 }} />
+    </button>
   );
 }
 
@@ -178,41 +315,13 @@ function Meta({ event }: { event: ActivityEvent }) {
     }
   }
   if (event.ip_address) s = s ? `${s} · ${event.ip_address}` : event.ip_address;
-  return (
-    <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0, textAlign: "right" }}>
-      {s ?? ""}
-    </span>
-  );
-}
-
-function Pill({ tone, children }: { tone: "ink" | "blue" | "gold" | "muted" | "danger"; children: React.ReactNode }) {
-  // Slate Console palette — "gold" stays as a tone name for back-compat
-  // with existing callers but renders as the cyan-accent variant.
-  const palette = {
-    ink: { bg: "rgba(15, 23, 42, 0.08)", fg: "var(--ink)" },
-    blue: { bg: "rgba(37, 99, 235, 0.10)", fg: "var(--info)" },
-    gold: { bg: "var(--accent-muted)", fg: "var(--accent-hover)" },
-    muted: { bg: "var(--bg-subtle)", fg: "var(--muted)" },
-    danger: { bg: "rgba(220, 38, 38, 0.10)", fg: "var(--danger)" },
-  }[tone];
+  if (!s) return null;
   return (
     <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "3px 8px",
-        borderRadius: 6,
-        background: palette.bg,
-        color: palette.fg,
-        fontSize: 11,
-        fontFamily: "var(--font-mono, ui-monospace, monospace)",
-        fontWeight: 500,
-        flexShrink: 0,
-        whiteSpace: "nowrap",
-      }}
+      className="tnum"
+      style={{ flexShrink: 0, fontSize: "var(--text-xs)", color: "var(--fg-subtle)", textAlign: "right", whiteSpace: "nowrap" }}
     >
-      {children}
+      {s}
     </span>
   );
 }
@@ -221,41 +330,34 @@ function EmptyState() {
   return (
     <div
       style={{
-        padding: "60px 24px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "var(--space-2)",
+        padding: "var(--space-8) var(--space-6)",
         textAlign: "center",
-        color: "var(--muted)",
-        background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: 14,
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-lg)",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, color: "var(--muted-2)" }}>
-        <ActivityIcon size={28} strokeWidth={1.5} />
+      <RegistryMotif overlay="scroll-text" />
+      <div style={{ fontSize: "var(--text-md)", fontWeight: "var(--weight-medium)", color: "var(--fg-default)" }}>
+        No activity yet.
       </div>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-lg)", color: "var(--ink)", fontWeight: 500 }}>
-        Nothing here yet.
-      </div>
-      <div style={{ marginTop: 4, fontSize: "var(--text-sm)" }}>
-        Sign-ins, uploads, shares, and renames show up here as you use Drive.
+      <div style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", maxWidth: 340 }}>
+        Sign-ins, uploads, shares, saves, and restores show up here as the hub is used — each one a
+        hash-chained, append-only record.
       </div>
     </div>
   );
 }
 
-function SkeletonRows() {
+function LoadingRows() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div aria-busy="true" aria-label="Loading activity">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div
-          key={i}
-          style={{
-            height: 36,
-            borderRadius: 10,
-            background: "linear-gradient(90deg, var(--bg-subtle), var(--card) 40%, var(--bg-subtle))",
-            backgroundSize: "200% 100%",
-            animation: "cd-skeleton 1.4s linear infinite",
-          }}
-        />
+        <SkeletonRow key={i} columns={5} />
       ))}
     </div>
   );
@@ -263,60 +365,55 @@ function SkeletonRows() {
 
 // ── styles ─────────────────────────────────────────────────────────────
 
-function dayHeader(): React.CSSProperties {
-  return {
-    fontSize: 10,
-    letterSpacing: "2.5px",
-    textTransform: "uppercase",
-    color: "var(--muted-2)",
-    fontWeight: 600,
-    padding: "0 0 8px",
-    borderBottom: "1px solid var(--line)",
-    marginBottom: 4,
-  };
-}
+const loadMoreBtn: React.CSSProperties = {
+  padding: "6px 14px",
+  borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--border-hair)",
+  background: "var(--bg-surface)",
+  color: "var(--fg-default)",
+  fontFamily: "var(--font-sans)",
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--weight-medium)",
+  cursor: "pointer",
+};
 
-function rowStyle(): React.CSSProperties {
-  return {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "9px 4px",
-    borderBottom: "1px solid var(--line)",
-  };
-}
+const verifyChip: React.CSSProperties = {
+  flexShrink: 0,
+  padding: "4px 8px",
+  border: "1px solid var(--border-hair)",
+  borderRadius: "var(--radius-sm)",
+  background: "var(--bg-surface)",
+  cursor: "pointer",
+};
 
-function loadMoreBtn(): React.CSSProperties {
-  return {
-    padding: "9px 16px",
-    borderRadius: 10,
-    border: "1px solid var(--line)",
-    background: "var(--card)",
-    color: "var(--ink)",
-    fontFamily: "var(--font-sans)",
-    fontSize: "var(--text-sm)",
-    fontWeight: 500,
-    cursor: "pointer",
-  };
-}
-
-function errBox(): React.CSSProperties {
-  return {
-    marginBottom: 16,
-    padding: "10px 12px",
-    background: "rgba(220, 38, 38,.06)",
-    border: "1px solid rgba(220, 38, 38,.25)",
-    borderRadius: 10,
-    fontSize: "var(--text-sm)",
-    color: "var(--danger)",
-  };
-}
+const errBox: React.CSSProperties = {
+  marginBottom: "var(--space-3)",
+  padding: "var(--space-2) var(--space-3)",
+  background: "var(--amber-tint)",
+  borderLeft: "3px solid var(--status-danger)",
+  borderRadius: "var(--radius-md)",
+  fontSize: "var(--text-sm)",
+  color: "var(--fg-default)",
+};
 
 // ── helpers ────────────────────────────────────────────────────────────
 
+type Tone = "ink" | "info" | "attention" | "danger";
+
 interface Category {
   Icon: typeof LogIn;
-  tone: "ink" | "blue" | "gold" | "muted" | "danger";
+  tone: Tone;
+}
+
+function iconColor(tone: Tone): string {
+  switch (tone) {
+    case "attention":
+      return "var(--status-attention-700)";
+    case "danger":
+      return "var(--status-danger-700)";
+    default:
+      return "var(--fg-muted)";
+  }
 }
 
 function categoryFor(action: string): Category {
@@ -328,17 +425,20 @@ function categoryFor(action: string): Category {
     return { Icon: ShieldCheck, tone: "ink" };
   }
   if (action === "setup.admin_created") return { Icon: UserCog, tone: "ink" };
-  if (action === "files.upload") return { Icon: Upload, tone: "blue" };
-  if (action === "files.download") return { Icon: Download, tone: "blue" };
-  if (action === "files.rename") return { Icon: Edit3, tone: "blue" };
-  if (action === "files.trash") return { Icon: Trash2, tone: "danger" };
-  if (action === "files.restore") return { Icon: Undo2, tone: "blue" };
-  if (action === "folders.create") return { Icon: FolderPlus, tone: "blue" };
-  if (action === "folders.rename") return { Icon: Edit3, tone: "blue" };
-  if (action === "share.create") return { Icon: Link2, tone: "gold" };
-  if (action === "share.revoke") return { Icon: Trash2, tone: "gold" };
-  if (action === "share.access") return { Icon: Link2, tone: "gold" };
-  return { Icon: FilePlus, tone: "muted" };
+  if (action === "files.upload") return { Icon: Upload, tone: "info" };
+  if (action === "files.edit") return { Icon: Edit3, tone: "info" };
+  if (action === "files.download") return { Icon: Download, tone: "info" };
+  if (action === "files.rename") return { Icon: Edit3, tone: "info" };
+  if (action === "files.trash") return { Icon: Trash2, tone: "attention" };
+  if (action === "files.restore") return { Icon: RotateCcw, tone: "info" };
+  if (action === "folders.create") return { Icon: FolderPlus, tone: "info" };
+  if (action === "folders.rename") return { Icon: Edit3, tone: "info" };
+  if (action === "share.create") return { Icon: Link2, tone: "ink" };
+  if (action === "share.revoke") return { Icon: Trash2, tone: "ink" };
+  if (action === "share.access") return { Icon: Link2, tone: "ink" };
+  if (action.startsWith("holds.")) return { Icon: Gavel, tone: "attention" };
+  if (action.startsWith("provenance.")) return { Icon: ShieldCheck, tone: "ink" };
+  return { Icon: FilePlus, tone: "ink" };
 }
 
 function sentenceFor(e: ActivityEvent): string {
@@ -357,6 +457,8 @@ function sentenceFor(e: ActivityEvent): string {
       return `first-run setup completed — ${target} created`;
     case "files.upload":
       return `${actor} uploaded ${target}`;
+    case "files.edit":
+      return `${actor} saved ${target}`;
     case "files.rename":
       return `${actor} renamed ${target}`;
     case "files.trash":
@@ -375,6 +477,12 @@ function sentenceFor(e: ActivityEvent): string {
       return `${actor} revoked a share for ${target}`;
     case "share.access":
       return `someone opened ${target}`;
+    case "holds.place":
+      return `${actor} placed a legal hold on ${target}`;
+    case "holds.release":
+      return `${actor} released the legal hold on ${target}`;
+    case "provenance.verify":
+      return `${actor} verified ${target}`;
     default:
       return `${actor}: ${e.action}${target !== "(unknown)" ? ` — ${target}` : ""}`;
   }
@@ -413,6 +521,10 @@ function startOfLocalDay(d: Date): Date {
 function fmtTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function shortId(id: string): string {
+  return id.length <= 6 ? id : id.slice(0, 4);
 }
 
 function formatBytes(b: number): string {

@@ -350,6 +350,11 @@ function FullscreenHeader({
               },
               onTrash,
               onDownload,
+              onHistory: () => {
+                const url = `/document/${encodeURIComponent(file.id)}/history`;
+                window.history.pushState({ file }, "", url);
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              },
             }}
           />
         </>
