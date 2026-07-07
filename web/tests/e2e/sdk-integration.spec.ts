@@ -33,7 +33,9 @@ test("double-click .xlsx card routes to /file/<id> with the editor iframe", asyn
   // The demo seeds 'Q2 planning.xlsx' at the workspace root.
   await page.getByText("Q2 planning.xlsx").first().dblclick();
 
-  await expect(page).toHaveURL(/\/file\//, { timeout: 5_000 });
+  // P2.1 made `/document/<id>/edit` the canonical editor route; `/file/<id>`
+  // remains a compatibility alias. Accept either.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 5_000 });
   await expect(page.getByTestId("file-fullscreen")).toBeVisible();
   await expect(page.getByTestId("file-fullscreen-title")).toHaveText("Q2 planning.xlsx");
 
@@ -51,7 +53,9 @@ test("double-click .xlsx card routes to /file/<id> with the editor iframe", asyn
 test("double-click .docx card routes to /file/<id>", async ({ page }) => {
   await page.getByText("Product brief.docx").first().dblclick();
 
-  await expect(page).toHaveURL(/\/file\//, { timeout: 5_000 });
+  // P2.1 made `/document/<id>/edit` the canonical editor route; `/file/<id>`
+  // remains a compatibility alias. Accept either.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 5_000 });
   await expect(page.getByTestId("file-fullscreen")).toBeVisible();
   await expect(page.getByTestId("file-fullscreen-title")).toHaveText("Product brief.docx");
 });
@@ -81,7 +85,9 @@ test("/file/<unknown> cold load surfaces the not-found error", async ({ page }) 
 
 test("back arrow returns from /file/<id> to /", async ({ page }) => {
   await page.getByText("Q2 planning.xlsx").first().dblclick();
-  await expect(page).toHaveURL(/\/file\//, { timeout: 5_000 });
+  // P2.1 made `/document/<id>/edit` the canonical editor route; `/file/<id>`
+  // remains a compatibility alias. Accept either.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 5_000 });
   await page.getByTestId("file-fullscreen-back").click();
   await expect(page).toHaveURL(/\/(\?.*)?$/);
   // Shell renders again — its top bar's "New" button is a stable
@@ -91,7 +97,9 @@ test("back arrow returns from /file/<id> to /", async ({ page }) => {
 
 test("document.title tracks the open file's name", async ({ page }) => {
   await page.getByText("Q2 planning.xlsx").first().dblclick();
-  await expect(page).toHaveURL(/\/file\//, { timeout: 5_000 });
+  // P2.1 made `/document/<id>/edit` the canonical editor route; `/file/<id>`
+  // remains a compatibility alias. Accept either.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 5_000 });
   // Tab title flips to include the filename. (The fullscreen page
   // restores the prior title on unmount.)
   await expect(page).toHaveTitle(/Q2 planning\.xlsx/);

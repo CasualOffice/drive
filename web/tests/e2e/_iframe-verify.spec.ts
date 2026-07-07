@@ -86,7 +86,9 @@ test("create new .xlsx → card double-click routes to /file/<id> + editor ifram
   await card.scrollIntoViewIfNeeded();
   await card.dblclick();
 
-  await expect(page).toHaveURL(/\/file\//, { timeout: 5_000 });
+  // P2.1 made `/document/<id>/edit` the canonical editor route; `/file/<id>`
+  // remains a compatibility alias. Accept either.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 5_000 });
 
   // Sheet embeds via <iframe> in editor mode (Univer runs inside the
   // iframe runtime; Drive's app bundle carries no Univer).
@@ -124,7 +126,9 @@ test("create new .docx → card double-click routes to /file/<id> + editor ifram
   await card.scrollIntoViewIfNeeded();
   await card.dblclick();
 
-  await expect(page).toHaveURL(/\/file\//, { timeout: 5_000 });
+  // P2.1 made `/document/<id>/edit` the canonical editor route; `/file/<id>`
+  // remains a compatibility alias. Accept either.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 5_000 });
   const iframe = page.getByTestId("casual-doc-editor");
   await expect(iframe).toBeVisible({ timeout: 10_000 });
   await expect(iframe).toHaveAttribute("src", /viewMode=editor/);
@@ -162,7 +166,9 @@ test("card double-click on a .xlsx → /file/<id> mounts the editor iframe in ed
   await card.scrollIntoViewIfNeeded();
   await card.dblclick();
 
-  await expect(page).toHaveURL(/\/file\//, { timeout: 5_000 });
+  // P2.1 made `/document/<id>/edit` the canonical editor route; `/file/<id>`
+  // remains a compatibility alias. Accept either.
+  await expect(page).toHaveURL(/\/(file|document)\//, { timeout: 5_000 });
 
   // Iframe embed in editor mode (viewMode=editor in the iframe src).
   const iframe = page.getByTestId("casual-sheet-workspace");

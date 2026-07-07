@@ -36,5 +36,7 @@ test("Admin tab loads the system snapshot", async ({ page }) => {
   await page.getByRole("button").filter({ hasText: /^Admin$/ }).first().click();
   await expect(page.getByRole("heading", { name: "Admin", exact: true })).toBeVisible();
   await expect(page.getByText(/Healthy/)).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByText(/Active sessions/)).toBeVisible();
+  // "Active sessions" appears as both a stat label and a card heading —
+  // scope to the first so the strict-mode matcher resolves to one element.
+  await expect(page.getByText(/Active sessions/).first()).toBeVisible();
 });
