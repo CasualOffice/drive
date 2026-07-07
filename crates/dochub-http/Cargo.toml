@@ -18,6 +18,7 @@ dochub-db      = { path = "../dochub-db" }
 dochub-storage = { path = "../dochub-storage" }
 dochub-wopi    = { path = "../dochub-wopi" }
 dochub-auth    = { path = "../dochub-auth" }
+dochub-index   = { path = "../dochub-index" }
 
 async-trait   = "0.1"
 axum          = { workspace = true }

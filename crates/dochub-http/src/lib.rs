@@ -13,6 +13,7 @@ mod activity;
 mod admin;
 mod collab;
 mod compliance;
+mod content_search;
 mod diff;
 mod direct_upload;
 mod files;
@@ -138,6 +139,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .route("/api/activity", get(activity::list_activity))
         .route("/api/admin/system", get(admin::system))
         .route("/api/search", get(search::search))
+        .route("/api/search/content", get(content_search::content_search))
         .with_state(state.clone())
         .merge(wopi_router)
         .merge(auth_router)

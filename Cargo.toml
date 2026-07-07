@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/dochub-core",
     "crates/dochub-db",
+    "crates/dochub-index",
     "crates/dochub-storage",
     "crates/dochub-wopi",
     "crates/dochub-auth",

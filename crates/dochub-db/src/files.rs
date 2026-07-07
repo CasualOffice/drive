@@ -601,6 +601,75 @@ impl<'a> FileRepo<'a> {
         Ok(())
     }
 
+    /// Phase 3 P3.1 — files in `workspace_id` that the content index still
+    /// needs to (re)process: non-trashed rows that are `pending`, were
+    /// previously `trashed` but have since been restored, or whose head
+    /// `content_hash` no longer matches the `indexed_hash` the index entry was
+    /// built from (a new version landed). Joins `file_versions` on the head
+    /// pointer (`files.version == file_versions.seq`) to read the head hash.
+    ///
+    /// Returns full `File` rows so the indexer can read name/extension/workspace
+    /// off them. Bounded by `limit` (steady state this returns nothing, so the
+    /// lazy search-time pass is cheap).
+    pub async fn list_index_candidates(
+        &self,
+        workspace_id: &str,
+        limit: i64,
+    ) -> Result<Vec<File>, DbError> {
+        let rows = sqlx::query(
+            "SELECT f.id, f.parent_id, f.name, f.size, f.content_type, f.etag, f.version, \
+                    f.owner_id, f.workspace_id, f.storage_id, f.trashed_at, f.original_parent_id, \
+                    f.created_at, f.modified_at, f.status, f.expected_size \
+             FROM files f \
+             LEFT JOIN file_versions v ON v.file_id = f.id AND v.seq = f.version \
+             WHERE f.workspace_id = ? AND f.trashed_at IS NULL \
+               AND ( f.index_state IN ('pending', 'trashed') \
+                     OR f.indexed_hash IS NULL \
+                     OR f.indexed_hash <> COALESCE(v.content_hash, '') ) \
+             ORDER BY f.modified_at ASC \
+             LIMIT ?",
+        )
+        .bind(workspace_id)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(self.db.pool())
+        .await?;
+        rows.iter().map(row_to_file).collect()
+    }
+
+    /// Phase 3 P3.1 — ids of files in `workspace_id` that have been trashed but
+    /// are still marked as present in the index (`index_state <> 'trashed'`).
+    /// The indexer removes these from Tantivy, then calls
+    /// [`FileRepo::set_index_state`] with `'trashed'`.
+    pub async fn list_trashed_indexed(&self, workspace_id: &str) -> Result<Vec<String>, DbError> {
+        let rows = sqlx::query(
+            "SELECT id FROM files \
+             WHERE workspace_id = ? AND trashed_at IS NOT NULL AND index_state <> 'trashed'",
+        )
+        .bind(workspace_id)
+        .fetch_all(self.db.pool())
+        .await?;
+        Ok(rows.iter().map(|r| r.get::<String, _>("id")).collect())
+    }
+
+    /// Phase 3 P3.1 — record the outcome of indexing a file: its new
+    /// `index_state` and the head `content_hash` it was indexed at (`None` for
+    /// the trashed/removed case). This is index bookkeeping, not document
+    /// history — it never touches version rows or the hash chain.
+    pub async fn set_index_state(
+        &self,
+        id: &str,
+        state: &str,
+        indexed_hash: Option<&str>,
+    ) -> Result<(), DbError> {
+        sqlx::query("UPDATE files SET index_state = ?, indexed_hash = ? WHERE id = ?")
+            .bind(state)
+            .bind(indexed_hash)
+            .bind(id)
+            .execute(self.db.pool())
+            .await?;
+        Ok(())
+    }
+
     /// Bump version + update size/etag after a successful PutFile or upload.
     pub async fn record_overwrite(
         &self,
