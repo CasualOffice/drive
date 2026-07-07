@@ -1,4 +1,13 @@
-/** Shared header for each real Settings section. */
+/**
+ * Shared header + card for the Settings sections. Dense on-system styling
+ * per docs/design/ui-system.md: 20px page title, 16px card title, hairline
+ * borders, --radius-lg cards, 16px padding, muted descriptions (AA). Cards
+ * accept an `action` (one control, right-aligned in the head) and a `status`
+ * slot (a StatusChip) so a section can show state without colour alone.
+ */
+import type { ReactNode } from "react";
+
+/** Section page header (one per section pane). */
 export function SettingsHeader({
   title,
   description,
@@ -7,25 +16,24 @@ export function SettingsHeader({
   description: string;
 }) {
   return (
-    <header style={{ marginBottom: 28 }}>
+    <header style={{ marginBottom: "var(--space-5)" }}>
       <h2
         style={{
           margin: 0,
-          fontFamily: "var(--font-display)",
-          fontWeight: 500,
-          fontSize: "var(--text-2xl)",
+          fontSize: "var(--text-xl)",
+          fontWeight: "var(--weight-semibold)",
           letterSpacing: "var(--tracking-tight)",
-          color: "var(--ink)",
+          color: "var(--fg-default)",
         }}
       >
         {title}
       </h2>
       <p
         style={{
-          marginTop: 8,
-          fontSize: "var(--text-md)",
-          color: "var(--muted)",
-          lineHeight: "var(--leading-normal)",
+          margin: "var(--space-1) 0 0",
+          fontSize: "var(--text-sm)",
+          color: "var(--fg-muted)",
+          lineHeight: "var(--leading-sm)",
         }}
       >
         {description}
@@ -38,48 +46,67 @@ export function SettingsHeader({
 export function SettingsCard({
   title,
   subtitle,
+  action,
+  status,
   children,
 }: {
-  title: string;
+  title?: string;
   subtitle?: string;
-  children: React.ReactNode;
+  action?: ReactNode;
+  status?: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section
       style={{
-        background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: 16,
-        padding: "22px 24px 24px",
-        marginBottom: 16,
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-lg)",
+        padding: "var(--space-4)",
+        marginBottom: "var(--space-4)",
       }}
     >
-      <h3
-        style={{
-          margin: 0,
-          fontFamily: "var(--font-display)",
-          fontWeight: 500,
-          fontSize: "var(--text-lg)",
-          color: "var(--ink)",
-          letterSpacing: "var(--tracking-tight)",
-        }}
-      >
-        {title}
-      </h3>
+      {(title || action || status) && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "var(--space-3)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", minWidth: 0 }}>
+            {title && (
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "var(--text-lg)",
+                  fontWeight: "var(--weight-semibold)",
+                  color: "var(--fg-default)",
+                  letterSpacing: "var(--tracking-tight)",
+                }}
+              >
+                {title}
+              </h3>
+            )}
+            {status}
+          </div>
+          {action}
+        </div>
+      )}
       {subtitle && (
         <p
           style={{
-            marginTop: 6,
-            marginBottom: 0,
+            margin: "var(--space-1) 0 0",
             fontSize: "var(--text-sm)",
-            color: "var(--muted)",
-            lineHeight: "var(--leading-normal)",
+            color: "var(--fg-muted)",
+            lineHeight: "var(--leading-sm)",
           }}
         >
           {subtitle}
         </p>
       )}
-      <div style={{ marginTop: 18 }}>{children}</div>
+      <div style={{ marginTop: "var(--space-4)" }}>{children}</div>
     </section>
   );
 }

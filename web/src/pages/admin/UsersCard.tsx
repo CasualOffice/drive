@@ -3,18 +3,14 @@
  * new users via a small dialog. Lists pending quota-upgrade requests
  * pulled from the activity feed and exposes one-click approve actions
  * that set the requested cap.
+ *
+ * Dense on-system restyle (docs/design/ui-system.md): 32px table rows,
+ * hairline rules, mono/tabular numerics, amber primary, one Lucide weight.
+ * Logic + endpoints unchanged.
  */
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import {
-  ArrowUpCircle,
-  Check,
-  Pencil,
-  Plus,
-  ShieldCheck,
-  UserCircle,
-  X,
-} from "lucide-react";
+import { ArrowUpCircle, Check, Pencil, Plus, ShieldCheck, UserCircle, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -26,6 +22,8 @@ import {
   type ActivityEvent,
   type AdminUser,
 } from "../../api/client.ts";
+import { StatusChip } from "../../components/ds/StatusChip.tsx";
+import { Button, ErrorBand, Field, STROKE } from "../settings/controls.tsx";
 
 export function UsersCard() {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
@@ -40,11 +38,8 @@ export function UsersCard() {
       setRequests(collectUpgradeRequests(a.events, u.users));
     } catch (e) {
       const err = e as ApiError;
-      if (err.status === 403) {
-        setErr("Admin access required.");
-      } else {
-        setErr(err.message ?? "Couldn't load users.");
-      }
+      if (err.status === 403) setErr("Admin access required.");
+      else setErr(err.message ?? "Couldn't load users.");
     }
   }
 
@@ -60,10 +55,10 @@ export function UsersCard() {
         title="Users"
         subtitle="Every account on this instance. Set a per-user storage cap by editing the Quota column."
         action={
-          <button type="button" onClick={() => setAddOpen(true)} style={addBtn()}>
-            <Plus size={14} strokeWidth={2} />
+          <Button type="button" variant="primary" onClick={() => setAddOpen(true)}>
+            <Plus size={14} strokeWidth={STROKE} />
             Add user
-          </button>
+          </Button>
         }
       >
         {users === null ? (
@@ -82,7 +77,7 @@ export function UsersCard() {
         {requests.length === 0 ? (
           <Empty>No pending requests.</Empty>
         ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
             {requests.map((r) => (
               <UpgradeRequestRow key={r.id} request={r} onApproved={refresh} />
             ))}
@@ -90,21 +85,28 @@ export function UsersCard() {
         )}
       </Card>
 
-      <AddUserDialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onCreated={() => void refresh()}
-      />
+      <AddUserDialog open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => void refresh()} />
     </>
   );
 }
 
 // ── Users table ─────────────────────────────────────────────────────────
 
+const GRID = "1.8fr 1fr 1fr 1.3fr 56px";
+
 function UsersTable({ users, onChanged }: { users: AdminUser[]; onChanged: () => void }) {
   return (
     <div>
-      <div style={headerRow()}>
+      <div
+        className="caps-label"
+        style={{
+          display: "grid",
+          gridTemplateColumns: GRID,
+          gap: "var(--space-3)",
+          padding: "0 0 var(--space-1)",
+          borderBottom: "1px solid var(--border-hair)",
+        }}
+      >
         <span>User</span>
         <span>Created</span>
         <span style={{ textAlign: "right" }}>Used</span>
@@ -120,9 +122,7 @@ function UsersTable({ users, onChanged }: { users: AdminUser[]; onChanged: () =>
 
 function UserRow({ user, onChanged }: { user: AdminUser; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(
-    user.quota_bytes ? bytesToMb(user.quota_bytes).toString() : "",
-  );
+  const [value, setValue] = useState(user.quota_bytes ? bytesToMb(user.quota_bytes).toString() : "");
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -148,31 +148,57 @@ function UserRow({ user, onChanged }: { user: AdminUser; onChanged: () => void }
   }
 
   return (
-    <div style={dataRow()}>
-      <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-        <span style={avatarSquare(user.is_admin)}>
-          {user.is_admin ? (
-            <ShieldCheck size={13} strokeWidth={1.8} />
-          ) : (
-            <UserCircle size={13} strokeWidth={1.8} />
-          )}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: GRID,
+        gap: "var(--space-3)",
+        minHeight: 32,
+        padding: "var(--space-1) 0",
+        alignItems: "center",
+        borderBottom: "1px solid var(--border-hair)",
+        fontSize: "var(--text-sm)",
+      }}
+    >
+      <span style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", minWidth: 0 }}>
+        <span
+          aria-hidden
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: "var(--radius-sm)",
+            background: user.is_admin ? "var(--accent-wash)" : "var(--bg-sunken)",
+            color: user.is_admin ? "var(--amber-700)" : "var(--fg-muted)",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          {user.is_admin ? <ShieldCheck size={13} strokeWidth={STROKE} /> : <UserCircle size={13} strokeWidth={STROKE} />}
         </span>
-        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-          <span style={{ fontWeight: 500, color: "var(--ink)" }}>{user.username}</span>
+        <span style={{ minWidth: 0, display: "flex", alignItems: "center", gap: "var(--space-2)", overflow: "hidden" }}>
+          <span
+            style={{
+              fontWeight: "var(--weight-medium)",
+              color: "var(--fg-default)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {user.username}
+          </span>
           {user.is_admin && (
-            <span style={{ marginLeft: 6, fontSize: 10, color: "var(--accent)" }}>ADMIN</span>
+            <StatusChip tone="verified" icon={<ShieldCheck size={12} strokeWidth={STROKE} />} label="Admin" />
           )}
         </span>
       </span>
-      <span style={{ color: "var(--muted)", fontSize: "var(--text-xs)" }}>
-        {fmtDate(user.created_at)}
-      </span>
-      <span className="tabular-nums" style={{ textAlign: "right", color: "var(--ink)" }}>
-        {fmtBytes(user.used_bytes)}
-      </span>
+      <span style={{ color: "var(--fg-muted)", fontSize: "var(--text-xs)" }}>{fmtDate(user.created_at)}</span>
+      <span className="tnum" style={{ textAlign: "right", color: "var(--fg-default)" }}>{fmtBytes(user.used_bytes)}</span>
       <span
-        className="tabular-nums"
-        style={{ textAlign: "right", color: user.quota_bytes ? "var(--ink)" : "var(--muted)" }}
+        className="tnum"
+        style={{ textAlign: "right", color: user.quota_bytes ? "var(--fg-default)" : "var(--fg-muted)" }}
       >
         {editing ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -185,9 +211,10 @@ function UserRow({ user, onChanged }: { user: AdminUser; onChanged: () => void }
                 if (e.key === "Escape") setEditing(false);
               }}
               placeholder="MB"
-              style={inlineInput()}
+              aria-label="Quota in MB"
+              style={inlineInput}
             />
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>MB</span>
+            <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>MB</span>
           </span>
         ) : user.quota_bytes ? (
           fmtBytes(user.quota_bytes)
@@ -198,25 +225,56 @@ function UserRow({ user, onChanged }: { user: AdminUser; onChanged: () => void }
       <span style={{ display: "flex", justifyContent: "flex-end", gap: 4 }}>
         {editing ? (
           <>
-            <button type="button" onClick={() => void save()} disabled={saving} style={iconBtn(true)}>
-              <Check size={13} strokeWidth={2.2} />
-            </button>
-            <button type="button" onClick={() => setEditing(false)} style={iconBtn()}>
-              <X size={13} strokeWidth={2} />
-            </button>
+            <IconBtn onClick={() => void save()} disabled={saving} label="Save quota">
+              <Check size={13} strokeWidth={2} />
+            </IconBtn>
+            <IconBtn onClick={() => setEditing(false)} label="Cancel">
+              <X size={13} strokeWidth={STROKE} />
+            </IconBtn>
           </>
         ) : (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            style={iconBtn()}
-            title="Edit quota"
-          >
-            <Pencil size={12} strokeWidth={1.8} />
-          </button>
+          <IconBtn onClick={() => setEditing(true)} label="Edit quota">
+            <Pencil size={12} strokeWidth={STROKE} />
+          </IconBtn>
         )}
       </span>
     </div>
+  );
+}
+
+function IconBtn({
+  children,
+  onClick,
+  disabled,
+  label,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      style={{
+        width: 24,
+        height: 24,
+        border: "1px solid var(--border-hair)",
+        background: "var(--bg-raised)",
+        color: "var(--fg-muted)",
+        cursor: disabled ? "not-allowed" : "pointer",
+        borderRadius: "var(--radius-sm)",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -241,10 +299,7 @@ function collectUpgradeRequests(events: ActivityEvent[], users: AdminUser[]): Up
       let reason: string | null = null;
       if (e.metadata) {
         try {
-          const m = JSON.parse(e.metadata) as {
-            requested_bytes?: number;
-            reason?: string;
-          };
+          const m = JSON.parse(e.metadata) as { requested_bytes?: number; reason?: string };
           if (typeof m.requested_bytes === "number") requested_bytes = m.requested_bytes;
           if (typeof m.reason === "string") reason = m.reason;
         } catch {
@@ -264,13 +319,7 @@ function collectUpgradeRequests(events: ActivityEvent[], users: AdminUser[]): Up
     });
 }
 
-function UpgradeRequestRow({
-  request,
-  onApproved,
-}: {
-  request: UpgradeRequest;
-  onApproved: () => void;
-}) {
+function UpgradeRequestRow({ request, onApproved }: { request: UpgradeRequest; onApproved: () => void }) {
   const [busy, setBusy] = useState(false);
 
   async function approve() {
@@ -288,44 +337,38 @@ function UpgradeRequestRow({
   }
 
   return (
-    <li style={requestRow()}>
-      <span style={{ color: "var(--accent)", marginTop: 2 }}>
-        <ArrowUpCircle size={15} strokeWidth={1.8} />
-      </span>
+    <li
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-3)",
+        padding: "var(--space-2) var(--space-3)",
+        borderRadius: "var(--radius-md)",
+        background: "var(--accent-wash)",
+        borderLeft: "3px solid var(--status-attention)",
+      }}
+    >
+      <ArrowUpCircle size={15} strokeWidth={STROKE} style={{ color: "var(--amber-700)", flexShrink: 0 }} aria-hidden />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: "var(--text-sm)", color: "var(--ink)" }}>
-          <strong style={{ fontWeight: 500 }}>{request.username}</strong> requested
-          {request.requested_bytes
-            ? ` ${fmtBytes(request.requested_bytes)}`
-            : " more storage"}
+        <div style={{ fontSize: "var(--text-sm)", color: "var(--fg-default)" }}>
+          <strong style={{ fontWeight: "var(--weight-medium)" }}>{request.username}</strong> requested
+          {request.requested_bytes ? ` ${fmtBytes(request.requested_bytes)}` : " more storage"}
         </div>
         {request.reason && (
-          <div
-            style={{
-              marginTop: 2,
-              fontSize: "var(--text-xs)",
-              color: "var(--muted)",
-              fontStyle: "italic",
-            }}
-          >
+          <div style={{ marginTop: 2, fontSize: "var(--text-xs)", color: "var(--fg-muted)", fontStyle: "italic" }}>
             &ldquo;{request.reason}&rdquo;
           </div>
         )}
-        <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 2 }}>
+        <div className="tnum" style={{ fontSize: "var(--text-xs)", color: "var(--fg-subtle)", marginTop: 2 }}>
           {fmtRelative(request.at)}
         </div>
       </div>
       {request.requested_bytes && request.user_exists ? (
-        <button
-          type="button"
-          onClick={() => void approve()}
-          disabled={busy}
-          style={approveBtn()}
-        >
+        <Button type="button" variant="primary" size="sm" onClick={() => void approve()} disabled={busy}>
           {busy ? "Approving…" : "Approve"}
-        </button>
+        </Button>
       ) : (
-        <span style={{ fontSize: 11, color: "var(--muted-2)" }}>
+        <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-subtle)" }}>
           {request.user_exists ? "no amount specified" : "user gone"}
         </span>
       )}
@@ -376,15 +419,8 @@ function AddUserDialog({
     }
     setSubmitting(true);
     try {
-      const quota = quotaMb.trim()
-        ? mbToBytes(Number.parseFloat(quotaMb))
-        : null;
-      await createAdminUser({
-        username: username.trim(),
-        password,
-        is_admin: isAdmin,
-        quota_bytes: quota,
-      });
+      const quota = quotaMb.trim() ? mbToBytes(Number.parseFloat(quotaMb)) : null;
+      await createAdminUser({ username: username.trim(), password, is_admin: isAdmin, quota_bytes: quota });
       toast.success(`Created ${username.trim()}`);
       onCreated();
       onClose();
@@ -400,88 +436,71 @@ function AddUserDialog({
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay style={overlay()} />
-        <Dialog.Content style={dialog()}>
+        <Dialog.Overlay style={overlay} />
+        <Dialog.Content style={dialog} aria-describedby="add-user-desc">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Dialog.Title style={dialogTitle()}>Add user</Dialog.Title>
+            <Dialog.Title style={dialogTitle}>Add user</Dialog.Title>
             <Dialog.Close asChild>
-              <button type="button" aria-label="Close" style={closeBtn()}>
-                <X size={16} />
+              <button type="button" aria-label="Close" style={closeBtn}>
+                <X size={16} strokeWidth={STROKE} />
               </button>
             </Dialog.Close>
           </div>
           <Dialog.Description
-            style={{ margin: "4px 0 18px", fontSize: "var(--text-sm)", color: "var(--muted)" }}
+            id="add-user-desc"
+            style={{ margin: "var(--space-1) 0 var(--space-4)", fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}
           >
-            A Personal workspace is auto-created. Storage cap is optional —
-            leave blank for unlimited.
+            A Personal workspace is auto-created. Storage cap is optional — leave blank for unlimited.
           </Dialog.Description>
 
-          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Field label="Username">
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="off"
-                style={field()}
-              />
-            </Field>
-            <Field label="Password">
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                style={field()}
-              />
-            </Field>
-            <Field label="Storage cap (MB) — leave blank for unlimited">
-              <input
-                value={quotaMb}
-                onChange={(e) => setQuotaMb(e.target.value)}
-                inputMode="numeric"
-                placeholder="e.g. 1024"
-                style={field()}
-              />
-            </Field>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: "var(--text-sm)" }}>
-              <input
-                type="checkbox"
-                checked={isAdmin}
-                onChange={(e) => setIsAdmin(e.target.checked)}
-              />
+          <form onSubmit={submit}>
+            <Field label="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
+            <Field
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+            <Field
+              label="Storage cap (MB) — leave blank for unlimited"
+              value={quotaMb}
+              onChange={(e) => setQuotaMb(e.target.value)}
+              inputMode="numeric"
+              placeholder="e.g. 1024"
+            />
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "var(--space-2)",
+                fontSize: "var(--text-sm)",
+                color: "var(--fg-default)",
+                marginBottom: "var(--space-3)",
+              }}
+            >
+              <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
               Workspace administrator
             </label>
 
             {err && (
-              <div role="alert" style={errBox()}>
-                {err}
+              <div style={{ marginBottom: "var(--space-3)" }}>
+                <ErrorBand>{err}</ErrorBand>
               </div>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button type="button" onClick={onClose} style={ghostBtn()}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-2)" }}>
+              <Button type="button" variant="secondary" onClick={onClose}>
                 Cancel
-              </button>
-              <button type="submit" disabled={submitting} style={primaryBtn(submitting)}>
+              </Button>
+              <Button type="submit" variant="primary" disabled={submitting} aria-busy={submitting}>
                 {submitting ? "Creating…" : "Create"}
-              </button>
+              </Button>
             </div>
           </form>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: "block", fontSize: "var(--text-sm)" }}>
-      <span style={{ display: "block", marginBottom: 6, color: "var(--ink)", fontWeight: 500 }}>
-        {label}
-      </span>
-      {children}
-    </label>
   );
 }
 
@@ -501,20 +520,19 @@ function Card({
   return (
     <section
       style={{
-        background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: 16,
-        padding: "22px 24px 24px",
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-lg)",
+        padding: "var(--space-4)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)" }}>
         <h3
           style={{
             margin: 0,
-            fontFamily: "var(--font-display)",
-            fontWeight: 500,
             fontSize: "var(--text-lg)",
-            color: "var(--ink)",
+            fontWeight: "var(--weight-semibold)",
+            color: "var(--fg-default)",
             letterSpacing: "var(--tracking-tight)",
           }}
         >
@@ -523,60 +541,39 @@ function Card({
         {action}
       </div>
       {subtitle && (
-        <p
-          style={{
-            marginTop: 6,
-            marginBottom: 0,
-            fontSize: "var(--text-sm)",
-            color: "var(--muted)",
-            lineHeight: "var(--leading-normal)",
-          }}
-        >
+        <p style={{ margin: "var(--space-1) 0 0", fontSize: "var(--text-sm)", color: "var(--fg-muted)", lineHeight: "var(--leading-sm)" }}>
           {subtitle}
         </p>
       )}
-      <div style={{ marginTop: 16 }}>{children}</div>
+      <div style={{ marginTop: "var(--space-4)" }}>{children}</div>
     </section>
   );
 }
 
 function Skeleton({ rows }: { rows: number }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
       {Array.from({ length: rows }).map((_, i) => (
-        <div
-          key={i}
-          style={{
-            height: 38,
-            borderRadius: 8,
-            background: "linear-gradient(90deg, var(--bg-subtle), var(--card) 40%, var(--bg-subtle))",
-            backgroundSize: "200% 100%",
-            animation: "cd-skeleton 1.4s linear infinite",
-          }}
-        />
+        <div key={i} className="skeleton" style={{ height: 32, borderRadius: "var(--radius-sm)" }} />
       ))}
     </div>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ padding: "16px 0", fontSize: "var(--text-sm)", color: "var(--muted)" }}>
-      {children}
-    </div>
-  );
+  return <div style={{ padding: "var(--space-3) 0", fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>{children}</div>;
 }
 
 function Notice({ children }: { children: React.ReactNode }) {
   return (
     <section
       style={{
-        background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: 16,
-        padding: 22,
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-lg)",
+        padding: "var(--space-4)",
         textAlign: "center",
-        color: "var(--muted)",
+        color: "var(--fg-muted)",
         fontSize: "var(--text-sm)",
       }}
     >
@@ -587,225 +584,60 @@ function Notice({ children }: { children: React.ReactNode }) {
 
 // ── styles ──────────────────────────────────────────────────────────────
 
-function headerRow(): React.CSSProperties {
-  return {
-    display: "grid",
-    gridTemplateColumns: "1.8fr 1fr 1fr 1.3fr 60px",
-    gap: 14,
-    padding: "0 4px 6px",
-    fontSize: 10,
-    letterSpacing: "1.5px",
-    textTransform: "uppercase",
-    color: "var(--muted-2)",
-    fontWeight: 600,
-    borderBottom: "1px solid var(--line)",
-  };
-}
+const inlineInput: React.CSSProperties = {
+  width: 68,
+  height: 24,
+  padding: "0 var(--space-2)",
+  border: "1px solid var(--border-strong)",
+  borderRadius: "var(--radius-sm)",
+  background: "var(--bg-sunken)",
+  color: "var(--fg-default)",
+  fontFamily: "var(--font-sans)",
+  fontSize: "var(--text-xs)",
+  textAlign: "right",
+  outline: "none",
+};
 
-function dataRow(): React.CSSProperties {
-  return {
-    display: "grid",
-    gridTemplateColumns: "1.8fr 1fr 1fr 1.3fr 60px",
-    gap: 14,
-    padding: "10px 4px",
-    alignItems: "center",
-    borderBottom: "1px solid var(--line)",
-    fontSize: "var(--text-sm)",
-  };
-}
+const overlay: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "var(--bg-overlay)",
+  zIndex: 1200,
+  animation: "cd-fade-in var(--dur-base) var(--ease)",
+};
 
-function avatarSquare(admin: boolean): React.CSSProperties {
-  return {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
-    background: admin ? "var(--accent-muted)" : "var(--bg-subtle)",
-    color: admin ? "var(--accent)" : "var(--muted)",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  };
-}
+const dialog: React.CSSProperties = {
+  position: "fixed",
+  top: "50%",
+  left: "50%",
+  transform: "translate(-50%, -50%)",
+  width: "min(440px, 92vw)",
+  background: "var(--bg-raised)",
+  border: "1px solid var(--border-hair)",
+  borderRadius: "var(--radius-xl)",
+  padding: "var(--space-5)",
+  boxShadow: "var(--shadow-lg)",
+  zIndex: 1300,
+  animation: "cd-modal-in var(--dur-base) var(--ease)",
+};
 
-function inlineInput(): React.CSSProperties {
-  return {
-    width: 70,
-    padding: "4px 6px",
-    border: "1px solid var(--line-strong)",
-    borderRadius: 6,
-    background: "var(--paper)",
-    color: "var(--ink)",
-    fontFamily: "var(--font-sans)",
-    fontSize: "var(--text-xs)",
-    textAlign: "right",
-    outline: "none",
-  };
-}
+const dialogTitle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "var(--text-lg)",
+  fontWeight: "var(--weight-semibold)",
+  letterSpacing: "var(--tracking-tight)",
+  color: "var(--fg-default)",
+};
 
-function iconBtn(active = false): React.CSSProperties {
-  return {
-    width: 26,
-    height: 26,
-    border: "1px solid var(--line)",
-    background: active ? "var(--ink)" : "var(--paper)",
-    color: active ? "var(--paper)" : "var(--muted)",
-    cursor: "pointer",
-    borderRadius: 6,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    transition: "background 120ms, color 120ms",
-  };
-}
-
-function addBtn(): React.CSSProperties {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "7px 12px",
-    background: "var(--ink)",
-    color: "var(--paper)",
-    border: "none",
-    borderRadius: 9,
-    cursor: "pointer",
-    fontFamily: "var(--font-sans)",
-    fontSize: "var(--text-sm)",
-    fontWeight: 500,
-  };
-}
-
-function approveBtn(): React.CSSProperties {
-  return {
-    padding: "7px 12px",
-    background: "var(--accent)",
-    color: "var(--paper)",
-    border: "none",
-    borderRadius: 9,
-    cursor: "pointer",
-    fontFamily: "var(--font-sans)",
-    fontSize: "var(--text-xs)",
-    fontWeight: 500,
-    flexShrink: 0,
-  };
-}
-
-function requestRow(): React.CSSProperties {
-  return {
-    display: "flex",
-    gap: 11,
-    padding: "11px 10px",
-    borderRadius: 10,
-    background: "var(--accent-muted)",
-    border: "1px solid rgba(200,164,92,.32)",
-    marginBottom: 8,
-  };
-}
-
-function overlay(): React.CSSProperties {
-  return {
-    position: "fixed",
-    inset: 0,
-    background: "var(--bg-overlay)",
-    backdropFilter: "blur(4px)",
-    WebkitBackdropFilter: "blur(4px)",
-    zIndex: 90,
-    animation: "cd-fade-in 200ms var(--ease)",
-  };
-}
-
-function dialog(): React.CSSProperties {
-  return {
-    position: "fixed",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    width: "min(440px, 92vw)",
-    background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 18,
-    padding: "22px 24px 24px",
-    boxShadow: "var(--shadow-xl)",
-    zIndex: 91,
-    animation: "cd-modal-in 240ms var(--ease)",
-  };
-}
-
-function dialogTitle(): React.CSSProperties {
-  return {
-    margin: 0,
-    fontFamily: "var(--font-display)",
-    fontSize: "var(--text-xl)",
-    fontWeight: 500,
-    letterSpacing: "var(--tracking-tight)",
-    color: "var(--ink)",
-  };
-}
-
-function closeBtn(): React.CSSProperties {
-  return {
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-    color: "var(--muted)",
-    padding: 6,
-    borderRadius: 8,
-  };
-}
-
-function field(): React.CSSProperties {
-  return {
-    width: "100%",
-    padding: "10px 12px",
-    border: "1px solid var(--line)",
-    borderRadius: 10,
-    background: "var(--paper)",
-    color: "var(--ink)",
-    fontFamily: "var(--font-sans)",
-    fontSize: "var(--text-md)",
-    outline: "none",
-  };
-}
-
-function ghostBtn(): React.CSSProperties {
-  return {
-    padding: "9px 14px",
-    borderRadius: 10,
-    border: "1px solid var(--line)",
-    background: "var(--paper)",
-    color: "var(--ink)",
-    fontFamily: "var(--font-sans)",
-    fontSize: "var(--text-sm)",
-    fontWeight: 500,
-    cursor: "pointer",
-  };
-}
-
-function primaryBtn(submitting: boolean): React.CSSProperties {
-  return {
-    padding: "9px 16px",
-    borderRadius: 10,
-    border: "none",
-    background: submitting ? "var(--line-strong)" : "var(--ink)",
-    color: "var(--paper)",
-    fontFamily: "var(--font-sans)",
-    fontSize: "var(--text-sm)",
-    fontWeight: 500,
-    cursor: submitting ? "not-allowed" : "pointer",
-  };
-}
-
-function errBox(): React.CSSProperties {
-  return {
-    padding: "9px 12px",
-    background: "rgba(220, 38, 38,.06)",
-    border: "1px solid rgba(220, 38, 38,.25)",
-    borderRadius: 9,
-    fontSize: "var(--text-sm)",
-    color: "var(--danger)",
-  };
-}
+const closeBtn: React.CSSProperties = {
+  background: "transparent",
+  border: "none",
+  cursor: "pointer",
+  color: "var(--fg-muted)",
+  padding: 4,
+  borderRadius: "var(--radius-sm)",
+  display: "inline-flex",
+};
 
 // ── helpers ─────────────────────────────────────────────────────────────
 

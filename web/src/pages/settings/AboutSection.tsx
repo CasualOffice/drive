@@ -1,6 +1,7 @@
 /**
  * About section — version, build, license, and the brand mark.
- * Pulls from GET /api/about (build-stamped, no DB read).
+ * Pulls from GET /api/about (build-stamped, no DB read). Dense on-system
+ * restyle; git sha rendered mono/tabular. Logic + endpoints unchanged.
  */
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
@@ -8,6 +9,7 @@ import { ExternalLink } from "lucide-react";
 import { getAbout, type About } from "../../api/client.ts";
 import { Logo } from "../../components/Logo.tsx";
 import { SettingsCard, SettingsHeader } from "./SettingsHeader.tsx";
+import { ErrorBand } from "./controls.tsx";
 
 export function AboutSection() {
   const [about, setAbout] = useState<About | null>(null);
@@ -21,157 +23,118 @@ export function AboutSection() {
     <>
       <SettingsHeader
         title="About"
-        description="The version of Casual Drive currently running on this instance."
+        description="The version of Doc-Hub currently running on this instance."
       />
 
       <SettingsCard title="Build">
         {err ? (
-          <Inline danger>{err}</Inline>
+          <ErrorBand>{err}</ErrorBand>
         ) : !about ? (
           <Skeleton />
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "auto 1fr",
-              gap: "12px 24px",
-              alignItems: "center",
-            }}
-          >
-            <Brand />
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: "var(--text-xl)",
-                  fontWeight: 500,
-                  letterSpacing: "var(--tracking-tight)",
-                }}
-              >
-                Casual Drive
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+              <span aria-hidden style={{ display: "inline-flex", color: "var(--fg-default)", flexShrink: 0 }}>
+                <Logo size={44} />
               </span>
-              <span className="tabular-nums" style={{ fontSize: "var(--text-sm)", color: "var(--muted)" }}>
-                v{about.version}
-                {about.git_sha !== "unknown" && about.git_sha !== "demo" && (
-                  <>
-                    {" · "}
-                    <code style={{ fontFamily: "var(--font-mono, ui-monospace, monospace)" }}>
-                      {about.git_sha}
-                    </code>
-                  </>
-                )}
-              </span>
-            </div>
-
-            <Cell label="Built at" />
-            <Cell value={fmtBuilt(about.built_at)} />
-            <Cell label="License" />
-            <Cell value={about.license} />
-            <Cell label="Storage backend" />
-            <Cell value={about.storage_backend} />
-            <Cell label="Database" />
-            <Cell value={about.db_backend} />
-            <Cell label="Repository" />
-            <Cell
-              value={
-                <a
-                  href={about.repository}
-                  target="_blank"
-                  rel="noreferrer"
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                <span
                   style={{
-                    color: "var(--ink)",
-                    textDecoration: "underline",
-                    textDecorationThickness: 1,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 5,
+                    fontSize: "var(--text-lg)",
+                    fontWeight: "var(--weight-semibold)",
+                    letterSpacing: "var(--tracking-tight)",
+                    color: "var(--fg-default)",
                   }}
                 >
-                  {short(about.repository)}
-                  <ExternalLink size={12} />
-                </a>
-              }
-            />
+                  Doc-Hub
+                </span>
+                <span className="tnum" style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+                  v{about.version}
+                  {about.git_sha !== "unknown" && about.git_sha !== "demo" && (
+                    <>
+                      {" · "}
+                      <code className="mono" style={{ fontSize: "var(--mono-xs)" }}>{about.git_sha}</code>
+                    </>
+                  )}
+                </span>
+              </div>
+            </div>
+
+            <dl
+              style={{
+                margin: 0,
+                display: "grid",
+                gridTemplateColumns: "140px 1fr",
+                gap: "var(--space-2) var(--space-4)",
+              }}
+            >
+              <Cell label="Built at" />
+              <Cell value={fmtBuilt(about.built_at)} />
+              <Cell label="License" />
+              <Cell value={about.license} />
+              <Cell label="Storage backend" />
+              <Cell value={about.storage_backend} />
+              <Cell label="Database" />
+              <Cell value={about.db_backend} />
+              <Cell label="Repository" />
+              <Cell
+                value={
+                  <a
+                    href={about.repository}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      color: "var(--fg-default)",
+                      textDecoration: "underline",
+                      textDecorationThickness: 1,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                    }}
+                  >
+                    {short(about.repository)}
+                    <ExternalLink size={12} strokeWidth={1.5} aria-hidden />
+                  </a>
+                }
+              />
+            </dl>
           </div>
         )}
       </SettingsCard>
 
-      <SettingsCard title="Acknowledgements" subtitle="Casual Drive is open source. Bug reports and contributions welcome.">
+      <SettingsCard title="Acknowledgements" subtitle="Doc-Hub is open source. Bug reports and contributions welcome.">
         <p
           style={{
             margin: 0,
             fontSize: "var(--text-sm)",
-            color: "var(--muted)",
-            lineHeight: "var(--leading-normal)",
+            color: "var(--fg-muted)",
+            lineHeight: "var(--leading-md)",
           }}
         >
-          Built on Rust, Axum, OpenDAL, sqlx, React, Vite, Radix Primitives, and the WOPI protocol.
-          Typography by IBM Plex Sans and IBM Plex Mono. Icons by Lucide.
+          Built on Rust, Axum, OpenDAL, sqlx, React, Vite, and Radix Primitives. Typography by Inter
+          and JetBrains Mono. Icons by Lucide.
         </p>
       </SettingsCard>
     </>
   );
 }
 
-function Brand() {
-  return (
-    <span
-      style={{
-        gridRow: "1 / span 1",
-        display: "inline-block",
-        color: "var(--ink)",
-      }}
-    >
-      <Logo size={56} />
-    </span>
-  );
-}
-
 function Cell({ label, value }: { label?: string; value?: React.ReactNode }) {
   if (label) {
-    return (
-      <span style={{ fontSize: "var(--text-sm)", color: "var(--muted)" }}>{label}</span>
-    );
+    return <dt style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>{label}</dt>;
   }
   return (
-    <span
-      className="tabular-nums"
-      style={{ fontSize: "var(--text-sm)", color: "var(--ink)", fontWeight: 500 }}
+    <dd
+      className="tnum"
+      style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--fg-default)", fontWeight: "var(--weight-medium)" }}
     >
       {value}
-    </span>
+    </dd>
   );
 }
 
 function Skeleton() {
-  return (
-    <div
-      style={{
-        height: 140,
-        borderRadius: 10,
-        background: "linear-gradient(90deg, var(--bg-subtle), var(--card) 40%, var(--bg-subtle))",
-        backgroundSize: "200% 100%",
-        animation: "cd-skeleton 1.4s linear infinite",
-      }}
-    />
-  );
-}
-
-function Inline({ children, danger }: { children: React.ReactNode; danger?: boolean }) {
-  return (
-    <div
-      style={{
-        padding: "10px 12px",
-        background: danger ? "rgba(178,36,36,.06)" : "var(--bg-subtle)",
-        border: `1px solid ${danger ? "rgba(178,36,36,.25)" : "var(--line)"}`,
-        borderRadius: 10,
-        fontSize: "var(--text-sm)",
-        color: danger ? "var(--danger, #B22424)" : "var(--muted)",
-      }}
-    >
-      {children}
-    </div>
-  );
+  return <div className="skeleton" style={{ height: 140, borderRadius: "var(--radius-md)" }} />;
 }
 
 function short(url: string) {
