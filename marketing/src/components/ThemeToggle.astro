@@ -66,15 +66,18 @@
     justify-content: center;
     width: 38px;
     height: 38px;
+    border: var(--border-w) solid transparent;
     border-radius: var(--radius-sm);
     color: var(--ink-soft);
     transition:
-      background var(--dur-fast) var(--ease),
-      color var(--dur-fast) var(--ease);
+      background var(--dur) var(--ease),
+      border-color var(--dur) var(--ease),
+      color var(--dur) var(--ease);
   }
 
   .theme-toggle:hover {
-    background: var(--bg-hover);
+    background: var(--violet-100);
+    border-color: var(--border);
     color: var(--ink);
   }
 

@@ -13,16 +13,16 @@ import Base from "../layouts/Base.astro";
 // the SPA is single-theme today.
 const sections = [
   {
-    h: "Files",
+    h: "Documents",
     shots: [
-      { src: "/screenshots/files-list.png", alt: "Files list with folders, an .xlsx, .docx, PDF, and a video" },
-      { src: "/screenshots/files-mobile.png", alt: "Files list on mobile (393×852)" },
+      { src: "/screenshots/files-list.png", alt: "Document list with folders, an .xlsx, a .docx, and a PDF" },
+      { src: "/screenshots/files-mobile.png", alt: "Document list on mobile (393×852)" },
     ],
   },
   {
-    h: "Notes / Wiki",
+    h: "Version history",
     shots: [
-      { src: "/screenshots/notes.png", alt: "Notes — page tree on the left, markdown editor + live preview" },
+      { src: "/screenshots/version-history.png", alt: "Version history — the hash-chained ledger of immutable document versions, verifiable end to end" },
     ],
   },
   {
@@ -30,14 +30,14 @@ const sections = [
     shots: [
       {
         src: "/screenshots/command-palette.png",
-        alt: "Cmd-K command palette — search across files, notes, and navigation in one keyboard surface",
+        alt: "Cmd-K command palette — search across documents and navigate in one keyboard surface",
       },
     ],
   },
   {
     h: "Sharing",
     shots: [
-      { src: "/screenshots/share-dialog.png", alt: "Per-file kebab menu with Share, Rename, Download, Trash" },
+      { src: "/screenshots/share-dialog.png", alt: "Share dialog — password-protected, expiring links for a document" },
     ],
   },
   {
@@ -113,18 +113,24 @@ const sections = [
   }
 
   .shots-eyebrow {
+    display: inline-block;
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--accent-strong);
-    margin-bottom: var(--space-3);
+    letter-spacing: 0.12em;
+    color: var(--ink);
+    background: var(--violet-100);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-3);
+    margin-bottom: var(--space-4);
   }
 
   .shots-h1 {
     font-size: var(--text-4xl);
     letter-spacing: -0.03em;
     margin-bottom: var(--space-3);
+    font-weight: 700;
   }
 
   @media (min-width: 768px) {
@@ -145,8 +151,9 @@ const sections = [
   .shots-section-h {
     font-size: var(--text-xl);
     margin-bottom: var(--space-6);
-    color: var(--ink-soft);
+    color: var(--ink);
     letter-spacing: -0.015em;
+    font-weight: 700;
   }
 
   .shots-grid {
@@ -181,17 +188,24 @@ const sections = [
     position: relative;
     aspect-ratio: 16 / 10;
     overflow: hidden;
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-md);
     background: var(--card);
+    box-shadow: var(--shadow-card);
     transition:
-      border-color var(--dur) var(--ease),
+      box-shadow var(--dur) var(--ease),
       transform var(--dur) var(--ease);
   }
 
   .shots-tile a:hover {
-    border-color: var(--line-strong);
-    transform: translateY(-2px);
+    transform: var(--lift);
+    box-shadow: var(--shadow-hover);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shots-tile a:hover {
+      transform: none;
+    }
   }
 
   .shots-tile img {

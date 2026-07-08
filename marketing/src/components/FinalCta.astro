@@ -43,15 +43,11 @@ import GithubIcon from "./icons/Github.astro";
   .cta-card {
     text-align: center;
     padding: var(--space-12) var(--space-6);
-    background:
-      radial-gradient(
-        ellipse 70% 50% at 50% 0%,
-        var(--accent-muted) 0%,
-        transparent 70%
-      ),
-      var(--card);
-    border: 1px solid var(--line);
+    background: var(--violet-500);
+    color: var(--on-violet);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-2xl);
+    box-shadow: var(--shadow-hover);
   }
 
   @media (min-width: 768px) {
@@ -64,6 +60,8 @@ import GithubIcon from "./icons/Github.astro";
     font-size: var(--text-3xl);
     letter-spacing: -0.025em;
     margin-bottom: var(--space-3);
+    color: var(--on-violet);
+    font-weight: 700;
   }
 
   @media (min-width: 768px) {
@@ -73,7 +71,7 @@ import GithubIcon from "./icons/Github.astro";
   }
 
   .cta-body {
-    color: var(--muted);
+    color: var(--on-violet);
     max-width: 480px;
     margin: 0 auto var(--space-8);
     font-size: var(--text-md);
@@ -87,6 +85,18 @@ import GithubIcon from "./icons/Github.astro";
     align-items: stretch;
     max-width: 360px;
     margin: 0 auto;
+  }
+
+  /* On the violet block, both CTAs read as solid paper buttons with the
+     signature ink border + hard offset shadow. */
+  .cta-actions :global(.btn) {
+    background: var(--card);
+    color: var(--ink);
+  }
+
+  .cta-actions :global(.btn:hover) {
+    background: var(--paper-2);
+    color: var(--ink);
   }
 
   @media (min-width: 640px) {

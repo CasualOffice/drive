@@ -7,21 +7,27 @@
 const shots = [
   {
     id: "files",
-    label: "Files",
+    label: "Documents",
     src: "/screenshots/files-list.png",
-    alt: "Doc-Hub — file list showing folders and documents: an .xlsx, .docx, and a PDF",
+    alt: "Doc-Hub — document list showing folders and documents: an .xlsx, a .docx, and a PDF",
   },
   {
-    id: "notes",
-    label: "Notes",
-    src: "/screenshots/notes.png",
-    alt: "Notes / Wiki surface — page tree on the left and a markdown editor with live preview",
+    id: "history",
+    label: "History",
+    src: "/screenshots/version-history.png",
+    alt: "Version history — the hash-chained ledger of immutable document versions, verifiable end to end",
   },
   {
     id: "cmdk",
     label: "Cmd-K",
     src: "/screenshots/command-palette.png",
-    alt: "Cmd-K command palette — search files, notes, and navigation from anywhere",
+    alt: "Cmd-K command palette — search documents and navigate from anywhere",
+  },
+  {
+    id: "share",
+    label: "Sharing",
+    src: "/screenshots/share-dialog.png",
+    alt: "Share dialog — password-protected, expiring links for a document",
   },
   {
     id: "admin",
@@ -164,18 +170,24 @@ const shots = [
   }
 
   .section-eyebrow {
+    display: inline-block;
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--accent-strong);
-    margin-bottom: var(--space-3);
+    letter-spacing: 0.12em;
+    color: var(--ink);
+    background: var(--violet-100);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-3);
+    margin-bottom: var(--space-4);
   }
 
   .section-title {
     font-size: var(--text-3xl);
     letter-spacing: -0.025em;
     margin-bottom: var(--space-3);
+    font-weight: 700;
   }
 
   @media (min-width: 768px) {
@@ -194,6 +206,7 @@ const shots = [
     color: var(--accent-strong);
     text-decoration: underline;
     text-underline-offset: 3px;
+    font-weight: 650;
   }
 
   .showcase {
@@ -207,19 +220,19 @@ const shots = [
   }
 
   .showcase-frame {
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-xl);
     background: var(--card);
     overflow: hidden;
-    box-shadow: var(--shadow-card);
+    box-shadow: var(--shadow-hover);
   }
 
   .showcase-tabs {
     display: flex;
-    gap: 2px;
-    padding: var(--space-2);
+    gap: var(--space-2);
+    padding: var(--space-3);
     background: var(--paper-2);
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--border-w) solid var(--border);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -233,23 +246,26 @@ const shots = [
     flex-shrink: 0;
     min-height: 38px;
     padding: 0 var(--space-4);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-sm);
+    background: var(--card);
     font-size: var(--text-sm);
-    font-weight: 500;
-    color: var(--muted);
-    transition: background var(--dur-fast) var(--ease);
+    font-weight: 650;
+    color: var(--ink-soft);
+    transition:
+      background var(--dur) var(--ease),
+      color var(--dur) var(--ease);
     user-select: none;
   }
 
   .showcase-tab:hover {
-    background: var(--bg-hover);
-    color: var(--ink-soft);
+    background: var(--violet-100);
+    color: var(--ink);
   }
 
   .showcase-tab[aria-selected="true"] {
-    background: var(--card);
-    color: var(--ink);
-    box-shadow: 0 1px 0 var(--line) inset;
+    background: var(--violet-500);
+    color: var(--on-violet);
   }
 
   .showcase-stage {

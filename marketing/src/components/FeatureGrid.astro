@@ -75,18 +75,24 @@ const features = [
   }
 
   .section-eyebrow {
+    display: inline-block;
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--accent-strong);
-    margin-bottom: var(--space-3);
+    letter-spacing: 0.12em;
+    color: var(--ink);
+    background: var(--violet-100);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-3);
+    margin-bottom: var(--space-4);
   }
 
   .section-title {
     font-size: var(--text-3xl);
     letter-spacing: -0.025em;
     margin-bottom: var(--space-3);
+    font-weight: 700;
   }
 
   @media (min-width: 768px) {
@@ -125,28 +131,34 @@ const features = [
   .feature {
     padding: var(--space-6);
     background: var(--card);
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
     transition:
-      border-color var(--dur) var(--ease),
       transform var(--dur) var(--ease),
       box-shadow var(--dur) var(--ease);
   }
 
   .feature:hover {
-    border-color: var(--line-strong);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-card);
+    transform: var(--lift);
+    box-shadow: var(--shadow-hover);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .feature:hover {
+      transform: none;
+    }
   }
 
   .feature-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    background: var(--accent-muted);
-    color: var(--accent-strong);
+    width: 44px;
+    height: 44px;
+    background: var(--violet-100);
+    color: var(--violet-500);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-md);
     margin-bottom: var(--space-4);
   }
@@ -155,6 +167,7 @@ const features = [
     font-size: var(--text-lg);
     margin-bottom: var(--space-2);
     letter-spacing: -0.015em;
+    font-weight: 650;
   }
 
   .feature-body {

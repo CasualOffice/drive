@@ -170,10 +170,8 @@ const isActive = (href: string) =>
     position: sticky;
     top: 0;
     z-index: 50;
-    background: color-mix(in srgb, var(--paper) 88%, transparent);
-    backdrop-filter: saturate(180%) blur(10px);
-    -webkit-backdrop-filter: saturate(180%) blur(10px);
-    border-bottom: 1px solid var(--line);
+    background: var(--paper);
+    border-bottom: var(--border-w) solid var(--border);
   }
 
   .nav-row {
@@ -188,8 +186,9 @@ const isActive = (href: string) =>
     display: inline-flex;
     align-items: center;
     gap: var(--space-3);
-    font-weight: 600;
-    font-size: var(--text-md);
+    font-weight: 700;
+    font-size: var(--text-lg);
+    letter-spacing: -0.01em;
     color: var(--ink);
   }
 
@@ -219,22 +218,27 @@ const isActive = (href: string) =>
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     min-height: 38px;
+    border: var(--border-w) solid transparent;
     border-radius: var(--radius-sm);
     color: var(--ink-soft);
     font-size: var(--text-sm);
-    font-weight: 500;
-    transition: background var(--dur-fast) var(--ease);
+    font-weight: 600;
+    transition:
+      background var(--dur) var(--ease),
+      border-color var(--dur) var(--ease),
+      color var(--dur) var(--ease);
     user-select: none;
   }
 
   .nav-link:hover {
-    background: var(--bg-hover);
+    background: var(--paper-2);
     color: var(--ink);
   }
 
   .nav-link.active {
     color: var(--ink);
-    background: var(--bg-hover);
+    background: var(--violet-100);
+    border-color: var(--border);
   }
 
   /* ── Docs dropdown via <details> ─────────────────────────────────── */
@@ -253,13 +257,13 @@ const isActive = (href: string) =>
 
   .nav-dropdown {
     position: absolute;
-    top: calc(100% + 6px);
+    top: calc(100% + 8px);
     left: 0;
     min-width: 200px;
     margin: 0;
     padding: var(--space-2);
     background: var(--card);
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-hover);
     list-style: none;
@@ -271,11 +275,12 @@ const isActive = (href: string) =>
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-sm);
     font-size: var(--text-sm);
+    font-weight: 550;
     color: var(--ink-soft);
   }
 
   .nav-dropdown-link:hover {
-    background: var(--bg-hover);
+    background: var(--violet-100);
     color: var(--ink);
   }
 
@@ -301,7 +306,7 @@ const isActive = (href: string) =>
   }
 
   .nav-hamburger:hover {
-    background: var(--bg-hover);
+    background: var(--paper-2);
   }
 
   .nav-hamburger-close {
@@ -321,7 +326,7 @@ const isActive = (href: string) =>
     inset: 64px 0 0 0;
     padding: var(--space-6);
     background: var(--paper);
-    border-top: 1px solid var(--line);
+    border-top: var(--border-w) solid var(--border);
     z-index: 40;
     overflow-y: auto;
     display: flex;
@@ -364,23 +369,26 @@ const isActive = (href: string) =>
 
   .nav-mobile-link:hover,
   .nav-mobile-link:focus-visible {
-    background: var(--bg-hover);
+    background: var(--violet-100);
   }
 
   .nav-mobile-link-cta {
-    background: var(--ink);
-    color: var(--paper);
+    background: var(--violet-500);
+    color: var(--on-violet);
+    border: var(--border-w) solid var(--border);
+    box-shadow: var(--shadow-card);
+    font-weight: 650;
     margin-top: var(--space-2);
   }
 
   .nav-mobile-link-cta:hover {
-    background: var(--ink-soft);
-    color: var(--paper);
+    background: var(--violet-600);
+    color: var(--on-violet);
   }
 
   .nav-mobile-sep {
-    height: 1px;
-    background: var(--line);
+    height: var(--border-w);
+    background: var(--border);
     margin: var(--space-3) 0;
   }
 
