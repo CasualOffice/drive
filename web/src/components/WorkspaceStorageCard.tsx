@@ -389,19 +389,17 @@ function ProviderPicker({
             key={o}
             type="button"
             onClick={() => onChange(o)}
+            className="press-sink"
             style={{
               padding: "8px 12px",
-              borderRadius: 8,
-              border: `1px solid ${
-                value === o ? "var(--accent)" : "var(--line)"
-              }`,
-              background: value === o ? "var(--accent-muted)" : "transparent",
+              borderRadius: "var(--radius-sm)",
+              border: "var(--border-w) solid var(--border)",
+              background: value === o ? "var(--violet-100)" : "var(--bg-surface)",
               color: value === o ? "var(--ink)" : "var(--ink-soft)",
               fontFamily: "var(--font-sans)",
               fontSize: "var(--text-sm)",
               fontWeight: 500,
               cursor: "pointer",
-              transition: "background 120ms, border-color 120ms",
             }}
           >
             {PROVIDER_LABELS[o]}
@@ -440,9 +438,9 @@ function Field({
           fontFamily: type === "password" ? "var(--font-mono)" : "var(--font-sans)",
           fontSize: "var(--text-sm)",
           color: "var(--ink)",
-          background: "var(--paper)",
-          border: "1px solid var(--line-strong)",
-          borderRadius: 8,
+          background: "var(--bg-surface)",
+          border: "var(--border-w) solid var(--border)",
+          borderRadius: "var(--radius-sm)",
           outline: "none",
         }}
       />
@@ -451,19 +449,7 @@ function Field({
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span
-      style={{
-        fontSize: "var(--text-xs)",
-        textTransform: "uppercase",
-        letterSpacing: "0.08em",
-        color: "var(--muted)",
-        fontWeight: 600,
-      }}
-    >
-      {children}
-    </span>
-  );
+  return <span className="caps-label">{children}</span>;
 }
 
 function FormShell({
@@ -478,9 +464,10 @@ function FormShell({
       style={{
         marginTop: 14,
         padding: "14px 16px 16px",
-        background: "var(--bg-subtle)",
-        border: "1px solid var(--line)",
-        borderRadius: 10,
+        background: "var(--bg-sunken)",
+        border: "var(--border-w) solid var(--border)",
+        boxShadow: "var(--shadow-sm)",
+        borderRadius: "var(--radius)",
         display: "flex",
         flexDirection: "column",
         gap: 10,
@@ -514,7 +501,7 @@ function Row({
         alignItems: "flex-start",
         gap: 14,
         padding: "10px 4px",
-        borderBottom: "1px solid var(--line)",
+        borderBottom: "var(--border-w) solid var(--border)",
       }}
     >
       {icon && (
@@ -522,9 +509,10 @@ function Row({
           style={{
             width: 28,
             height: 28,
-            borderRadius: 7,
-            background: "var(--bg-subtle)",
-            color: "var(--muted)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--bg-sunken)",
+            border: "var(--border-w) solid var(--border)",
+            color: "var(--ink-soft)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -574,13 +562,14 @@ function Action({
     <button
       type="button"
       onClick={onClick}
+      className="press-sink-lg"
       style={{
         alignSelf: "flex-start",
         padding: "8px 14px",
-        background: "var(--ink)",
-        color: "var(--paper)",
-        border: "none",
-        borderRadius: 8,
+        background: "var(--violet-500)",
+        color: "var(--on-violet)",
+        border: "var(--border-w) solid var(--border)",
+        borderRadius: "var(--radius-sm)",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
         fontWeight: 500,
@@ -606,12 +595,13 @@ function Primary({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      className="press-sink-lg"
       style={{
         padding: "8px 14px",
-        background: disabled ? "var(--line-strong)" : "var(--ink)",
-        color: "var(--paper)",
-        border: "none",
-        borderRadius: 8,
+        background: disabled ? "var(--bg-sunken)" : "var(--violet-500)",
+        color: disabled ? "var(--fg-disabled)" : "var(--on-violet)",
+        border: "var(--border-w) solid var(--border)",
+        borderRadius: "var(--radius-sm)",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
         fontWeight: 500,
@@ -639,12 +629,13 @@ function Secondary({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      className="press-sink"
       style={{
         padding: "7px 12px",
-        background: "transparent",
+        background: "var(--bg-surface)",
         color: danger ? "var(--danger)" : "var(--ink-soft)",
-        border: `1px solid ${danger ? "rgba(178,36,36,.32)" : "var(--line-strong)"}`,
-        borderRadius: 7,
+        border: `var(--border-w) solid ${danger ? "var(--danger)" : "var(--border)"}`,
+        borderRadius: "var(--radius-sm)",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
         fontWeight: 500,
@@ -665,7 +656,7 @@ function Skeleton() {
     <div
       style={{
         height: 64,
-        borderRadius: 10,
+        borderRadius: "var(--radius)",
         background:
           "linear-gradient(90deg, var(--bg-subtle), var(--card) 40%, var(--bg-subtle))",
         backgroundSize: "200% 100%",

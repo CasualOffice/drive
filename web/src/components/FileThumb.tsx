@@ -20,22 +20,22 @@ const TEXT_EXTS = new Set([
   "diff", "patch", "env", "lock",
 ]);
 
-// Slate Console palette — image / video procedural thumbnails get
-// soft cyan-leaning diagonal gradients (per the 2026-06-12 design
-// system spec) instead of the prior warm-paper rainbow.
-const GRADIENTS = [
-  "linear-gradient(135deg, #67E8F9, #06B6D4)",  // cyan → cyan-strong
-  "linear-gradient(135deg, #A5F3FC, #0E7490)",  // pale-cyan → cyan-deep
-  "linear-gradient(135deg, #CFFAFE, #2563EB)",  // ice → blue
-  "linear-gradient(160deg, #06B6D4, #1E3A8A)",  // cyan → navy
-  "linear-gradient(135deg, #E0F2FE, #0891B2)",  // very-pale → cyan
-  "linear-gradient(135deg, #BAE6FD, #0E7490)",  // sky → cyan-deep
+// Neobrutalist covers — image / video procedural thumbnails get FLAT
+// solid cyan-family fills (spec §3, no gradient-as-surface). Bold, flat,
+// high-contrast; the parent card carries the 2px ink border + hard shadow.
+const COVERS = [
+  "var(--doc-img)",  // cyan signal
+  "#0E7490",         // cyan-deep
+  "#0891B2",         // cyan
+  "#155E75",         // cyan-darker
+  "#06B6D4",         // cyan-strong
+  "#0284C7",         // blue-cyan
 ];
 
-function gradient(seed: string) {
+function cover(seed: string) {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0;
-  return GRADIENTS[Math.abs(hash) % GRADIENTS.length];
+  return COVERS[Math.abs(hash) % COVERS.length];
 }
 
 export function inferKind(name: string, contentType: string | null): FileKind {
@@ -102,7 +102,7 @@ export function FileThumb({
         />
       );
     }
-    return <div style={{ width: "100%", height: "100%", background: gradient(name) }} />;
+    return <div style={{ width: "100%", height: "100%", background: cover(name) }} />;
   }
 
   if (kind === "vid") {
@@ -111,7 +111,7 @@ export function FileThumb({
         style={{
           width: "100%",
           height: "100%",
-          background: gradient(name),
+          background: cover(name),
           position: "relative",
           display: "flex",
           alignItems: "center",
@@ -123,11 +123,12 @@ export function FileThumb({
             width: 34,
             height: 34,
             borderRadius: "50%",
-            background: "rgba(255,255,255,.92)",
+            background: "var(--bg-surface)",
+            border: "var(--border-w) solid var(--border)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 3px 12px rgba(0,0,0,.3)",
+            boxShadow: "var(--shadow-sm)",
           }}
         >
           <svg width={13} height={13} viewBox="0 0 24 24" fill="var(--ink)" style={{ marginLeft: 2 }}>
@@ -183,9 +184,9 @@ function Page({ kind }: { kind: FileKind }) {
     return (
       <div
         style={{
-          background: "#fff",
-          boxShadow: "0 1px 6px rgba(15, 23, 42,.10)",
-          border: "1px solid rgba(15, 23, 42,.06)",
+          background: "var(--bg-surface)",
+          boxShadow: "var(--shadow-sm)",
+          border: "var(--border-w) solid var(--border)",
           borderRadius: 3,
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
@@ -199,9 +200,9 @@ function Page({ kind }: { kind: FileKind }) {
           <div
             key={i}
             style={{
-              borderRight: "1px solid rgba(8, 145, 178, .22)",
-              borderBottom: "1px solid rgba(8, 145, 178, .22)",
-              background: i < 4 ? "rgba(8, 145, 178, .16)" : "transparent",
+              borderRight: "1px solid var(--doc-img)",
+              borderBottom: "1px solid var(--doc-img)",
+              background: i < 4 ? "var(--doc-img)" : "transparent",
             }}
           />
         ))}
@@ -213,9 +214,9 @@ function Page({ kind }: { kind: FileKind }) {
   return (
     <div
       style={{
-        background: "#fff",
-        boxShadow: "0 1px 6px rgba(15, 23, 42,.10)",
-        border: "1px solid rgba(15, 23, 42,.06)",
+        background: "var(--bg-surface)",
+        boxShadow: "var(--shadow-sm)",
+        border: "var(--border-w) solid var(--border)",
         borderRadius: 3,
         padding: "11% 13%",
         display: "flex",
@@ -227,14 +228,14 @@ function Page({ kind }: { kind: FileKind }) {
       }}
     >
       {isPdf ? (
-        <div style={{ height: "11%", borderRadius: 2, background: "rgba(200,76,76,.85)", width: "40%" }} />
+        <div style={{ height: "11%", borderRadius: 2, background: "var(--doc-pdf)", width: "40%" }} />
       ) : (
-        <div style={{ height: "11%", width: "55%", borderRadius: 2, background: "rgba(15, 23, 42,.32)" }} />
+        <div style={{ height: "11%", width: "55%", borderRadius: 2, background: "var(--ink)" }} />
       )}
-      <div style={{ height: "6.5%", borderRadius: 2, background: "rgba(15, 23, 42,.10)" }} />
-      <div style={{ height: "6.5%", width: "78%", borderRadius: 2, background: "rgba(15, 23, 42,.10)" }} />
-      <div style={{ height: "6.5%", borderRadius: 2, background: "rgba(15, 23, 42,.10)" }} />
-      <div style={{ height: "6.5%", width: "62%", borderRadius: 2, background: "rgba(15, 23, 42,.10)" }} />
+      <div style={{ height: "6.5%", borderRadius: 2, background: "var(--ink-soft)" }} />
+      <div style={{ height: "6.5%", width: "78%", borderRadius: 2, background: "var(--ink-soft)" }} />
+      <div style={{ height: "6.5%", borderRadius: 2, background: "var(--ink-soft)" }} />
+      <div style={{ height: "6.5%", width: "62%", borderRadius: 2, background: "var(--ink-soft)" }} />
     </div>
   );
 }

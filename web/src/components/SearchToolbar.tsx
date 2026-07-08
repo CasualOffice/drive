@@ -184,7 +184,7 @@ function ScopeChip({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" style={chipStyle(false)} aria-label="Search scope">
+        <button type="button" className="press-sink" style={chipStyle(false)} aria-label="Search scope">
           <FolderOpen size={12} strokeWidth={1.8} style={{ color: "var(--muted)" }} />
           <span>{activeLabel}</span>
           <ChevronDownTiny />
@@ -245,7 +245,7 @@ function TypeChipPopover({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" style={chipStyle(active)} aria-label="Filter by type" aria-pressed={active}>
+        <button type="button" className="press-sink" style={chipStyle(active)} aria-label="Filter by type" aria-pressed={active}>
           <FileType2 size={12} strokeWidth={1.8} style={{ color: active ? "var(--accent)" : "var(--muted)" }} />
           <span>{summary}</span>
           {active ? (
@@ -339,7 +339,7 @@ function OwnerChipPopover({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button type="button" style={chipStyle(active)} aria-label="Filter by owner" aria-pressed={active}>
+        <button type="button" className="press-sink" style={chipStyle(active)} aria-label="Filter by owner" aria-pressed={active}>
           <User size={12} strokeWidth={1.8} style={{ color: active ? "var(--accent)" : "var(--muted)" }} />
           <span>{summary}</span>
           {active ? (
@@ -434,7 +434,7 @@ function DateRangeChipPopover({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" style={chipStyle(active)} aria-label={`Filter by ${label.toLowerCase()}`} aria-pressed={active}>
+        <button type="button" className="press-sink" style={chipStyle(active)} aria-label={`Filter by ${label.toLowerCase()}`} aria-pressed={active}>
           <span style={{ color: active ? "var(--accent)" : "var(--muted)" }}>{icon}</span>
           <span>{summary}</span>
           {active ? (
@@ -554,7 +554,7 @@ function SizeChipPopover({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" style={chipStyle(active)} aria-label="Filter by size" aria-pressed={active}>
+        <button type="button" className="press-sink" style={chipStyle(active)} aria-label="Filter by size" aria-pressed={active}>
           <HardDrive size={12} strokeWidth={1.8} style={{ color: active ? "var(--accent)" : "var(--muted)" }} />
           <span>{summary}</span>
           {active ? (
@@ -608,7 +608,7 @@ function ToggleChip({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" style={chipStyle(active)} aria-label={label} aria-pressed={active}>
+        <button type="button" className="press-sink" style={chipStyle(active)} aria-label={label} aria-pressed={active}>
           <span style={{ color: active ? "var(--accent)" : "var(--muted)" }}>{icon}</span>
           <span>{summary}</span>
           {active ? (
@@ -657,7 +657,7 @@ function WorkspaceChipPopover({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" style={chipStyle(active)} aria-label="Filter by workspace" aria-pressed={active}>
+        <button type="button" className="press-sink" style={chipStyle(active)} aria-label="Filter by workspace" aria-pressed={active}>
           <Globe size={12} strokeWidth={1.8} style={{ color: active ? "var(--accent)" : "var(--muted)" }} />
           <span>{summary}</span>
           {active ? (
@@ -712,7 +712,7 @@ function SortPopover({
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" style={chipStyle(false)} aria-label="Sort">
+        <button type="button" className="press-sink" style={chipStyle(false)} aria-label="Sort">
           <ArrowUpDown size={12} strokeWidth={1.8} style={{ color: "var(--muted)" }} />
           <span>Sort: {label}</span>
           {sortDir === "asc" ? (
@@ -774,15 +774,15 @@ function CheckRow({
         style={{
           width: 14,
           height: 14,
-          borderRadius: 4,
-          border: `1.5px solid ${checked ? "var(--accent)" : "var(--line-strong)"}`,
-          background: checked ? "var(--accent)" : "transparent",
+          borderRadius: "var(--radius-2xs)",
+          border: `var(--border-w) solid ${checked ? "var(--violet-500)" : "var(--border)"}`,
+          background: checked ? "var(--violet-500)" : "transparent",
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        {checked && <Check size={10} strokeWidth={3} style={{ color: "var(--paper)" }} />}
+        {checked && <Check size={10} strokeWidth={3} style={{ color: "var(--on-violet)" }} />}
       </span>
       <span>{label}</span>
     </button>
@@ -816,7 +816,7 @@ function RadioRow({
           width: 14,
           height: 14,
           borderRadius: "50%",
-          border: `1.5px solid ${checked ? "var(--accent)" : "var(--line-strong)"}`,
+          border: `var(--border-w) solid ${checked ? "var(--violet-500)" : "var(--border)"}`,
           background: "transparent",
           display: "inline-flex",
           alignItems: "center",
@@ -824,7 +824,7 @@ function RadioRow({
         }}
       >
         {checked && (
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--violet-500)" }} />
         )}
       </span>
       <span>{label}</span>
@@ -860,28 +860,19 @@ function ChevronDownTiny() {
 }
 
 function Divider() {
-  return <span aria-hidden="true" style={{ width: 1, height: 16, background: "var(--line)", margin: "0 4px" }} />;
+  return <span aria-hidden="true" style={{ width: 2, height: 16, background: "var(--border)", margin: "0 4px" }} />;
 }
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        fontSize: 10,
-        letterSpacing: "2px",
-        textTransform: "uppercase",
-        color: "var(--muted-2)",
-        fontWeight: 600,
-        padding: "8px 10px 4px",
-      }}
-    >
+    <div className="caps-label" style={{ padding: "8px 10px 4px" }}>
       {children}
     </div>
   );
 }
 
 function Sep() {
-  return <div style={{ height: 1, background: "var(--line)", margin: "4px 6px" }} />;
+  return <div style={{ height: 2, background: "var(--border)", margin: "4px 6px" }} />;
 }
 
 function rowStyle(): React.CSSProperties {
@@ -900,15 +891,14 @@ function chipStyle(active: boolean): React.CSSProperties {
     alignItems: "center",
     gap: 6,
     padding: "6px 10px",
-    borderRadius: 999,
-    border: `1px solid ${active ? "var(--accent)" : "var(--line)"}`,
-    background: active ? "var(--accent-muted)" : "var(--card)",
-    color: active ? "var(--ink)" : "var(--ink-soft)",
+    borderRadius: "var(--radius-sm)",
+    border: `var(--border-w) solid ${active ? "var(--violet-500)" : "var(--border)"}`,
+    background: active ? "var(--violet-100)" : "var(--bg-surface)",
+    color: "var(--ink)",
     cursor: "pointer",
     fontFamily: "var(--font-sans)",
     fontSize: "var(--text-xs)",
     fontWeight: 500,
-    transition: "background 150ms, border-color 150ms",
     outline: "none",
   };
 }
@@ -916,16 +906,16 @@ function chipStyle(active: boolean): React.CSSProperties {
 function popoverStyle(): React.CSSProperties {
   return {
     minWidth: 220,
-    background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 12,
-    boxShadow: "var(--shadow-hover)",
+    background: "var(--bg-surface)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius)",
+    boxShadow: "var(--shadow-lg)",
     padding: 6,
     fontFamily: "var(--font-sans)",
     fontSize: "var(--text-sm)",
     color: "var(--ink)",
     zIndex: 60,
-    animation: "cd-menu-in 180ms var(--ease)",
+    animation: "cd-popover-in 180ms var(--ease)",
   };
 }
 
@@ -938,7 +928,7 @@ function rowItemStyle(): React.CSSProperties {
     width: "100%",
     background: "transparent",
     border: "none",
-    borderRadius: 8,
+    borderRadius: "var(--radius-sm)",
     cursor: "pointer",
     textAlign: "left",
     color: "var(--ink)",
@@ -954,9 +944,9 @@ function dateInputStyle(): React.CSSProperties {
     flex: 1,
     minWidth: 0,
     padding: "6px 8px",
-    borderRadius: 8,
-    border: "1px solid var(--line)",
-    background: "var(--paper)",
+    borderRadius: "var(--radius-sm)",
+    border: "var(--border-w) solid var(--border)",
+    background: "var(--bg-surface)",
     color: "var(--ink)",
     fontFamily: "var(--font-sans)",
     fontSize: "var(--text-xs)",

@@ -100,7 +100,7 @@ export function NotificationsBell() {
   return (
     <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
-        <button type="button" aria-label="Notifications" style={triggerStyle()}>
+        <button type="button" className="press-sink" aria-label="Notifications" style={triggerStyle()}>
           <Bell size={17} strokeWidth={1.8} />
           {unseen > 0 && (
             <span
@@ -112,9 +112,10 @@ export function NotificationsBell() {
                 minWidth: 16,
                 height: 16,
                 padding: "0 4px",
-                borderRadius: 9,
+                borderRadius: "var(--radius-sm)",
+                border: "var(--border-w) solid var(--border)",
                 background: "var(--accent)",
-                color: "var(--paper)",
+                color: "var(--on-violet)",
                 fontSize: 10,
                 fontWeight: 600,
                 display: "inline-flex",
@@ -142,23 +143,24 @@ export function NotificationsBell() {
             <span style={{ fontWeight: 500, fontSize: "var(--text-sm)" }}>Notifications</span>
             <button
               type="button"
+              className="press-sink"
               onClick={markAllRead}
               disabled={unseen === 0}
               style={{
-                background: "transparent",
-                border: "none",
+                background: "var(--bg-surface)",
+                border: "var(--border-w) solid var(--border)",
                 cursor: unseen === 0 ? "default" : "pointer",
-                color: unseen === 0 ? "var(--muted-2)" : "var(--muted)",
+                color: unseen === 0 ? "var(--muted-2)" : "var(--ink)",
                 fontSize: "var(--text-xs)",
-                padding: 4,
-                borderRadius: 6,
+                padding: "4px 8px",
+                borderRadius: "var(--radius-sm)",
               }}
             >
               Mark all as read
             </button>
           </header>
 
-          <div style={{ borderTop: "1px solid var(--line)" }} />
+          <div style={{ borderTop: "var(--border-w) solid var(--border)" }} />
 
           {events.length === 0 ? (
             <div
@@ -179,7 +181,7 @@ export function NotificationsBell() {
             </ul>
           )}
 
-          <div style={{ borderTop: "1px solid var(--line)" }} />
+          <div style={{ borderTop: "var(--border-w) solid var(--border)" }} />
           <a
             href="#"
             onClick={(ev) => {
@@ -213,7 +215,7 @@ function Row({ event, unseen }: { event: ActivityEvent; unseen: boolean }) {
         display: "flex",
         gap: 11,
         padding: "10px 10px",
-        borderRadius: 8,
+        borderRadius: "var(--radius-sm)",
         background: unseen ? "var(--bg-subtle)" : "transparent",
       }}
     >
@@ -221,7 +223,7 @@ function Row({ event, unseen }: { event: ActivityEvent; unseen: boolean }) {
         style={{
           width: 28,
           height: 28,
-          borderRadius: 8,
+          borderRadius: "var(--radius-sm)",
           background: unseen ? "var(--accent-muted)" : "var(--bg-subtle)",
           color: tone,
           display: "inline-flex",
@@ -276,15 +278,14 @@ function triggerStyle(): React.CSSProperties {
     position: "relative",
     width: 36,
     height: 36,
-    borderRadius: 11,
-    border: "1px solid var(--line)",
+    borderRadius: "var(--radius)",
+    border: "var(--border-w) solid var(--border)",
     background: "var(--card)",
     color: "var(--muted)",
     cursor: "pointer",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    transition: "background 150ms, border-color 150ms, color 150ms",
   };
 }
 
@@ -292,9 +293,9 @@ function menuStyle(): React.CSSProperties {
   return {
     width: 340,
     background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 14,
-    boxShadow: "var(--shadow-hover)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius)",
+    boxShadow: "var(--shadow-lg)",
     fontFamily: "var(--font-sans)",
     color: "var(--ink)",
     zIndex: 60,

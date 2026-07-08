@@ -152,9 +152,10 @@ function ReadyCard({ resolved, token }: { resolved: ResolvedShare; token: string
           style={{
             width: "min(260px, 80%)",
             aspectRatio: kind === "img" || kind === "vid" ? "16/10" : "1 / 1.3",
-            borderRadius: 10,
+            borderRadius: "var(--radius)",
             overflow: "hidden",
-            boxShadow: "0 8px 28px rgba(15, 23, 42,.15)",
+            border: "var(--border-w) solid var(--border)",
+            boxShadow: "var(--shadow)",
           }}
         >
           <FileThumb name={resolved.file.name} kind={kind} size="big" />
@@ -167,7 +168,7 @@ function ReadyCard({ resolved, token }: { resolved: ResolvedShare; token: string
             margin: 0,
             fontFamily: "var(--font-display)",
             fontSize: "var(--text-xl)",
-            fontWeight: 500,
+            fontWeight: 700,
             letterSpacing: "var(--tracking-tight)",
             color: "var(--ink)",
             wordBreak: "break-word",
@@ -180,7 +181,7 @@ function ReadyCard({ resolved, token }: { resolved: ResolvedShare; token: string
           {resolved.file.size > 0 && ` · ${formatBytes(resolved.file.size)}`}
         </div>
 
-        <hr style={{ border: 0, borderTop: "1px solid var(--line)", margin: "20px 0" }} />
+        <hr style={{ border: 0, borderTop: "var(--border-w) solid var(--border)", margin: "20px 0" }} />
 
         <div style={{ display: "flex", gap: 10 }}>
           {(kind === "sheet" || kind === "doc") ? (
@@ -226,9 +227,9 @@ function PasswordGate({
           style={{
             width: 48,
             height: 48,
-            borderRadius: 14,
-            background: "var(--accent-muted)",
-            border: "1px solid rgba(200,164,92,.32)",
+            borderRadius: "var(--radius)",
+            background: "var(--violet-100)",
+            border: "var(--border-w) solid var(--violet-500)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -242,7 +243,7 @@ function PasswordGate({
             margin: 0,
             fontFamily: "var(--font-display)",
             fontSize: "var(--text-xl)",
-            fontWeight: 500,
+            fontWeight: 700,
             color: "var(--ink)",
             letterSpacing: "var(--tracking-tight)",
           }}
@@ -270,9 +271,9 @@ function PasswordGate({
           fontFamily: "var(--font-sans)",
           fontSize: "var(--text-md)",
           color: "var(--ink)",
-          background: "var(--paper)",
-          border: `1px solid ${wrongPwd ? "var(--danger)" : "var(--line)"}`,
-          borderRadius: 12,
+          background: "var(--bg-surface)",
+          border: `var(--border-w) solid ${wrongPwd ? "var(--danger)" : "var(--border)"}`,
+          borderRadius: "var(--radius-sm)",
           outline: "none",
         }}
       />
@@ -285,17 +286,18 @@ function PasswordGate({
       <button
         type="submit"
         disabled={!password.trim() || submitting}
+        className={!password.trim() || submitting ? undefined : "press-sink-lg"}
         style={{
           marginTop: 16,
           width: "100%",
           padding: 12,
           fontFamily: "var(--font-sans)",
           fontSize: "var(--text-sm)",
-          fontWeight: 500,
-          color: "var(--paper)",
-          background: !password.trim() || submitting ? "rgba(15, 23, 42,.35)" : "var(--ink)",
-          border: "none",
-          borderRadius: 12,
+          fontWeight: 700,
+          color: "var(--on-violet)",
+          background: !password.trim() || submitting ? "var(--fg-disabled)" : "var(--violet-500)",
+          border: "var(--border-w) solid var(--border)",
+          borderRadius: "var(--radius)",
           cursor: !password.trim() || submitting ? "default" : "pointer",
         }}
       >
@@ -313,7 +315,7 @@ function Notice({ title, body }: { title: string; body: string }) {
           margin: 0,
           fontFamily: "var(--font-display)",
           fontSize: "var(--text-xl)",
-          fontWeight: 500,
+          fontWeight: 700,
           color: "var(--ink)",
           letterSpacing: "var(--tracking-tight)",
         }}
@@ -360,9 +362,9 @@ function card(): React.CSSProperties {
   return {
     width: "min(540px, 100%)",
     background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 20,
-    boxShadow: "var(--shadow)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius-xl)",
+    boxShadow: "var(--shadow-lg)",
     overflow: "hidden",
   };
 }
@@ -381,16 +383,17 @@ function PrimaryButton({ children, onClick }: { children: React.ReactNode; onCli
     <button
       type="button"
       onClick={onClick}
+      className="press-sink-lg"
       style={{
         flex: 1,
         padding: "12px 14px",
-        border: "none",
-        background: "var(--ink)",
-        color: "var(--paper)",
-        borderRadius: 12,
+        border: "var(--border-w) solid var(--border)",
+        background: "var(--violet-500)",
+        color: "var(--on-violet)",
+        borderRadius: "var(--radius)",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
-        fontWeight: 500,
+        fontWeight: 700,
         cursor: "pointer",
         display: "inline-flex",
         alignItems: "center",
@@ -408,15 +411,16 @@ function SecondaryButton({ children, onClick }: { children: React.ReactNode; onC
     <button
       type="button"
       onClick={onClick}
+      className="press-sink"
       style={{
         padding: "12px 16px",
-        border: "1px solid var(--line)",
-        background: "var(--paper)",
+        border: "var(--border-w) solid var(--border)",
+        background: "var(--bg-surface)",
         color: "var(--ink)",
-        borderRadius: 12,
+        borderRadius: "var(--radius)",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
-        fontWeight: 500,
+        fontWeight: 700,
         cursor: "pointer",
         display: "inline-flex",
         alignItems: "center",

@@ -123,8 +123,8 @@ export function InviteAccept({ token }: Props) {
           maxWidth: 460,
           width: "100%",
           padding: "28px 30px",
-          border: "1px solid var(--line)",
-          borderRadius: 16,
+          border: "var(--border-w) solid var(--border)",
+          borderRadius: "var(--radius-xl)",
           background: "var(--card)",
           boxShadow: "var(--shadow-lg)",
           fontFamily: "var(--font-sans)",
@@ -148,7 +148,7 @@ export function InviteAccept({ token }: Props) {
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            borderRadius: 8,
+            borderRadius: "var(--radius-sm)",
           }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -161,9 +161,10 @@ export function InviteAccept({ token }: Props) {
           style={{
             width: 44,
             height: 44,
-            borderRadius: 12,
-            background: "var(--accent-muted)",
-            color: "var(--accent-strong)",
+            borderRadius: "var(--radius)",
+            background: "var(--violet-100)",
+            border: "var(--border-w) solid var(--violet-500)",
+            color: "var(--violet-600)",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -181,7 +182,7 @@ export function InviteAccept({ token }: Props) {
                 margin: 0,
                 fontFamily: "var(--font-display)",
                 fontSize: "var(--text-xl)",
-                fontWeight: 500,
+                fontWeight: 700,
                 color: "var(--ink)",
                 letterSpacing: "-0.01em",
               }}
@@ -202,7 +203,7 @@ export function InviteAccept({ token }: Props) {
                 margin: 0,
                 fontFamily: "var(--font-display)",
                 fontSize: "var(--text-xl)",
-                fontWeight: 500,
+                fontWeight: 700,
                 color: "var(--ink)",
                 letterSpacing: "-0.01em",
               }}
@@ -250,7 +251,7 @@ export function InviteAccept({ token }: Props) {
                 margin: "4px 0 0",
                 fontFamily: "var(--font-display)",
                 fontSize: "var(--text-2xl)",
-                fontWeight: 600,
+                fontWeight: 700,
                 color: "var(--ink)",
                 letterSpacing: "-0.01em",
               }}

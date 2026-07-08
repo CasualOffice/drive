@@ -15,22 +15,23 @@ export function DemoBanner() {
         justifyContent: "center",
         gap: 10,
         padding: "9px 18px",
-        background: "var(--ink)",
-        color: "var(--paper)",
+        background: "var(--violet-100)",
+        color: "var(--ink)",
+        border: "var(--border-w) solid var(--border)",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
         letterSpacing: ".01em",
         flexShrink: 0,
       }}
     >
-      <Sparkles size={14} strokeWidth={1.8} style={{ color: "var(--accent)" }} />
+      <Sparkles size={14} strokeWidth={1.8} style={{ color: "var(--violet-500)" }} />
       <span>
         <strong style={{ fontWeight: 600 }}>Demo</strong> · in-memory only · changes reset on reload ·{" "}
         <a
           href="https://github.com/CasualOffice/drive"
           target="_blank"
           rel="noreferrer"
-          style={{ color: "var(--accent)", textDecoration: "underline", textDecorationThickness: 1 }}
+          style={{ color: "var(--violet-600)", textDecoration: "underline", textDecorationThickness: 1 }}
         >
           self-host the real thing
         </a>

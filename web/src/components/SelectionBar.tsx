@@ -58,10 +58,11 @@ export function SelectionBar({
         alignItems: "center",
         gap: 8,
         padding: "10px 12px 10px 18px",
-        background: "var(--ink)",
-        color: "var(--paper)",
-        borderRadius: 14,
-        boxShadow: "0 12px 30px rgba(15, 23, 42, 0.30)",
+        background: "var(--bg-surface)",
+        color: "var(--ink)",
+        border: "var(--border-w) solid var(--border)",
+        borderRadius: "var(--radius)",
+        boxShadow: "var(--shadow-lg)",
         zIndex: 50,
         animation: "cd-selbar-in 220ms var(--ease)",
         fontFamily: "var(--font-sans)",
@@ -75,10 +76,11 @@ export function SelectionBar({
 
       <button
         type="button"
+        className="press-sink"
         onClick={onClear}
         aria-label="Clear selection"
         style={iconBtn()}
-        onMouseOver={(e) => (e.currentTarget.style.background = "rgba(232, 237, 242,.10)")}
+        onMouseOver={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
         onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
         title="Clear selection (Esc)"
       >
@@ -127,7 +129,7 @@ export function SelectionBar({
 }
 
 function Sep() {
-  return <span style={{ width: 1, height: 20, background: "rgba(232, 237, 242,.18)", margin: "0 4px" }} />;
+  return <span style={{ width: "var(--border-w)", height: 20, background: "var(--border)", margin: "0 4px" }} />;
 }
 
 function ActionBtn({
@@ -144,6 +146,7 @@ function ActionBtn({
   return (
     <button
       type="button"
+      className="press-sink"
       onClick={onClick}
       disabled={disabled}
       style={{
@@ -151,26 +154,23 @@ function ActionBtn({
         alignItems: "center",
         gap: 6,
         padding: "7px 12px",
-        borderRadius: 9,
-        background: danger ? "rgba(220, 38, 38,.20)" : "rgba(232, 237, 242,.06)",
-        color: danger ? "#FFB3B3" : "var(--paper)",
+        borderRadius: "var(--radius-sm)",
+        background: "transparent",
+        color: danger ? "var(--danger)" : "var(--ink)",
         border: "none",
         cursor: disabled ? "not-allowed" : "pointer",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
         fontWeight: 500,
         opacity: disabled ? 0.6 : 1,
-        transition: "background 150ms, transform 150ms",
       }}
       onMouseOver={(e) => {
         if (!disabled) {
-          e.currentTarget.style.background = danger ? "rgba(220, 38, 38,.32)" : "rgba(232, 237, 242,.12)";
-          e.currentTarget.style.transform = "translateY(-1px)";
+          e.currentTarget.style.background = danger ? "var(--bg-sunken)" : "var(--bg-hover)";
         }
       }}
       onMouseOut={(e) => {
-        e.currentTarget.style.background = danger ? "rgba(220, 38, 38,.20)" : "rgba(232, 237, 242,.06)";
-        e.currentTarget.style.transform = "";
+        e.currentTarget.style.background = "transparent";
       }}
     >
       {children}
@@ -182,14 +182,13 @@ function iconBtn(): React.CSSProperties {
   return {
     width: 28,
     height: 28,
-    borderRadius: 8,
+    borderRadius: "var(--radius-sm)",
     background: "transparent",
     border: "none",
-    color: "var(--paper)",
+    color: "var(--ink)",
     cursor: "pointer",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    transition: "background 150ms",
   };
 }

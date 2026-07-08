@@ -49,8 +49,8 @@ export function AvatarStack() {
             fontSize: 10,
             fontWeight: 600,
             color: "var(--muted)",
-            background: "var(--card)",
-            border: "1px solid var(--line)",
+            background: "var(--bg-surface)",
+            border: "var(--border-w) solid var(--border)",
             borderRadius: SIZE / 2,
             height: SIZE,
             minWidth: SIZE,
@@ -87,8 +87,8 @@ function Avatar({ user, stackIndex }: { user: PresenceUser; stackIndex: number }
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        border: "2px solid var(--paper)",
-        boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+        border: "2px solid var(--bg-surface)",
+        boxShadow: "0 0 0 2px var(--bg-surface)",
         // Stack with overlap — leftmost on top so first-arrived is the
         // primary face. Negative margin pulls each subsequent one
         // partially under its left neighbour.

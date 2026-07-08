@@ -80,6 +80,7 @@ const DOC_ACTIONS: DocAction[] = [
 // out of GO TO — only real, navigable surfaces appear.
 const NAV_ACTIONS: NavAction[] = [
   { id: "home", label: "My Drive", icon: Home, hint: "Files + folders" },
+  { id: "notes", label: "Notes", icon: NotebookPen, hint: "Pages + wiki" },
   { id: "activity", label: "Activity", icon: ActivityIcon, hint: "Audit feed" },
   { id: "admin", label: "Admin", icon: Gauge, hint: "System + users" },
   { id: "trash", label: "Trash", icon: Trash2, hint: "Deleted items" },
@@ -248,35 +249,14 @@ export function CommandPalette({
     >
       <div className="cd-spotlight" style={panelStyle()}>
         <style>{`
-          /* ── Spotlight material — real dark glass over the Aura ─────────
-             Self-contained so the surface is guaranteed dark-translucent in
-             the Registry theme (frosted-paper in Reading Room) rather than
-             inheriting a flat pane. Blur 22px + saturate 180% + the bright
-             1px edge (the "liquid tell"), overlay shadow, and a faint amber
-             ambient ring tying it to the ground. AA is always measured on
-             the opaque fallback below, never the translucent value. */
+          /* ── Spotlight surface — neobrutalist solid bordered modal (spec §5).
+             Flat solid fill, 2px ink border, hard offset shadow, no blur, no
+             glass. High contrast — never a pale translucent dropdown. */
           .cd-spotlight {
-            background: var(--mat-thick);
-            -webkit-backdrop-filter: blur(22px) saturate(var(--saturate));
-            backdrop-filter: blur(22px) saturate(var(--saturate));
-            border: var(--hairline-glass);
+            background: var(--bg-surface);
+            border: var(--border-w) solid var(--border);
             border-radius: var(--radius-xl);
-            box-shadow:
-              var(--edge-hi),
-              var(--shadow-overlay),
-              0 0 0 1px var(--amber-glow-3);
-          }
-          /* No backdrop-filter support → opaque solid (AA measured here). */
-          @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-            .cd-spotlight { background: var(--glass-solid); }
-          }
-          /* User asks for reduced transparency → solid, no blur. */
-          @media (prefers-reduced-transparency: reduce) {
-            .cd-spotlight {
-              background: var(--glass-solid);
-              -webkit-backdrop-filter: none;
-              backdrop-filter: none;
-            }
+            box-shadow: var(--shadow-lg);
           }
 
           [cmdk-group-heading] {
@@ -581,17 +561,13 @@ function formatBytes(b: number): string {
 
 // ── styles ───────────────────────────────────────────────────────────
 
-/** Scrim — dims + blurs the app behind the Spotlight so the glass has a
- * ground to refract, with a faint amber bloom behind the panel tying it to
- * the Aura. Quick fade so the palette still feels instant. */
+/** Scrim — a flat dimmed (not blurred) ink scrim behind the Spotlight
+ * (spec §5: dimmed, not blurred). Quick fade so the palette feels instant. */
 function overlayStyle(): React.CSSProperties {
   return {
     position: "fixed",
     inset: 0,
-    background:
-      "radial-gradient(60% 42% at 50% 22%, var(--amber-glow-3), transparent 70%), var(--bg-overlay)",
-    backdropFilter: "blur(4px) saturate(115%)",
-    WebkitBackdropFilter: "blur(4px) saturate(115%)",
+    background: "var(--bg-overlay)",
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "center",
@@ -601,9 +577,9 @@ function overlayStyle(): React.CSSProperties {
   };
 }
 
-/** Spotlight panel — the `.cd-spotlight` class supplies the dark-glass
- * material, blur, bright edge, radius, and overlay shadow (with solid
- * fallbacks). Inline only carries geometry + the spring entrance. */
+/** Spotlight panel — the `.cd-spotlight` class supplies the flat solid
+ * fill, 2px ink border, radius, and hard offset shadow. Inline only
+ * carries geometry + the spring entrance. */
 function panelStyle(): React.CSSProperties {
   return {
     width: "100%",

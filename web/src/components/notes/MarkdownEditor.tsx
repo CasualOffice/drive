@@ -86,6 +86,10 @@ export function MarkdownEditor({
   const slashPopoverRef = useRef<SlashPopoverHandle | null>(null);
   const mentionPopoverRef = useRef<MentionPopoverHandle | null>(null);
   const noteLinkPopoverRef = useRef<NoteLinkPopoverHandle | null>(null);
+  // Live handle to the editor for the clipboard serializer (frozen in
+  // useEditor's config), so copy-as-markdown reaches the current
+  // instance without capturing the outer `editor` const at config time.
+  const editorRef = useRef<import("@tiptap/react").Editor | null>(null);
   // NT2 Phase 2 — link dialog state. Hoisted here so both the bubble
   // toolbar (desktop) and the mobile sticky toolbar share one dialog
   // instance.
@@ -239,8 +243,24 @@ export function MarkdownEditor({
         }
         return false;
       },
+      // Copy-as-markdown. Without this, ProseMirror puts plain text on the
+      // clipboard for the `text/plain` flavour — pasting a selection into
+      // another editor loses all formatting. We serialize the copied slice
+      // through tiptap-markdown's serializer (the same one that drives the
+      // onChange round-trip), so the clipboard carries real markdown
+      // (`**bold**`, `- item`, `[text](url)`, …). Mirrors tiptap-markdown's
+      // own `transformCopiedText` path — `serializer.serialize(slice.content)`.
+      // Paste-in is already covered by `transformPastedText: true` above.
+      clipboardTextSerializer(slice) {
+        return serializeSliceToMarkdown(editorRef.current, slice);
+      },
     },
   });
+
+  // Keep the clipboard serializer's ref pointing at the live editor.
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
 
   // Sync external value changes (e.g. user switched notes) without
   // wiping out unsaved keystrokes. `setContent` would otherwise lose
@@ -347,5 +367,26 @@ function getMarkdown(editor: import("@tiptap/react").Editor): string {
   const storage = editor.storage as unknown as Record<string, unknown>;
   const md = storage.markdown as { getMarkdown?: () => string } | undefined;
   return md?.getMarkdown?.() ?? "";
+}
+
+/** Copy-as-markdown. Serialize a copied ProseMirror slice to markdown via
+ * tiptap-markdown's serializer — the same serializer that drives the
+ * onChange round-trip — so the clipboard's `text/plain` flavour carries
+ * real markdown instead of stripped plain text. Falls back to the slice's
+ * plain text if the serializer isn't available yet. */
+function serializeSliceToMarkdown(
+  editor: import("@tiptap/react").Editor | null,
+  slice: import("@tiptap/pm/model").Slice,
+): string {
+  const fallback = () =>
+    slice.content.textBetween(0, slice.content.size, "\n\n", "\n");
+  if (!editor) return fallback();
+  const storage = editor.storage as unknown as Record<string, unknown>;
+  const md = storage.markdown as
+    | { serializer?: { serialize: (content: unknown) => string } }
+    | undefined;
+  const serializer = md?.serializer;
+  if (!serializer) return fallback();
+  return serializer.serialize(slice.content);
 }
 

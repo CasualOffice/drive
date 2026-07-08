@@ -32,26 +32,24 @@ export function ComingSoon({
         style={{
           width: 96,
           height: 96,
-          borderRadius: 24,
-          background: "var(--accent-muted)",
-          border: "1px solid var(--line)",
+          borderRadius: "var(--radius-xl)",
+          background: "var(--violet-100)",
+          border: "var(--border-w) solid var(--border)",
+          boxShadow: "var(--shadow)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           marginBottom: 22,
-          color: "var(--accent)",
+          color: "var(--violet-500)",
         }}
       >
         <Sparkles size={42} strokeWidth={1.4} />
       </div>
 
       <div
+        className="caps-label"
         style={{
-          fontSize: "var(--text-xs)",
-          letterSpacing: "var(--tracking-wider)",
-          textTransform: "uppercase",
-          color: "var(--accent)",
-          fontWeight: 600,
+          color: "var(--violet-500)",
           marginBottom: 8,
         }}
       >
@@ -62,7 +60,7 @@ export function ComingSoon({
         style={{
           margin: 0,
           fontFamily: "var(--font-display)",
-          fontWeight: 500,
+          fontWeight: "var(--weight-bold)",
           fontSize: "var(--text-2xl)",
           color: "var(--ink)",
           letterSpacing: "var(--tracking-tight)",
@@ -106,14 +104,15 @@ export function ComingSoon({
                 fontSize: "var(--text-sm)",
                 color: "var(--ink-soft)",
                 padding: "10px 14px",
-                background: "var(--card)",
-                border: "1px solid var(--line)",
-                borderRadius: 12,
+                background: "var(--bg-surface)",
+                border: "var(--border-w) solid var(--border)",
+                borderRadius: "var(--radius)",
+                boxShadow: "var(--shadow-sm)",
               }}
             >
               <span
                 style={{
-                  color: "var(--accent)",
+                  color: "var(--violet-500)",
                   marginTop: 2,
                   flexShrink: 0,
                   fontWeight: 600,

@@ -16,7 +16,7 @@
 
 /* ── Tree column ───────────────────────────────────────────────── */
 .notes-tree {
-  border-right: 1px solid var(--line);
+  border-right: var(--border-w) solid var(--border);
   background: var(--paper);
   display: flex;
   flex-direction: column;
@@ -26,7 +26,7 @@
 @media (max-width: 1023.9px) {
   .notes-tree {
     border-right: none;
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--border-w) solid var(--border);
     max-height: 40vh;
   }
 }
@@ -35,6 +35,8 @@
   padding: 14px 14px 8px;
 }
 
+/* Neobrutalist primary button: violet fill, 2px ink border, hard offset
+   shadow, press-sink. */
 .notes-newbtn {
   display: inline-flex;
   align-items: center;
@@ -42,20 +44,35 @@
   width: 100%;
   min-height: 38px;
   padding: 0 12px;
-  border-radius: 8px;
-  background: var(--ink);
-  color: var(--paper);
+  border-radius: var(--radius-sm);
+  background: var(--violet-500);
+  color: var(--on-violet);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  font-weight: 500;
-  border: none;
+  font-weight: var(--weight-bold);
+  border: var(--border-w) solid var(--border);
+  box-shadow: var(--shadow);
   cursor: pointer;
   justify-content: center;
-  transition: background 120ms;
+  transition: background var(--dur) var(--ease),
+              transform var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease);
 }
 
 .notes-newbtn:hover {
-  background: var(--ink-soft);
+  background: var(--violet-600);
+}
+
+/* The Press — sink into the offset shadow. */
+.notes-newbtn:active {
+  transform: var(--lift-press);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notes-newbtn:active {
+    transform: none;
+  }
 }
 
 .notes-tree-search {
@@ -64,9 +81,17 @@
   gap: 8px;
   margin: 4px 14px 10px;
   padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  transition: border-color var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease);
+}
+
+/* Focus → violet border + hard offset (spec §5: inputs). */
+.notes-tree-search:focus-within {
+  border-color: var(--violet-500);
+  box-shadow: var(--shadow-sm);
 }
 
 .notes-tree-search input {
@@ -114,10 +139,13 @@
   background: var(--bg-hover);
 }
 
+/* Active row — violet tint fill + a 2px violet left marker + bold label
+   (neobrutalist nav identity, spec §5). */
 .notes-tree-row.active {
-  background: var(--accent-muted);
+  background: var(--violet-100);
   color: var(--ink);
-  font-weight: 500;
+  font-weight: var(--weight-bold);
+  box-shadow: inset 2px 0 0 0 var(--violet-500);
 }
 
 .notes-tree-bullet {
@@ -302,9 +330,9 @@
 }
 
 .notes-tabs button.active {
-  background: var(--card);
+  background: var(--bg-surface);
   color: var(--ink);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-sm);
 }
 
 .notes-editor-actions {
@@ -322,14 +350,14 @@
 .notes-trashbtn {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
-  border: 1px solid var(--line);
   color: var(--muted);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: var(--border-w) solid var(--border);
 }
 
 .notes-trashbtn:hover {
@@ -445,9 +473,9 @@
 }
 
 .notes-pane-preview pre {
-  background: var(--bg-subtle);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background: var(--bg-sunken);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 0.85rem;
   overflow-x: auto;
@@ -480,12 +508,12 @@
 }
 
 .notes-pane-preview blockquote {
-  border-left: 3px solid var(--line-strong);
+  border-left: 3px solid var(--violet-500);
   margin: 10px 0;
   padding: 4px 12px;
   color: var(--muted);
-  background: var(--bg-subtle);
-  border-radius: 4px;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-2xs);
 }
 
 /* ── Backlinks ────────────────────────────────────────────────── */
@@ -630,9 +658,9 @@
 }
 
 .cd-note-editor pre {
-  background: var(--bg-subtle);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background: var(--bg-sunken);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 0.85rem;
   overflow-x: auto;
@@ -647,12 +675,12 @@
 }
 
 .cd-note-editor blockquote {
-  border-left: 3px solid var(--line-strong);
+  border-left: 3px solid var(--violet-500);
   margin: 10px 0;
   padding: 4px 12px;
   color: var(--muted);
-  background: var(--bg-subtle);
-  border-radius: 4px;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-2xs);
 }
 
 .cd-note-editor a {
@@ -663,7 +691,7 @@
 
 .cd-note-editor hr {
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: var(--border-w) solid var(--border);
   margin: 18px 0;
 }
 
@@ -675,15 +703,17 @@
 }
 
 /* ── NT2 floating formatting toolbar ─────────────────────────────── */
+/* Bubble + fixed toolbar surface — flat solid bordered card, 2px ink
+   border, hard offset shadow, no blur/glass (spec §5). */
 .cd-bubble-toolbar {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   padding: 4px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow-hover);
+  background: var(--bg-surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
   font-family: var(--font-sans);
 }
 
@@ -693,12 +723,17 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  border: 0;
-  border-radius: 6px;
+  /* transparent 2px border so the active-state ink border doesn't shift
+     the row; box-sizing: border-box keeps the footprint fixed. */
+  border: var(--border-w) solid transparent;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--ink-soft);
   cursor: pointer;
-  transition: background 120ms, color 120ms;
+  transition: background var(--dur) var(--ease),
+              color var(--dur) var(--ease),
+              border-color var(--dur) var(--ease),
+              transform var(--dur) var(--ease);
 }
 
 .cd-bubble-btn:hover {
@@ -706,9 +741,22 @@
   color: var(--ink);
 }
 
+/* The Press — tactile sink. */
+.cd-bubble-btn:active {
+  transform: var(--lift-press);
+}
+
+/* Active format — violet tint fill + ink border + violet glyph. */
 .cd-bubble-btn.is-active {
-  background: var(--accent-muted);
+  background: var(--violet-100);
   color: var(--accent-strong);
+  border-color: var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cd-bubble-btn:active {
+    transform: none;
+  }
 }
 
 .cd-bubble-sep {
@@ -743,7 +791,7 @@
   padding: 6px 0;
   margin-bottom: 8px;
   background: var(--paper);
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--border-w) solid var(--border);
 }
 
 @media (min-width: 1024px) and (hover: hover) {
@@ -756,16 +804,18 @@
 }
 
 /* ── NT3 slash menu ──────────────────────────────────────────────── */
+/* Slash / mention / block popovers — flat solid bordered menus, 2px ink
+   border, hard offset shadow, no blur (spec §5). Selection = violet. */
 .cd-slash-menu {
   display: flex;
   flex-direction: column;
   min-width: 240px;
   max-height: 320px;
   overflow-y: auto;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: var(--shadow-hover);
+  background: var(--bg-surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
   padding: 6px;
   font-family: var(--font-sans);
   font-size: var(--text-sm);
@@ -788,9 +838,20 @@
   transition: background 120ms;
 }
 
-.cd-slash-item.is-active,
 .cd-slash-item:hover {
   background: var(--bg-hover);
+}
+
+/* Keyboard-selected row — violet tint + 2px violet left rule + lit icon. */
+.cd-slash-item.is-active {
+  background: var(--violet-100);
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 0 var(--violet-500);
+}
+
+.cd-slash-item.is-active .cd-slash-icon {
+  background: var(--violet-500);
+  color: var(--on-violet);
 }
 
 .cd-slash-icon {
@@ -830,10 +891,10 @@
   min-width: 240px;
   max-height: 320px;
   overflow-y: auto;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: var(--shadow-hover);
+  background: var(--bg-surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
   padding: 6px;
   font-family: var(--font-sans);
   font-size: var(--text-sm);
@@ -856,9 +917,14 @@
   transition: background 120ms;
 }
 
-.cd-mention-item.is-active,
 .cd-mention-item:hover {
   background: var(--bg-hover);
+}
+
+.cd-mention-item.is-active {
+  background: var(--violet-100);
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 0 var(--violet-500);
 }
 
 .cd-mention-avatar {
@@ -927,9 +993,8 @@
     align-items: center;
     gap: 4px;
     padding: 6px 10px calc(6px + env(safe-area-inset-bottom)) 10px;
-    background: var(--card);
-    border-top: 1px solid var(--line);
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.04);
+    background: var(--bg-surface);
+    border-top: var(--border-w) solid var(--border);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -962,7 +1027,7 @@
 }
 
 .cd-mobile-btn.is-active {
-  background: var(--accent-muted);
+  background: var(--violet-100);
   color: var(--accent-strong);
 }
 
@@ -1013,10 +1078,10 @@
 
 .cd-block-menu {
   min-width: 180px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow-hover);
+  background: var(--bg-surface);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
   padding: 5px;
   font-family: var(--font-sans);
   font-size: var(--text-sm);

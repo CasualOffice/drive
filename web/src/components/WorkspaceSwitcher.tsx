@@ -94,7 +94,7 @@ export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => v
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>
       <DropdownMenu.Trigger asChild>
-        <button type="button" style={triggerStyle()} aria-label="Switch workspace">
+        <button type="button" className="press-sink" style={triggerStyle()} aria-label="Switch workspace">
           <span style={iconBox()}>
             <Building2 size={14} strokeWidth={1.8} />
           </span>
@@ -153,9 +153,9 @@ export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => v
                   fontFamily: "var(--font-sans)",
                   fontSize: "var(--text-sm)",
                   color: "var(--ink)",
-                  background: "var(--paper)",
-                  border: "1px solid var(--line-strong)",
-                  borderRadius: 8,
+                  background: "var(--bg-surface)",
+                  border: "var(--border-w) solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
                   outline: "none",
                 }}
               />
@@ -163,11 +163,17 @@ export function WorkspaceSwitcher({ onChange }: { onChange?: (w: Workspace) => v
                 <button
                   type="button"
                   onClick={() => setCreating(false)}
+                  className="press-sink"
                   style={ghostBtn()}
                 >
                   Cancel
                 </button>
-                <button type="submit" disabled={newName.trim().length < 2} style={primaryBtn()}>
+                <button
+                  type="submit"
+                  disabled={newName.trim().length < 2}
+                  className="press-sink-lg"
+                  style={primaryBtn()}
+                >
                   Create
                 </button>
               </div>
@@ -226,15 +232,16 @@ function Item({
   active: boolean;
   onSelect: () => void;
 }) {
+  const rest = active ? "var(--violet-100)" : "transparent";
   return (
     <DropdownMenu.Item
       onSelect={(e) => {
         e.preventDefault();
         onSelect();
       }}
-      style={itemStyle()}
+      style={{ ...itemStyle(), background: rest }}
       onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--bg-hover)")}
-      onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+      onMouseLeave={(ev) => (ev.currentTarget.style.background = rest)}
     >
       <span style={iconBox(true)}>
         <Building2 size={12} strokeWidth={1.8} />
@@ -255,16 +262,7 @@ function Item({
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <DropdownMenu.Label
-      style={{
-        fontSize: 10,
-        letterSpacing: "2px",
-        textTransform: "uppercase",
-        color: "var(--muted-2)",
-        fontWeight: 600,
-        padding: "8px 10px 4px",
-      }}
-    >
+    <DropdownMenu.Label className="caps-label" style={{ padding: "8px 10px 4px" }}>
       {children}
     </DropdownMenu.Label>
   );
@@ -273,7 +271,7 @@ function Label({ children }: { children: React.ReactNode }) {
 function Sep() {
   return (
     <DropdownMenu.Separator
-      style={{ height: 1, background: "var(--line)", margin: "4px 6px" }}
+      style={{ height: "var(--border-w)", background: "var(--border)", margin: "4px 6px" }}
     />
   );
 }
@@ -290,15 +288,14 @@ function triggerStyle(): React.CSSProperties {
     width: "100%",
     padding: "10px 12px",
     background: "var(--rail-2)",
-    border: "1px solid var(--rail-line)",
-    borderRadius: 10,
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius)",
     cursor: "pointer",
     fontFamily: "var(--font-sans)",
     fontSize: "var(--text-sm)",
     fontWeight: 500,
     color: "var(--rail-active-text)",
     textAlign: "left",
-    transition: "background 150ms, border-color 150ms",
   };
 }
 
@@ -307,8 +304,9 @@ function iconBox(small = false): React.CSSProperties {
   return {
     width: sz,
     height: sz,
-    borderRadius: small ? 5 : 6,
-    // Cyan-tinted square on the rail; switches back to `--ink` when
+    borderRadius: "var(--radius-sm)",
+    border: "var(--border-w) solid var(--border)",
+    // Violet signal square on the rail; switches back to `--ink` when
     // the same `<iconBox>` renders inside the dropdown popover (which
     // is on the bright `--card`).
     background: "var(--accent)",
@@ -323,10 +321,10 @@ function iconBox(small = false): React.CSSProperties {
 function menuStyle(): React.CSSProperties {
   return {
     width: 248,
-    background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 13,
-    boxShadow: "var(--shadow-hover)",
+    background: "var(--bg-surface)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius)",
+    boxShadow: "var(--shadow-lg)",
     padding: 6,
     fontFamily: "var(--font-sans)",
     color: "var(--ink)",
@@ -341,7 +339,7 @@ function itemStyle(): React.CSSProperties {
     alignItems: "center",
     gap: 10,
     padding: "8px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-sm)",
     cursor: "pointer",
     userSelect: "none",
     outline: "none",
@@ -355,7 +353,7 @@ function createItemStyle(): React.CSSProperties {
     alignItems: "center",
     gap: 9,
     padding: "9px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-sm)",
     cursor: "pointer",
     fontSize: "var(--text-sm)",
     color: "var(--ink-soft)",
@@ -369,9 +367,10 @@ function ghostBtn(): React.CSSProperties {
   return {
     padding: "5px 10px",
     fontSize: "var(--text-xs)",
-    background: "transparent",
-    border: "1px solid var(--line)",
-    borderRadius: 7,
+    background: "var(--bg-surface)",
+    color: "var(--ink-soft)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius-sm)",
     cursor: "pointer",
     fontWeight: 500,
   };
@@ -381,10 +380,10 @@ function primaryBtn(): React.CSSProperties {
   return {
     padding: "5px 12px",
     fontSize: "var(--text-xs)",
-    background: "var(--ink)",
-    color: "var(--paper)",
-    border: "none",
-    borderRadius: 7,
+    background: "var(--violet-500)",
+    color: "var(--on-violet)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius-sm)",
     cursor: "pointer",
     fontWeight: 500,
   };

@@ -72,7 +72,7 @@ export function EmptyState({
           style={{
             margin: 0,
             fontFamily: "var(--font-display)",
-            fontWeight: "var(--weight-semibold)",
+            fontWeight: "var(--weight-bold)",
             fontSize: "var(--text-lg)",
             lineHeight: "var(--leading-lg)",
             color: "var(--fg-default)",
@@ -135,7 +135,7 @@ export function EmptyState({
 }
 
 /**
- * EmptyStateButton — the single amber primary an empty block is allowed.
+ * EmptyStateButton — the single violet primary an empty block is allowed.
  * A compact 28px on-system button; ghost variant for the secondary.
  */
 export function EmptyStateButton({
@@ -154,29 +154,31 @@ export function EmptyStateButton({
     <button
       type="button"
       onClick={onClick}
+      className={primary ? "press-sink-lg" : "press-sink"}
       style={{
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
         height: 28,
         padding: "0 12px",
-        borderRadius: "var(--radius-sm)",
-        border: primary ? "none" : "1px solid var(--border-hair)",
-        background: primary ? "var(--accent)" : "transparent",
-        color: primary ? "var(--accent-fg)" : "var(--fg-muted)",
+        borderRadius: "var(--radius)",
+        border: "var(--border-w) solid var(--border)",
+        background: primary ? "var(--violet-500)" : "var(--bg-surface)",
+        color: primary ? "var(--on-violet)" : "var(--ink)",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-md)",
         fontWeight: "var(--weight-medium)",
         cursor: "pointer",
-        transition: "background var(--dur-fast) var(--ease-out)",
       }}
       onMouseOver={(e) => {
         e.currentTarget.style.background = primary
-          ? "var(--accent-hover)"
+          ? "var(--violet-600)"
           : "var(--bg-hover)";
       }}
       onMouseOut={(e) => {
-        e.currentTarget.style.background = primary ? "var(--accent)" : "transparent";
+        e.currentTarget.style.background = primary
+          ? "var(--violet-500)"
+          : "var(--bg-surface)";
       }}
     >
       {icon}

@@ -6,6 +6,7 @@ import {
   Gauge,
   Home,
   Lock,
+  NotebookPen,
   Plus,
   Settings,
   Sheet,
@@ -38,6 +39,7 @@ interface NavItem {
 // dead nav surfaces don't ship. Library is the real, working scope.
 const LIBRARY: NavItem[] = [
   { id: "home", label: "My Drive", icon: Home },
+  { id: "notes", label: "Notes", icon: NotebookPen },
 ];
 
 const WORKSPACE: NavItem[] = [

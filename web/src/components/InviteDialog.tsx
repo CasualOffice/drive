@@ -307,16 +307,17 @@ function RadioRow<T extends string>({
             role="radio"
             aria-checked={active}
             onClick={() => onChange(o.value)}
+            className="press-sink"
             style={{
               padding: "6px 12px",
-              borderRadius: 8,
-              border: `1px solid ${active ? "var(--accent-strong)" : "var(--line)"}`,
-              background: active ? "var(--accent-muted)" : "var(--paper)",
-              color: active ? "var(--accent-strong)" : "var(--ink)",
+              borderRadius: "var(--radius-sm)",
+              border: `var(--border-w) solid ${active ? "var(--violet-500)" : "var(--border)"}`,
+              background: active ? "var(--violet-100)" : "var(--bg-surface)",
+              color: active ? "var(--violet-600)" : "var(--ink)",
               fontFamily: "var(--font-sans)",
               fontSize: "var(--text-sm)",
+              fontWeight: 600,
               cursor: "pointer",
-              transition: "background 120ms, border-color 120ms, color 120ms",
             }}
           >
             {o.label}

@@ -47,9 +47,9 @@ export function Setup() {
           width: 460,
           maxWidth: "100%",
           background: "var(--card)",
-          border: "1px solid var(--line)",
+          border: "var(--border-w) solid var(--border)",
           borderRadius: "var(--radius-xl)",
-          boxShadow: "var(--shadow)",
+          boxShadow: "var(--shadow-lg)",
           padding: "34px 30px 28px",
           animation: "cd-fade-in 280ms var(--ease)",
         }}
@@ -79,7 +79,7 @@ function Header() {
           margin: "4px 0 0",
           fontFamily: "var(--font-display)",
           fontSize: "var(--text-2xl)",
-          fontWeight: 500,
+          fontWeight: 700,
           letterSpacing: "var(--tracking-tight)",
           color: "var(--ink)",
         }}
@@ -107,7 +107,7 @@ function StepIndicator({ step }: { step: Step }) {
             style={{
               width: active ? 22 : 8,
               height: 8,
-              borderRadius: 4,
+              borderRadius: "var(--radius-sm)",
               background: active ? "var(--ink)" : done ? "var(--accent)" : "var(--line-strong)",
               transition: "width 260ms var(--ease), background 260ms",
             }}
@@ -207,9 +207,9 @@ function CreateStep({ onCreated }: { onCreated: (username: string) => void }) {
           aria-live="polite"
           style={{
             padding: "10px 12px",
-            background: "rgba(220, 38, 38,.06)",
-            border: "1px solid rgba(220, 38, 38,.25)",
-            borderRadius: 10,
+            background: "var(--bg-sunken)",
+            border: "var(--border-w) solid var(--danger)",
+            borderRadius: "var(--radius)",
             fontSize: "var(--text-sm)",
             color: "var(--danger)",
           }}
@@ -240,9 +240,9 @@ function ReadyStep({ username }: { username: string }) {
         style={{
           width: 56,
           height: 56,
-          borderRadius: 16,
-          background: "var(--accent-muted)",
-          border: "1px solid rgba(200, 164, 92, 0.32)",
+          borderRadius: "var(--radius)",
+          background: "var(--violet-100)",
+          border: "var(--border-w) solid var(--violet-500)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -256,7 +256,7 @@ function ReadyStep({ username }: { username: string }) {
           margin: 0,
           fontFamily: "var(--font-display)",
           fontSize: "var(--text-xl)",
-          fontWeight: 500,
+          fontWeight: 700,
           color: "var(--ink)",
           letterSpacing: "var(--tracking-tight)",
         }}
@@ -289,23 +289,19 @@ function PrimaryButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      className={disabled ? undefined : "press-sink-lg"}
       style={{
         width: "100%",
         padding: "12px",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
-        fontWeight: 500,
-        color: "var(--paper)",
-        background: disabled ? "rgba(15, 23, 42,.35)" : "var(--ink)",
-        border: "none",
-        borderRadius: 12,
+        fontWeight: 700,
+        color: "var(--on-violet)",
+        background: disabled ? "var(--fg-disabled)" : "var(--violet-500)",
+        border: "var(--border-w) solid var(--border)",
+        borderRadius: "var(--radius)",
         cursor: disabled ? "default" : "pointer",
-        transition: "background 200ms var(--ease), transform 200ms",
       }}
-      onMouseOver={(e) => {
-        if (!disabled) e.currentTarget.style.transform = "translateY(-1px)";
-      }}
-      onMouseOut={(e) => (e.currentTarget.style.transform = "")}
     >
       {children}
     </button>
@@ -363,18 +359,18 @@ function Field({
           fontFamily: "var(--font-sans)",
           fontSize: "var(--text-md)",
           color: "var(--ink)",
-          background: "var(--paper)",
-          border: `1px solid ${error ? "var(--danger)" : "var(--line)"}`,
-          borderRadius: 11,
+          background: "var(--bg-surface)",
+          border: `var(--border-w) solid ${error ? "var(--danger)" : "var(--border)"}`,
+          borderRadius: "var(--radius-sm)",
           outline: "none",
           transition: "border-color 150ms, box-shadow 150ms",
         }}
         onFocus={(e) => {
-          e.currentTarget.style.borderColor = error ? "var(--danger)" : "var(--ink)";
-          e.currentTarget.style.boxShadow = "0 0 0 3px rgba(15, 23, 42,.08)";
+          e.currentTarget.style.borderColor = error ? "var(--danger)" : "var(--violet-500)";
+          e.currentTarget.style.boxShadow = "2px 2px 0 0 var(--violet-500)";
         }}
         onBlur={(e) => {
-          e.currentTarget.style.borderColor = error ? "var(--danger)" : "var(--line)";
+          e.currentTarget.style.borderColor = error ? "var(--danger)" : "var(--border)";
           e.currentTarget.style.boxShadow = "none";
         }}
       />

@@ -116,22 +116,18 @@ export function RecentSearchesPopover({
         right: 0,
         zIndex: 60,
         background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: 12,
-        boxShadow: "var(--shadow-lg, 0 14px 40px rgba(20,20,30,.18))",
+        border: "var(--border-w) solid var(--border)",
+        borderRadius: "var(--radius)",
+        boxShadow: "var(--shadow-lg)",
         overflow: "hidden",
         animation: "cd-popover-in 140ms var(--ease)",
       }}
     >
       <div
+        className="caps-label"
         style={{
           padding: "8px 14px",
-          fontSize: "var(--text-xs)",
-          letterSpacing: "0.04em",
-          textTransform: "uppercase",
-          color: "var(--muted-2)",
-          fontWeight: 600,
-          borderBottom: "1px solid var(--line)",
+          borderBottom: "var(--border-w) solid var(--border)",
           display: "flex",
           alignItems: "center",
           gap: 8,
@@ -161,9 +157,9 @@ export function RecentSearchesPopover({
                 alignItems: "center",
                 gap: 10,
                 padding: "8px 10px",
-                borderRadius: 8,
+                borderRadius: "var(--radius-sm)",
                 cursor: "pointer",
-                background: isActive ? "var(--bg-hover)" : "transparent",
+                background: isActive ? "var(--violet-100)" : "transparent",
                 fontSize: "var(--text-base)",
                 color: "var(--ink)",
                 userSelect: "none",
@@ -194,9 +190,9 @@ export function RecentSearchesPopover({
                     gap: 4,
                     fontSize: "var(--text-xs)",
                     color: "var(--muted)",
-                    background: "var(--bg-subtle, transparent)",
-                    border: "1px solid var(--line)",
-                    borderRadius: 6,
+                    background: "var(--bg-sunken)",
+                    border: "var(--border-w) solid var(--border)",
+                    borderRadius: "var(--radius-sm)",
                     padding: "1px 6px",
                   }}
                 >
@@ -216,6 +212,7 @@ export function RecentSearchesPopover({
       </ul>
       <button
         type="button"
+        className="press-sink"
         onMouseDown={(e) => {
           e.preventDefault();
           onClear();
@@ -224,7 +221,7 @@ export function RecentSearchesPopover({
           width: "100%",
           padding: "9px 14px",
           border: "none",
-          borderTop: "1px solid var(--line)",
+          borderTop: "var(--border-w) solid var(--border)",
           background: "transparent",
           color: "var(--muted)",
           fontSize: "var(--text-sm)",

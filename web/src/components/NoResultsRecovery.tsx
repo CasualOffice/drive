@@ -55,9 +55,9 @@ export function NoResultsRecovery({ query, filters, onRelax }: Props) {
         margin: "40px auto 0",
         maxWidth: 460,
         padding: "22px 22px 16px",
-        border: "1px solid var(--line)",
-        borderRadius: 14,
-        background: "var(--card)",
+        border: "var(--border-w) solid var(--border)",
+        borderRadius: "var(--radius-xl)",
+        background: "var(--bg-surface)",
         boxShadow: "var(--shadow)",
         fontFamily: "var(--font-sans)",
       }}
@@ -67,7 +67,7 @@ export function NoResultsRecovery({ query, filters, onRelax }: Props) {
           margin: 0,
           fontFamily: "var(--font-display)",
           fontSize: "var(--text-lg)",
-          fontWeight: 500,
+          fontWeight: "var(--weight-bold)",
           color: "var(--ink)",
           letterSpacing: "-0.01em",
         }}
@@ -90,36 +90,36 @@ export function NoResultsRecovery({ query, filters, onRelax }: Props) {
             <button
               type="button"
               onClick={() => onRelax(o.apply(filters))}
+              className="press-sink"
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
                 width: "100%",
                 padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid var(--line)",
-                background: "var(--paper)",
+                borderRadius: "var(--radius)",
+                border: "var(--border-w) solid var(--border)",
+                background: "var(--bg-surface)",
                 color: "var(--ink)",
                 fontFamily: "var(--font-sans)",
                 fontSize: "var(--text-sm)",
                 cursor: "pointer",
                 textAlign: "left",
-                transition: "background 120ms, border-color 120ms",
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.borderColor = "var(--line-strong)";
+                e.currentTarget.style.borderColor = "var(--border)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--paper)";
-                e.currentTarget.style.borderColor = "var(--line)";
+                e.currentTarget.style.background = "var(--bg-surface)";
+                e.currentTarget.style.borderColor = "var(--border)";
               }}
             >
               <ArrowUpRight
                 size={14}
                 strokeWidth={1.8}
                 aria-hidden="true"
-                style={{ color: "var(--accent-strong)", flexShrink: 0 }}
+                style={{ color: "var(--violet-600)", flexShrink: 0 }}
               />
               <span style={{ flex: 1 }}>{o.label}</span>
             </button>

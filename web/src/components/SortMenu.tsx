@@ -37,7 +37,7 @@ export function SortMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button type="button" style={triggerStyle()} aria-label={triggerAriaLabel}>
+        <button type="button" className="press-sink" style={triggerStyle()} aria-label={triggerAriaLabel}>
           <ArrowUpDown
             size={13}
             strokeWidth={1.8}
@@ -115,9 +115,15 @@ function RadioItem({
     <DropdownMenu.RadioItem
       value={value}
       onSelect={(e) => e.preventDefault()}
-      style={itemStyle()}
+      style={{
+        ...itemStyle(),
+        background: active ? "var(--violet-100)" : "transparent",
+        color: "var(--ink)",
+      }}
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      onMouseLeave={(e) =>
+        (e.currentTarget.style.background = active ? "var(--violet-100)" : "transparent")
+      }
     >
       {children}
       {active && <Tick />}
@@ -131,7 +137,7 @@ function Tick() {
       size={13}
       strokeWidth={2.2}
       aria-hidden="true"
-      style={{ marginLeft: "auto", color: "var(--accent)" }}
+      style={{ marginLeft: "auto", color: "var(--violet-500)" }}
     />
   );
 }
@@ -139,12 +145,8 @@ function Tick() {
 function Label({ children }: { children: React.ReactNode }) {
   return (
     <DropdownMenu.Label
+      className="caps-label"
       style={{
-        fontSize: 10,
-        letterSpacing: "2px",
-        textTransform: "uppercase",
-        color: "var(--muted-2)",
-        fontWeight: 600,
         padding: "8px 10px 4px",
       }}
     >
@@ -155,7 +157,7 @@ function Label({ children }: { children: React.ReactNode }) {
 
 function Sep() {
   return (
-    <DropdownMenu.Separator style={{ height: 1, background: "var(--line)", margin: "4px 6px" }} />
+    <DropdownMenu.Separator style={{ height: "var(--border-w)", background: "var(--border)", margin: "4px 6px" }} />
   );
 }
 
@@ -165,15 +167,14 @@ function triggerStyle(): React.CSSProperties {
     alignItems: "center",
     gap: 6,
     padding: "7px 10px",
-    borderRadius: 9,
-    border: "1px solid var(--line)",
+    borderRadius: "var(--radius-sm)",
+    border: "var(--border-w) solid var(--border)",
     background: "var(--card)",
     color: "var(--ink)",
     cursor: "pointer",
     fontFamily: "var(--font-sans)",
     fontSize: "var(--text-sm)",
     fontWeight: 500,
-    transition: "background 150ms, border-color 150ms",
   };
 }
 
@@ -181,9 +182,9 @@ function menuStyle(): React.CSSProperties {
   return {
     minWidth: 200,
     background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 12,
-    boxShadow: "var(--shadow-hover)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius)",
+    boxShadow: "var(--shadow-lg)",
     padding: 6,
     fontFamily: "var(--font-sans)",
     fontSize: "var(--text-sm)",
@@ -199,7 +200,7 @@ function itemStyle(): React.CSSProperties {
     alignItems: "center",
     gap: 10,
     padding: "8px 10px",
-    borderRadius: 8,
+    borderRadius: "var(--radius-sm)",
     cursor: "pointer",
     userSelect: "none",
     outline: "none",
