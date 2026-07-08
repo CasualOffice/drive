@@ -35,12 +35,13 @@
  * populated it were all retired — nothing serves an embed runtime anymore.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CasualEditor, type CollabState, type FeatureMap } from "@casualoffice/docs";
 import "@casualoffice/docs/styles.css";
 
 import { type CollabRoom, type FileDto } from "../../api/client.ts";
+import { resolveAppearance, subscribeAppearance } from "../../lib/appearance.ts";
 import { DriveFileSource } from "../../file-source/DriveFileSource.ts";
 import {
   DISABLED_SESSION,
@@ -138,6 +139,18 @@ export function CasualDocEditor({
     };
   }, [isEditor, collab, file.id, user]);
 
+  // Mirror Drive's resolved light/dark onto the editor. The docs SDK triggers
+  // dark purely on `[data-theme="dark"]` matching an ancestor — it does NOT
+  // honour `prefers-color-scheme`. Drive's ThemeToggle only writes `data-theme`
+  // on <html> for explicit light/dark; in "system" mode it removes the
+  // attribute and lets the OS drive tokens.css's @media block. So we resolve
+  // Drive's effective appearance (attribute OR OS preference) and stamp it on
+  // THIS wrapper: `[data-theme="dark"] .ep-root` then matches, dark applies to
+  // the editor even in system+OS-dark, and the SDK's dark tokens stay scoped to
+  // this subtree rather than needing the global <html> attribute.
+  const [appearance, setAppearance] = useState(resolveAppearance);
+  useEffect(() => subscribeAppearance(setAppearance), []);
+
   // Latch the presence sink so the mapped callback identity is stable.
   const onPresenceRef = useRef(onPresence);
   onPresenceRef.current = onPresence;
@@ -167,6 +180,10 @@ export function CasualDocEditor({
   return (
     <div
       data-testid="casual-doc-editor"
+      // Scope the SDK's dark tokens to the editor subtree (see the appearance
+      // effect above). Matches `[data-theme="dark"] .ep-root` without touching
+      // the global <html> attribute Drive's chrome reads.
+      data-theme={appearance}
       style={{
         width: "100%",
         height: "100%",

@@ -10,7 +10,16 @@
 
 @import "tailwindcss";
 
-:root {
+/* `html:root` (specificity 0,1,1), not a bare `:root` (0,1,0): the docs SDK
+   (`@casualoffice/docs/styles.css`) ships its OWN full design-token set on a
+   plain `:root {}` using the SAME canonical names Drive uses (--accent,
+   --space-*, --text-*, --radius-*, --card, --muted, --font-*, --ease-*, …) but
+   with its cyan/aura VALUES. That sheet is lazy-injected when an editor mounts,
+   so at equal `:root` specificity it would win by source order and repaint
+   Drive's chrome with the SDK's palette. `html:root` keeps Drive's tokens
+   authoritative on <html> regardless of injection order, while staying below
+   Drive's own `:root[data-theme="dark"]` overrides (0,2,0). See §1b, P5. */
+html:root {
   /* ── Type families — Newsreader (serif DISPLAY) + Inter (UI/body) +
      JetBrains Mono (hashes/audit). The serif is the editorial "record /
      ledger" voice: hero titles, empty-state headlines, big trust
@@ -756,7 +765,10 @@ body {
    swapped values, exactly as the spec's §1.4 prescribes.
    ═════════════════════════════════════════════════════════════════════ */
 
-:root {
+/* `html:root` (not bare `:root`) for the same anti-bleed reason as the token
+   block above — this block owns `--ease-spring` / `--ease-out` (which the docs
+   SDK also sets on its `:root`), plus the glass/ambient tokens. See §1b, P5. */
+html:root {
   /* ── Ambient ground — light "Reading Room" (default theme). Real
      chroma; the visible Aura mesh itself is painted in .ambient-ground. */
   --ground: #F3F0E9;                            /* warm paper ground */

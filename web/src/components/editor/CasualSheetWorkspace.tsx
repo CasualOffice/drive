@@ -55,12 +55,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // Univer on first paint. The subpath keeps the whole graph behind React.lazy.
 import { CasualSheets, setMentionProvider, type CasualSheetsAPI } from "@casualoffice/sheets/sheets";
 import "@casualoffice/sheets/styles";
+// The cell-comment @-mention popup is powered by @univerjs/docs-mention-ui,
+// whose styles ship as a SEPARATE stylesheet the sheets SDK's `/styles` barrel
+// does NOT bundle (it imports design/ui/docs-ui/sheets-ui/formula/numfmt only).
+// Without this the mention dropdown renders unstyled (raw list, no card /
+// hover / rounded surface). Side-effect import right next to the mount.
+import "@univerjs/docs-mention-ui/lib/index.css";
 // Type-only import (erased at build) — the concrete collab runtime lives on the
 // SDK's own chunk, pulled in by the `collab` prop, not by this host wrapper.
 import type { AttachCollabOptions, CollabConnectionStatus } from "@casualoffice/sheets/collab";
 import { LocaleType, type IWorkbookData } from "@univerjs/core";
 
 import { type CollabRoom, type FileDto } from "../../api/client.ts";
+import { resolveAppearance, subscribeAppearance } from "../../lib/appearance.ts";
 import { DriveFileSource } from "../../file-source/DriveFileSource.ts";
 import {
   DISABLED_SESSION,
@@ -76,18 +83,6 @@ function mapSheetStatus(status: CollabConnectionStatus): CollabStatus {
   return status === "live" ? "connected" : status === "connecting" ? "connecting" : "disconnected";
 }
 
-/** Error surfaced to the host so Drive can swap in a friendly fallback card
- *  instead of a raw editor error. Kept as `{ code, message }` — the shape the
- *  retired `<SheetEmbed>` used — so host call sites keep compiling. */
-export interface SheetWorkspaceError {
-  code: "load_failed" | "parse_failed" | "boot_failed" | "internal";
-  message: string;
-}
-
-/** Re-export under the old name so host call sites that referenced the
- *  workspace's error type keep compiling. */
-export type IframeErrorData = SheetWorkspaceError;
-
 export interface CasualSheetWorkspaceProps {
   file: FileDto;
   /** `preview` = read-only viewer, no chrome, just the grid (modal mount).
@@ -97,8 +92,10 @@ export interface CasualSheetWorkspaceProps {
    *  pill in `<FileFullscreen>`. */
   onSaveStatus?: OnSaveStatus;
   /** Fires when the workbook fails to load / parse / boot so Drive's
-   *  PreviewStage can swap in a friendly fallback card. */
-  onError?: (data: IframeErrorData) => void;
+   *  PreviewStage can swap in a friendly fallback card. SDK-native `(error:
+   *  Error)` shape — same as `<CasualDocEditor onError>` — so both mounts remap
+   *  identically to Drive's on-brand `<ErrorState>` fallback. */
+  onError?: (error: Error) => void;
   /** Drive's signed-in user — threaded for symmetry with the doc editor.
    *  `<CasualSheets>` has no author prop, so this is surfaced through the
    *  comment @-mention provider (self as a candidate) rather than a byline. */
@@ -141,13 +138,6 @@ function emptyWorkbook(name: string): IWorkbookData {
   };
 }
 
-/** Drive's current appearance, read from the `data-theme` attribute ThemeToggle
- *  writes on `<html>`. `<CasualSheets appearance>` is reactive, so this seeds
- *  the mount and the observer below re-themes on live toggles. */
-function currentAppearance(): "light" | "dark" {
-  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-}
-
 type Phase =
   | { kind: "fetching" }
   | { kind: "ready"; bytes: ArrayBuffer | null }
@@ -177,9 +167,8 @@ export function CasualSheetWorkspace({
   const onPresenceRef = useRef(onPresence);
   onPresenceRef.current = onPresence;
 
-  const emitError = useCallback((err: unknown, code: SheetWorkspaceError["code"]) => {
-    const message = err instanceof Error ? err.message : String(err);
-    onErrorRef.current?.({ code, message });
+  const emitError = useCallback((err: unknown) => {
+    onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
   }, []);
 
   // One DriveFileSource per open document; save() wrapped so each attempt
@@ -197,7 +186,7 @@ export function CasualSheetWorkspace({
   // Overlay the mounted grid with a skeleton until the initial import settles,
   // so users never see the empty seed workbook flash before their data lands.
   const [importing, setImporting] = useState(true);
-  const [appearance, setAppearance] = useState<"light" | "dark">(() => currentAppearance());
+  const [appearance, setAppearance] = useState(resolveAppearance);
 
   const apiRef = useRef<CasualSheetsAPI | null>(null);
   // Gate autosave: mutations fired BY the initial import must not trigger a
@@ -227,7 +216,7 @@ export function CasualSheetWorkspace({
         // In the read-only preview there's nothing to show — surface the
         // friendly fallback rather than a blank grid.
         if (!seed && !isEditor) {
-          emitError(new Error("empty workbook"), "load_failed");
+          emitError(new Error("This spreadsheet is empty."));
           setPhase({ kind: "error" });
           return;
         }
@@ -240,7 +229,7 @@ export function CasualSheetWorkspace({
         }
       } catch (err) {
         if (cancelled) return;
-        emitError(err, "load_failed");
+        emitError(err);
         setPhase({ kind: "error" });
       }
     })();
@@ -265,13 +254,10 @@ export function CasualSheetWorkspace({
     return () => setMentionProvider(null);
   }, [userName]);
 
-  // Mirror Drive's light/dark into the editor: ThemeToggle flips `data-theme`
-  // on <html>; forward each change so the sheet re-themes live.
-  useEffect(() => {
-    const obs = new MutationObserver(() => setAppearance(currentAppearance()));
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => obs.disconnect();
-  }, []);
+  // Mirror Drive's resolved light/dark into the editor's `appearance` prop.
+  // Follows both the ThemeToggle flipping `data-theme` AND (in system mode) the
+  // OS preference changing, so the grid re-themes live in either case.
+  useEffect(() => subscribeAppearance(setAppearance), []);
 
   const onReady = useCallback(
     async (api: CasualSheetsAPI) => {
@@ -286,7 +272,7 @@ export function CasualSheetWorkspace({
           await api.importXlsx(bytesRef.current);
         }
       } catch (err) {
-        emitError(err, "parse_failed");
+        emitError(err);
         setPhase({ kind: "error" });
         return;
       } finally {
@@ -339,7 +325,7 @@ export function CasualSheetWorkspace({
     } catch (err) {
       // save-status already reported 'failed'; surface a boot/runtime error too
       // so a host that watches onError can react. Non-fatal — editing continues.
-      emitError(err, "internal");
+      emitError(err);
     }
   }, [isEditor, source, file.id, emitError]);
 
@@ -399,7 +385,7 @@ export function CasualSheetWorkspace({
           dirty.current = d;
         }}
         onError={(err) => {
-          emitError(err, "boot_failed");
+          emitError(err);
           setPhase({ kind: "error" });
         }}
         style={{ width: "100%", height: "100%" }}
