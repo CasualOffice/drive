@@ -19,6 +19,9 @@ ARG VITE_DRIVE_COLLAB_BACKEND_URL=""
 ENV VITE_DRIVE_COLLAB_BACKEND_URL=${VITE_DRIVE_COLLAB_BACKEND_URL}
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY web/package.json web/pnpm-lock.yaml ./
+# The vendored @univerjs/docs-mention-ui is a `file:./vendor/...` dependency, so
+# it must be present BEFORE install resolves the lockfile (else ENOENT).
+COPY web/vendor/ ./vendor/
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
