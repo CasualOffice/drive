@@ -13,6 +13,7 @@
     "screenshots": "node tests/e2e/marketing-screenshots.mjs"
   },
   "dependencies": {
+    "@casualoffice/docs": "1.2.0",
     "@casualoffice/sheets": "0.16.0",
     "@fontsource-variable/ibm-plex-sans": "^5.2.8",
     "@fontsource-variable/inter": "^5.2.8",
@@ -20,8 +21,8 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@formkit/auto-animate": "^0.9.0",
+    "@hocuspocus/provider": "^2.15.3",
     "@radix-ui/react-dialog": "^1.1.16",
-    "@casualoffice/docs": "1.2.0",
     "@tiptap/core": "^3.26.0",
     "@tiptap/extension-bubble-menu": "^3.26.0",
     "@tiptap/pm": "^3.26.0",

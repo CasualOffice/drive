@@ -274,6 +274,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
         <FullscreenBody
           state={state}
           collab={collab}
+          user={{ name: identity.name, color: identity.tint }}
           onSaveStatus={setSaveStatus}
           onSaved={(file) => setState({ kind: "ready", file })}
         />
@@ -553,11 +554,14 @@ function FilenameField({
 function FullscreenBody({
   state,
   collab,
+  user,
   onSaveStatus,
   onSaved,
 }: {
   state: LoadState;
   collab: CollabSession;
+  /** Drive's signed-in user, threaded to the doc editor for authorship. */
+  user: { name: string; color: string };
   onSaveStatus: (s: SaveStatus) => void;
   onSaved: (file: FileDto) => void;
 }) {
@@ -647,7 +651,7 @@ function FullscreenBody({
   if (kind === "doc") {
     return (
       <Suspense fallback={<LoadingFallback />}>
-        <CasualDocEditor file={file} mode="editor" onSaveStatus={onSaveStatus} />
+        <CasualDocEditor file={file} mode="editor" onSaveStatus={onSaveStatus} user={user} />
       </Suspense>
     );
   }
