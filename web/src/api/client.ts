@@ -997,6 +997,39 @@ export async function notesSearch(
   return request<NoteNode[]>(`/api/notes/search?${params.toString()}`, { signal });
 }
 
+// ─── Content search (Phase 3 §2) ──────────────────────────────────────
+// Full-text search over decrypted document *content* (Tantivy), distinct
+// from `/api/search` which matches names + metadata. Each hit carries a
+// `snippet` — a text window around the match — with the matched terms
+// wrapped in `<mark>…</mark>` when the backend highlights them. The SPA
+// renders those spans in the violet signal color (see SearchSnippet).
+
+export interface ContentHit {
+  file_id: string;
+  title: string;
+  /** Coarse content-type bucket, e.g. "document" | "spreadsheet" | "pdf". */
+  kind: string;
+  /** Text window around the match; may contain `<mark>…</mark>` spans. */
+  snippet: string;
+  /** Relevance score (higher = better); used only for ordering. */
+  score: number;
+  modified_at: string;
+}
+
+/** `GET /api/search/content?q=&limit=` — full-text over document bodies.
+ *  Cancelable via `signal`; debounce at the call site. Returns hits
+ *  already ranked by the backend (highest score first). */
+export async function searchContent(
+  query: string,
+  opts: { limit?: number; signal?: AbortSignal } = {},
+): Promise<ContentHit[]> {
+  const params = new URLSearchParams({ q: query });
+  params.set("limit", String(opts.limit ?? 20));
+  return request<ContentHit[]>(`/api/search/content?${params.toString()}`, {
+    signal: opts.signal,
+  });
+}
+
 // ─── Global search ────────────────────────────────────────────────────
 
 /** Lightweight shape used by the Cmd-K palette + back-compat callers. */

@@ -31,14 +31,17 @@ import {
 } from "lucide-react";
 
 import {
+  type ContentHit,
   type FileDto,
   type FolderDto,
   type NoteNode,
   notesSearch,
   searchAll,
+  searchContent,
 } from "../api/client.ts";
 import { useActiveWorkspaceId } from "../state/WorkspaceContext.tsx";
 import { EmptyState } from "./EmptyState.tsx";
+import { SearchSnippet } from "./SearchSnippet.tsx";
 import { Kbd } from "./ds/Kbd.tsx";
 import type { NavId } from "./Sidebar.tsx";
 
@@ -113,6 +116,10 @@ export function CommandPalette({
   const [files, setFiles] = useState<FileDto[]>([]);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [notes, setNotes] = useState<NoteNode[]>([]);
+  // Phase 3 §2 — full-text hits inside document content (distinct from the
+  // name/metadata matches in `files`). Shown as a separate "In documents"
+  // group with a snippet + highlight beneath the name matches.
+  const [content, setContent] = useState<ContentHit[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Global keyboard trigger. `Cmd-K` / `Ctrl-K` from anywhere outside an
@@ -137,6 +144,7 @@ export function CommandPalette({
       setFiles([]);
       setFolders([]);
       setNotes([]);
+      setContent([]);
     }
   }, [open]);
 
@@ -148,6 +156,7 @@ export function CommandPalette({
       setFiles([]);
       setFolders([]);
       setNotes([]);
+      setContent([]);
       setLoading(false);
       return;
     }
@@ -155,17 +164,32 @@ export function CommandPalette({
     const controller = new AbortController();
     const handle = window.setTimeout(async () => {
       try {
-        const [fileRes, noteRes] = await Promise.allSettled([
+        const [fileRes, noteRes, contentRes] = await Promise.allSettled([
           searchAll(q, controller.signal, workspaceId),
           notesSearch(q, workspaceId, controller.signal),
+          searchContent(q, { limit: 8, signal: controller.signal }),
         ]);
         if (controller.signal.aborted) return;
+        // Name/metadata matches — the primary group. Track their ids so
+        // content hits for the same document are de-duped out below.
+        const nameIds = new Set<string>();
         if (fileRes.status === "fulfilled") {
-          setFiles(fileRes.value.files.slice(0, 8));
+          const nameFiles = fileRes.value.files.slice(0, 8);
+          for (const f of nameFiles) nameIds.add(f.id);
+          setFiles(nameFiles);
           setFolders(fileRes.value.folders.slice(0, 6));
+        } else {
+          setFiles([]);
+          setFolders([]);
         }
         if (noteRes.status === "fulfilled") {
           setNotes(noteRes.value.slice(0, 8));
+        }
+        // Content matches minus anything already shown as a name match.
+        if (contentRes.status === "fulfilled") {
+          setContent(contentRes.value.filter((h) => !nameIds.has(h.file_id)).slice(0, 8));
+        } else {
+          setContent([]);
         }
       } finally {
         if (!controller.signal.aborted) setLoading(false);
@@ -233,6 +257,7 @@ export function CommandPalette({
     !loading &&
     folders.length === 0 &&
     files.length === 0 &&
+    content.length === 0 &&
     notes.length === 0 &&
     navResults.length === 0 &&
     createResults.length === 0;
@@ -450,6 +475,46 @@ export function CommandPalette({
                     </span>
                     <span className="mono" style={hintStyle()}>
                       {formatBytes(f.size)}
+                    </span>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
+
+            {/* In documents — Phase 3 content matches (text found INSIDE a
+                document), each with a highlighted snippet. Selecting opens
+                the file, same as a name match. */}
+            {content.length > 0 && (
+              <Command.Group heading="In documents" style={groupStyle()}>
+                {content.map((h) => (
+                  <Command.Item
+                    key={`content:${h.file_id}`}
+                    value={`content:${h.file_id}`}
+                    onSelect={() => {
+                      // Content hits carry only id/title/kind; synthesize a
+                      // minimal FileDto — Shell routes on `id`, and the
+                      // Files handler hydrates full metadata on open.
+                      onOpenFile({ id: h.file_id, name: h.title } as FileDto);
+                      close();
+                    }}
+                    style={{ ...itemStyle(), alignItems: "flex-start" }}
+                    data-testid="cmdk-content-hit"
+                  >
+                    <span style={iconBoxStyle()}>
+                      <FileText size={14} strokeWidth={1.5} />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span
+                        style={{
+                          display: "block",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {h.title}
+                      </span>
+                      <SearchSnippet snippet={h.snippet} query={query} />
                     </span>
                   </Command.Item>
                 ))}

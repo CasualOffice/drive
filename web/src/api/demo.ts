@@ -11,6 +11,7 @@
 
 import type {
   About,
+  ContentHit,
   FileDto,
   FileVersion,
   FolderDto,
@@ -422,6 +423,69 @@ function seedFiles(): FileDto[] {
   ];
 }
 
+// ─── Content search corpus (Phase 3 §2) ────────────────────────────────
+// Plaintext bodies for the seeded documents so demo content search finds
+// text INSIDE a document, not just its name. Kept angle-bracket free so the
+// synthesized <mark>…</mark> snippets parse cleanly on the client. Words
+// like "retention" and "checklist" are seeded on purpose — a query for
+// either returns an inside-document hit, exercising the real surface.
+function demoDocText(): Record<string, string> {
+  return {
+    f_readme:
+      "Welcome to Doc-Hub. This is a demo build running entirely in your " +
+      "browser with no server. Right-click any file for the context menu, " +
+      "open a document to see the editor handoff, and switch to the Activity " +
+      "tab to see every action recorded. The real build ships multi-backend " +
+      "encrypted storage, Argon2id passwords, and immutable hash-chained " +
+      "version history so nothing is ever overwritten.",
+    f_brief:
+      "Product brief. Doc-Hub is an encrypted, tamper-evident document " +
+      "registry for teams. Goals for this quarter: ship content search over " +
+      "document bodies, a compliance dashboard, and a signing flow. The data " +
+      "retention policy keeps every committed version for seven years under a " +
+      "legal-hold aware tombstone model. Launch checklist: finalize the " +
+      "search UI, wire the audit export, and pass the security review before " +
+      "we announce on casualoffice.org.",
+    f_arch:
+      "Architecture overview. A single Rust binary serves the SPA, the JSON " +
+      "API, and the encrypted byte streams. Storage goes through the OpenDAL " +
+      "facade with a mandatory at-rest encryption layer. Content is extracted " +
+      "by core and indexed into Tantivy for full-text search. The retention " +
+      "and legal-hold engine guarantees history is append-only; a broken hash " +
+      "chain raises a tamper alarm. Deployment checklist: provision the KEK, " +
+      "confirm the two-origin split, and enable the index worker.",
+    f_quarter:
+      "Q2 planning. Revenue targets, hiring plan, and the compliance " +
+      "roadmap. Row 12 tracks the document retention schedule per workspace. " +
+      "The onboarding checklist covers workspace creation, member invites, " +
+      "and storage configuration for bring-your-own buckets.",
+  };
+}
+
+/** Coarse content-type bucket for a demo file — mirrors the server's
+ *  `kind` field on a content hit (document | spreadsheet | pdf | …). */
+function demoKind(file: FileDto): string {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "xlsx" || ext === "xlsm" || ext === "csv") return "spreadsheet";
+  if (ext === "pdf") return "pdf";
+  if (ext === "md" || ext === "markdown") return "markdown";
+  if (ext === "docx" || ext === "txt") return "document";
+  return "document";
+}
+
+/** Build a single-line snippet windowed around the match, wrapping the
+ *  matched span in <mark>…</mark> for the client to highlight. */
+function demoSnippet(text: string, idx: number, len: number, radius = 72): string {
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(text.length, idx + len + radius);
+  const lead = start > 0 ? "…" : "";
+  const trail = end < text.length ? "…" : "";
+  const before = text.slice(start, idx);
+  const match = text.slice(idx, idx + len);
+  const after = text.slice(idx + len, end);
+  return `${lead}${before}<mark>${match}</mark>${after}${trail}`;
+}
+
 /** Synthesize a deterministic, hash-chained version timeline for a demo
  *  file from its current version count. Not cryptographic — the demo holds
  *  no real bytes — but shaped exactly like the real `GET .../versions`
@@ -587,6 +651,46 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
       next_cursor: null,
       sort_applied: url.searchParams.get("sort") ?? "modified",
     } as unknown as T;
+  }
+  // Content search (Phase 3 §2) — grep the seeded document text bodies
+  // for the query and return matching hits with a synthesized snippet
+  // (a window around the match, matched span wrapped in <mark>). This is
+  // what lets the deployed demo actually show inside-document matches.
+  if (p === "/api/search/content" && method === "GET") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const q = (url.searchParams.get("q") ?? "").trim();
+    const limit = Math.max(
+      1,
+      Math.min(50, Number.parseInt(url.searchParams.get("limit") ?? "20", 10) || 20),
+    );
+    if (!q) return [] as unknown as T;
+    const ql = q.toLowerCase();
+    const corpus = demoDocText();
+    const hits: ContentHit[] = [];
+    for (const file of state.files) {
+      const raw = corpus[file.id];
+      if (!raw) continue;
+      const text = raw.replace(/\s+/g, " ").trim();
+      const idx = text.toLowerCase().indexOf(ql);
+      if (idx === -1) continue;
+      // Score by match frequency — enough to order the demo hits sensibly.
+      let count = 0;
+      let from = idx;
+      while (from !== -1) {
+        count += 1;
+        from = text.toLowerCase().indexOf(ql, from + ql.length);
+      }
+      hits.push({
+        file_id: file.id,
+        title: file.name,
+        kind: demoKind(file),
+        snippet: demoSnippet(text, idx, q.length),
+        score: count,
+        modified_at: file.modified_at,
+      });
+    }
+    hits.sort((a, b) => b.score - a.score);
+    return hits.slice(0, limit) as unknown as T;
   }
   // Workspaces — demo has Personal + one seeded Team workspace ("Demo")
   // with the demo user as Owner of both. Create/rename/transfer are

@@ -28,6 +28,8 @@ import {
   downloadUrl,
   hasActiveFilters,
   searchAdvanced,
+  searchContent,
+  type ContentHit,
   type FileDto,
   type FolderDto,
   type NoteSearchHit,
@@ -47,6 +49,7 @@ import { EntryContextMenu, EntryKebab, type Entry as MenuEntry, type EntryMenuHa
 import { inferKind, type FileKind } from "../components/FileThumb.tsx";
 import { FileViewingDot } from "../components/FileViewingDot.tsx";
 import { NoResultsRecovery } from "../components/NoResultsRecovery.tsx";
+import { SearchSnippet } from "../components/SearchSnippet.tsx";
 import { PreviewModal } from "../components/PreviewModal.tsx";
 import { RenameDialog } from "../components/RenameDialog.tsx";
 import { SelectionBar } from "../components/SelectionBar.tsx";
@@ -252,6 +255,10 @@ export function Files({
     sortApplied: SearchSortBy;
   } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Phase 3 §2 — content matches (text found INSIDE documents), shown in a
+  // dedicated "In documents" section beneath the name/metadata grid. Fetched
+  // in parallel with the metadata search and de-duped against its files.
+  const [contentHits, setContentHits] = useState<ContentHit[]>([]);
 
   // SR6 — keep the URL in sync with the current search state. Writes
   // via `history.replaceState` so back/forward isn't polluted with a
@@ -450,6 +457,7 @@ export function Files({
       if (searched) {
         setSearched(false);
         setSearchMeta(null);
+        setContentHits([]);
         void refresh();
       }
       return;
@@ -457,8 +465,14 @@ export function Files({
     const controller = new AbortController();
     const handle = setTimeout(async () => {
       setState({ kind: "loading" });
+      // Content search (text inside documents) runs in parallel with the
+      // metadata search; it never blocks or fails the primary results.
+      const q = query.trim();
+      const contentP = q
+        ? searchContent(q, { limit: 20, signal: controller.signal }).catch(() => [])
+        : Promise.resolve<ContentHit[]>([]);
       try {
-        const filters: SearchFilters = { ...searchFilters, q: query.trim() };
+        const filters: SearchFilters = { ...searchFilters, q };
         const data: SearchResp = await searchAdvanced(
           filters,
           { sort: searchSort, sort_dir: searchSortDir, limit: 30 },
@@ -469,6 +483,13 @@ export function Files({
           folders: data.folders,
           files: data.files,
           notes: data.notes,
+        });
+        // De-dupe content hits against the name/metadata file matches so a
+        // document that matched by name isn't repeated in "In documents".
+        const nameIds = new Set(data.files.map((f) => f.id));
+        void contentP.then((hits) => {
+          if (controller.signal.aborted) return;
+          setContentHits(hits.filter((h) => !nameIds.has(h.file_id)));
         });
         setSearched(true);
         setSearchMeta({
@@ -1123,7 +1144,7 @@ export function Files({
 
       <Stage key={current.id ?? "root"}>
         {state.kind === "loading" && <GridSkeleton view={view} />}
-        {state.kind === "ready" && total === 0 && uploading.length === 0 && (
+        {state.kind === "ready" && total === 0 && contentHits.length === 0 && uploading.length === 0 && (
           <div style={{ marginTop: 24 }}>
             {/* SR12 — when the search came back empty AND there's
                 at least one filter to relax, surface the recovery
@@ -1290,6 +1311,19 @@ export function Files({
               handlersFor={handlersFor}
             />
           ))}
+        {/* Content matches — text found INSIDE documents (Phase 3 §2).
+            Shown beneath the name/metadata grid so name matches lead. */}
+        {state.kind === "ready" && inSearchMode && contentHits.length > 0 && (
+          <ContentResultsSection
+            hits={contentHits}
+            query={query.trim()}
+            onOpen={(id) => {
+              window.dispatchEvent(
+                new CustomEvent<string>("cd:open-file", { detail: id }),
+              );
+            }}
+          />
+        )}
         {state.kind === "error" && (
           <div style={{ marginTop: 40 }}>
             <EmptyState title="Couldn't load files." subtitle={state.message} />
@@ -1435,6 +1469,104 @@ export function Files({
         onClose={() => setNewFolderOpen(false)}
       />
     </div>
+  );
+}
+
+/** Content matches — text found INSIDE documents (Phase 3 §2). Each row
+ *  shows the document title + a highlighted snippet of the matching text.
+ *  Neobrutalist rows: 2px ink border, hard offset shadow, violet highlight
+ *  on the matched terms (via SearchSnippet). */
+function ContentResultsSection({
+  hits,
+  query,
+  onOpen,
+}: {
+  hits: ContentHit[];
+  query: string;
+  onOpen: (fileId: string) => void;
+}) {
+  return (
+    <section
+      aria-label="Content matches"
+      data-testid="content-results"
+      style={{ marginTop: 18, marginBottom: 18 }}
+    >
+      <h2
+        style={{
+          margin: "8px 0 8px",
+          fontSize: "var(--text-xs)",
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--muted)",
+          fontWeight: 600,
+        }}
+      >
+        In documents
+      </h2>
+      <ul
+        style={{
+          listStyle: "none",
+          margin: 0,
+          padding: 0,
+          display: "grid",
+          gap: 6,
+        }}
+      >
+        {hits.map((h) => (
+          <li key={h.file_id} style={{ position: "relative" }}>
+            <button
+              type="button"
+              data-testid="content-result-row"
+              className="press-sink"
+              onClick={() => onOpen(h.file_id)}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                cursor: "pointer",
+                border: "var(--border-w) solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--bg-surface)",
+                boxShadow: "var(--shadow-sm)",
+                padding: "10px 12px",
+                color: "var(--fg-default)",
+              }}
+            >
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: "var(--text-sm)",
+                  fontWeight: 600,
+                  marginBottom: 4,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <FileText
+                  size={14}
+                  strokeWidth={1.8}
+                  style={{ flexShrink: 0, color: "var(--fg-muted)" }}
+                  aria-hidden="true"
+                />
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {h.title}
+                </span>
+              </span>
+              <SearchSnippet snippet={h.snippet} query={query} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
