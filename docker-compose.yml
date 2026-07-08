@@ -12,7 +12,7 @@
 #
 # This supersedes the docker-compose.dev.yml + docker-compose.coedit.yml
 # overlay dance (those files are kept for reference / narrow use). Here the
-# collab gateway is the PUBLISHED image `casualoffice/docs:v0.0.5` — no
+# collab gateway is the PUBLISHED image `casualoffice/docs:0.0.5` — no
 # ad-hoc local build from ../document.
 #
 # ── The dual collab-URL detail (the usual footgun) ───────────────────────────
@@ -46,7 +46,11 @@ services:
   collab:
     # Published bundled image — Hocuspocus/Yjs collab server. Format-agnostic,
     # so this single service brokers both .docx and .xlsx rooms.
-    image: casualoffice/docs:v0.0.5
+    image: casualoffice/docs:0.0.5
+    # The published :0.0.5 tag is amd64-only (release builds amd64 on tag push;
+    # arm64 is on-demand). Pin the platform so arm64 hosts (Apple Silicon, arm
+    # servers) run it under emulation instead of failing to resolve a manifest.
+    platform: linux/amd64
     container_name: casual-dochub-collab
     restart: unless-stopped
     environment:

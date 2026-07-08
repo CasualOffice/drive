@@ -12,7 +12,7 @@
 #
 # SERVICES
 #   dochub      Doc-Hub — SPA + JSON API + WOPI host (Rust single binary).  :8080
-#   collab      casualoffice/docs:v0.0.5 in GATEWAY_HOST=inline mode
+#   collab      casualoffice/docs:0.0.5 in GATEWAY_HOST=inline mode
 #               (Hocuspocus/Yjs). Format-agnostic: ONE service brokers BOTH
 #               .docx and .xlsx rooms.                                        :8082
 #   minio       S3-compatible object storage, bucket `drive-dev`.     :9000/:9001
@@ -44,7 +44,7 @@
 
 services:
   collab:
-    image: casualoffice/docs:v0.0.5
+    image: casualoffice/docs:0.0.5
     container_name: casual-dochub-collab
     restart: unless-stopped
     environment:

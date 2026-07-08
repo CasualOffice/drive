@@ -14,7 +14,7 @@
 #
 # SERVICES
 #   dochub      Doc-Hub (Rust single binary).                              :8080
-#   collab      casualoffice/docs:v0.0.5 gateway (Hocuspocus/Yjs).         :8082
+#   collab      casualoffice/docs:0.0.5 gateway (Hocuspocus/Yjs).         :8082
 #   (no minio — storage is your external bucket)
 #
 # ── Storage wiring ───────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@
 
 services:
   collab:
-    image: casualoffice/docs:v0.0.5
+    image: casualoffice/docs:0.0.5
     container_name: casual-dochub-collab
     restart: unless-stopped
     environment:

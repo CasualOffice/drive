@@ -30,7 +30,7 @@ key so `up` is one command; `production.yml` has no default.
 
 ## Co-editing vs single-user
 
-Co-editing adds the `collab` gateway (`casualoffice/docs:v0.0.5`, run in
+Co-editing adds the `collab` gateway (`casualoffice/docs:0.0.5`, run in
 `GATEWAY_HOST=inline` mode). It is format-agnostic — one service brokers both
 `.docx` and `.xlsx` rooms — and gives live cursors, presence, and simultaneous
 editing.
