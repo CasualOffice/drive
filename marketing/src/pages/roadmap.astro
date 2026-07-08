@@ -222,9 +222,10 @@ const jsonLd = {
   .compare-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--card);
+    box-shadow: var(--shadow-card);
     margin-top: var(--space-4);
   }
 
@@ -239,18 +240,23 @@ const jsonLd = {
   .compare td {
     padding: var(--space-3) var(--space-4);
     text-align: left;
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--border-w) solid var(--border);
     color: var(--ink-soft);
     vertical-align: top;
   }
 
   .compare thead th {
-    color: var(--muted);
-    font-weight: 500;
+    color: var(--on-violet);
+    font-weight: 700;
     font-size: var(--text-xs);
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    background: var(--paper-2);
+    letter-spacing: 0.08em;
+    background: var(--ink);
+  }
+
+  .compare thead th.compare-us {
+    background: var(--violet-500);
+    color: var(--on-violet);
   }
 
   .compare tbody tr:last-child th,
@@ -258,15 +264,11 @@ const jsonLd = {
     border-bottom: none;
   }
 
-  .compare-us {
-    background: var(--accent-muted);
-    color: var(--ink);
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
   .compare tbody .compare-us {
-    background: color-mix(in srgb, var(--accent-muted) 60%, transparent);
+    background: var(--violet-100);
+    color: var(--ink);
+    font-weight: 650;
+    white-space: nowrap;
   }
 
   .compare-gate {
@@ -293,26 +295,28 @@ const jsonLd = {
   .feature {
     padding: var(--space-6);
     background: var(--card);
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
   }
 
   .feature-now {
-    border-top: 3px solid var(--accent);
+    border-top: 6px solid var(--violet-500);
   }
 
   .feature-next {
-    border-top: 3px solid var(--accent-strong);
+    border-top: 6px solid var(--violet-600);
   }
 
   .feature-later {
-    border-top: 3px solid var(--muted-2);
+    border-top: 6px solid var(--ink-soft);
   }
 
   .feature-title {
     font-size: var(--text-lg);
     margin-bottom: var(--space-4);
     letter-spacing: -0.015em;
+    font-weight: 650;
   }
 
   .feature-list {

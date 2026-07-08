@@ -1,43 +1,70 @@
 /**
- * Marketing tokens. Looser than Drive's strict app tokens — bigger type
- * scale, more whitespace — but the color tokens are identical so /demo
- * snaps back to the Drive system without a theme jolt.
+ * Marketing tokens — NEOBRUTALIST (bold · crisp · high-contrast).
  *
- * Spec: docs/research/07-marketing-site.md, docs/ux/14-marketing-surface.md.
+ * Mirrors the app token set (web/src/styles/tokens.css, UI System v3 —
+ * docs/design/ui-system-neobrutal.md): one vivid violet signal (#8B5CF6),
+ * 2px solid ink borders, hard offset block shadows (4px 4px 0 — NO blur,
+ * NO backdrop-filter, NO glass), flat solid fills, big bold sans type,
+ * tactile press-into-shadow interactions. Light "Paper" is the default;
+ * dark "Ink" is a first-class peer (toggled via the `.dark` class that
+ * Base.astro's pre-paint bootstrap sets).
+ *
+ * The marketing alias names (--paper, --card, --ink, --line, --accent, …)
+ * are kept so every component snaps to the neobrutalist system for free,
+ * and /demo still matches the app without a theme jolt.
  */
 
 :root {
-  /* ── Color: light theme (Slate Console — 2026-06-12 re-skin) ────── */
-  --paper: #f6f8fa;
-  --paper-2: #eef2f6;
-  --card: #ffffff;
-  --ink: #0f172a;
-  --ink-soft: #334155;
-  --muted: #64748b;
-  --muted-2: #94a3b8;
-  --line: #e7ecf0;
-  --line-strong: #d7dee5;
-  --bg-subtle: rgba(15, 23, 42, 0.035);
-  --bg-hover: rgba(15, 23, 42, 0.05);
+  /* ── CORE — theme-dependent (Light "Paper", default) ────────────── */
+  --paper: #f4f1ea; /* warm paper canvas (bg-app) */
+  --paper-2: #ece7db; /* wells / table header (bg-sunken) */
+  --card: #ffffff; /* cards, panels, inputs (bg-surface) */
+  --ink: #14110c; /* near-black text + borders */
+  --ink-soft: #55503f; /* secondary text */
+  --muted: #55503f; /* muted body text */
+  --muted-2: #6f6a57; /* faint labels */
 
-  --accent: #0891b2;
-  --accent-strong: #0e7490;
-  --accent-bright: #06b6d4;
-  --accent-muted: rgba(8, 145, 178, 0.10);
+  /* Borders are structural: 2px solid ink, not hairlines. */
+  --border: #14110c;
+  --border-w: 2px;
+  --line: #14110c;
+  --line-strong: #14110c;
+  --shadow-ink: #14110c; /* hard offset shadow colour */
 
-  --success: #0d9488;
+  --bg-subtle: #ece7db;
+  --bg-hover: rgba(20, 17, 12, 0.06);
+
+  /* ── One vivid signal — violet ──────────────────────────────────── */
+  --violet-100: #ede6ff;
+  --violet-500: #8b5cf6;
+  --violet-600: #7c3aed;
+  --on-violet: #ffffff;
+
+  --accent: #8b5cf6;
+  --accent-strong: #7c3aed;
+  --accent-bright: #8b5cf6;
+  --accent-muted: #ede6ff;
+
+  --success: #16a34a;
   --danger: #dc2626;
   --warn: #d97706;
 
-  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 26px rgba(15, 23, 42, 0.06);
-  --shadow-hover: 0 2px 4px rgba(15, 23, 42, 0.06), 0 14px 40px rgba(15, 23, 42, 0.10);
-  --shadow-button: 0 8px 18px rgba(8, 145, 178, 0.28);
+  /* ── Hard offset block shadows — NO blur, ever ──────────────────── */
+  --shadow-soft: 2px 2px 0 0 var(--shadow-ink);
+  --shadow-card: 4px 4px 0 0 var(--shadow-ink);
+  --shadow-hover: 6px 6px 0 0 var(--shadow-ink);
+  --shadow-button: 4px 4px 0 0 var(--shadow-ink);
 
-  /* ── Type scale (mobile baseline, scales up at md+) ─────────────── */
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --font-display: "IBM Plex Sans", system-ui, sans-serif;
+  /* Press choreography — the signature tactile interaction. */
+  --lift: translate(-1px, -1px); /* hover raise */
+  --lift-press: translate(2px, 2px); /* press sink */
+
+  /* ── Type — one heavy sans family (big + bold) ──────────────────── */
+  --font-sans: "Inter", "Geist", system-ui, -apple-system, "Segoe UI",
+    "IBM Plex Sans", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular,
+    Menlo, Consolas, monospace;
+  --font-display: var(--font-sans);
 
   --text-xs: 0.75rem; /* 12 */
   --text-sm: 0.875rem; /* 14 */
@@ -64,51 +91,58 @@
   --space-20: 5rem;
   --space-24: 6rem;
 
-  /* ── Radii (concentric) ─────────────────────────────────────────── */
-  --radius-xs: 4px;
-  --radius-sm: 7px;
-  --radius-md: 11px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
-  --radius-2xl: 32px;
+  /* ── Radii — softly rounded, not pills, not sharp ───────────────── */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
 
-  /* ── Motion ─────────────────────────────────────────────────────── */
-  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  /* ── Motion — snappy ────────────────────────────────────────────── */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: 120ms;
-  --dur: 220ms;
-  --dur-slow: 360ms;
+  --dur: 140ms;
+  --dur-slow: 240ms;
 
   --container: 1200px;
   --container-narrow: 760px;
 }
 
-/* ── Dark theme — deep navy base, cyan brightens ──────────────────── */
+/* ── Dark "Ink" — first-class peer. Only the CORE tokens flip; every
+   alias above is a var() so it follows automatically. ─────────────── */
 :root.dark {
-  --paper: #0b1220;
-  --paper-2: #111a2a;
-  --card: #111a2a;
-  --ink: #e8edf2;
-  --ink-soft: #c2ccd8;
-  --muted: #8595a8;
-  --muted-2: #7a8ca1;
-  --line: rgba(232, 237, 242, 0.08);
-  --line-strong: rgba(232, 237, 242, 0.18);
-  --bg-subtle: rgba(232, 237, 242, 0.04);
-  --bg-hover: rgba(232, 237, 242, 0.05);
+  --paper: #14121a; /* plum-black canvas */
+  --paper-2: #100e15;
+  --card: #1e1b26;
+  --ink: #f1eef7;
+  --ink-soft: #a49fb2;
+  --muted: #a49fb2;
+  --muted-2: #8e88a0;
 
-  --accent: #22c3de;
-  --accent-strong: #4dd2e8;
-  --accent-bright: #38cfe8;
-  --accent-muted: rgba(34, 195, 222, 0.14);
+  --border: #34303f; /* visible, not pure-black */
+  --line: #34303f;
+  --line-strong: #34303f;
+  --shadow-ink: #05040a; /* near-black hard shadow */
 
-  --success: #2dd4bf;
+  --bg-subtle: #100e15;
+  --bg-hover: rgba(241, 238, 247, 0.08);
+
+  --violet-100: #2a2340;
+  --violet-500: #9b6cff;
+  --violet-600: #b18bff;
+  --on-violet: #12101a;
+
+  --accent: #9b6cff;
+  --accent-strong: #b18bff;
+  --accent-bright: #9b6cff;
+  --accent-muted: #2a2340;
+
+  --success: #22c55e;
   --danger: #f87171;
   --warn: #f59e0b;
 
-  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-hover: 0 10px 30px rgba(0, 0, 0, 0.5);
-  --shadow-button: 0 8px 18px rgba(34, 195, 222, 0.30);
+  color-scheme: dark;
 }
 
 /* ── Mobile-first scale-ups ─────────────────────────────────────────── */
@@ -126,7 +160,7 @@
   }
 }
 
-/* ── prefers-reduced-motion: commandment 8 ─────────────────────────── */
+/* ── prefers-reduced-motion: keep shadow states, drop transforms ───── */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
