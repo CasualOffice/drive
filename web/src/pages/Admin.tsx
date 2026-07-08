@@ -70,8 +70,8 @@ function Header() {
       <h1
         style={{
           margin: 0,
-          fontSize: "var(--text-xl)",
-          fontWeight: "var(--weight-semibold)",
+          fontSize: "var(--text-2xl)",
+          fontWeight: "var(--weight-bold)",
           letterSpacing: "var(--tracking-tight)",
           color: "var(--fg-default)",
         }}
@@ -286,8 +286,9 @@ function ForbiddenNotice() {
       style={{
         padding: "var(--space-8) var(--space-6)",
         background: "var(--bg-surface)",
-        border: "1px solid var(--border-hair)",
+        border: "var(--border-w) solid var(--border)",
         borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow)",
         textAlign: "center",
       }}
     >
@@ -323,8 +324,9 @@ function Card({
     <section
       style={{
         background: "var(--bg-surface)",
-        border: "1px solid var(--border-hair)",
+        border: "var(--border-w) solid var(--border)",
         borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow)",
         padding: "var(--space-4)",
       }}
     >
@@ -334,7 +336,7 @@ function Card({
             style={{
               margin: 0,
               fontSize: "var(--text-lg)",
-              fontWeight: "var(--weight-semibold)",
+              fontWeight: "var(--weight-bold)",
               color: "var(--fg-default)",
               letterSpacing: "var(--tracking-tight)",
             }}
@@ -479,8 +481,8 @@ function Row({
 
 const errBox: React.CSSProperties = {
   padding: "var(--space-2) var(--space-3)",
-  background: "rgba(163,44,34,0.06)",
-  border: "1px solid var(--status-danger-700)",
+  background: "rgba(220,38,38,0.06)",
+  border: "var(--border-w) solid var(--status-danger-700)",
   borderRadius: "var(--radius-md)",
   fontSize: "var(--text-sm)",
   color: "var(--fg-default)",

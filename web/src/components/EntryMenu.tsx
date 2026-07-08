@@ -241,10 +241,10 @@ function Separator({ variant }: { variant: "ctx" | "dd" }) {
 function menuStyle(): React.CSSProperties {
   return {
     minWidth: 220,
-    background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 12,
-    boxShadow: "var(--shadow-hover)",
+    background: "var(--bg-surface)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius)",
+    boxShadow: "var(--shadow-lg)",
     padding: 6,
     fontFamily: "var(--font-sans)",
     fontSize: "var(--text-sm)",
@@ -273,20 +273,16 @@ function kebabStyle(): React.CSSProperties {
   return {
     width: 26,
     height: 26,
-    border: "1px solid var(--line-strong)",
-    borderRadius: 7,
-    // Slate Console — palette-aware, dark-mode-safe. The pre-reskin
-    // value was the warm-paper rgba(251,250,246,.92); against the new
-    // cool-paper #F6F8FA card surface it blended into invisibility.
-    background: "var(--card)",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius-xs)",
+    // Neobrutalist kebab — flat solid surface, hard offset shadow, no blur.
+    background: "var(--bg-surface)",
     color: "var(--ink)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     cursor: "pointer",
-    backdropFilter: "blur(6px)",
-    WebkitBackdropFilter: "blur(6px)",
     transition: "background 150ms, border-color 150ms",
-    boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08)",
+    boxShadow: "var(--shadow-sm)",
   };
 }

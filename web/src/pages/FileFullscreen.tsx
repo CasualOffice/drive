@@ -309,15 +309,15 @@ function FullscreenHeader({
 
   return (
     <header
-      className="glass--thin"
       style={{
         flex: "0 0 auto",
         display: "flex",
         alignItems: "center",
         gap: 10,
-        height: 48,
+        height: 52,
         padding: "0 16px",
-        borderBottom: "1px solid var(--border-hair)",
+        background: "var(--bg-surface)",
+        borderBottom: "var(--border-w) solid var(--border)",
       }}
     >
       <button
@@ -326,12 +326,13 @@ function FullscreenHeader({
         aria-label="Back to Drive"
         data-testid="file-fullscreen-back"
         title="Back to Drive (Esc)"
+        className="press-sink"
         style={{
-          width: 28,
-          height: 28,
-          border: "1px solid var(--border-hair)",
+          width: 30,
+          height: 30,
+          border: "var(--border-w) solid var(--border)",
           borderRadius: "var(--radius-sm)",
-          background: "var(--bg-raised)",
+          background: "var(--bg-surface)",
           cursor: "pointer",
           display: "inline-flex",
           alignItems: "center",
@@ -356,22 +357,15 @@ function FullscreenHeader({
           style={{
             display: "inline-flex",
             alignItems: "center",
-            height: 18,
-            padding: "0 6px",
+            height: 22,
+            padding: "0 8px",
             fontSize: "var(--text-2xs)",
-            color: "var(--fg-muted)",
-            background: "var(--bg-sunken)",
-            border: "1px solid var(--border-hair)",
+            fontWeight: "var(--weight-bold)",
+            color: "var(--violet-500)",
+            background: "var(--violet-100)",
+            border: "var(--border-w) solid var(--border)",
             borderRadius: "var(--radius-xs)",
             cursor: "pointer",
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.color = "var(--fg-default)";
-            e.currentTarget.style.borderColor = "var(--border-strong)";
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.color = "var(--fg-muted)";
-            e.currentTarget.style.borderColor = "var(--border-hair)";
           }}
         >
           v{file.version}
@@ -389,22 +383,23 @@ function FullscreenHeader({
             aria-label="File details"
             title="File details"
             data-testid="file-fullscreen-details"
+            className="press-sink"
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
-              height: 28,
+              height: 30,
               padding: "0 12px",
-              border: "1px solid var(--border-strong)",
+              border: "var(--border-w) solid var(--border)",
               borderRadius: "var(--radius-sm)",
-              background: "var(--bg-raised)",
+              background: "var(--bg-surface)",
               cursor: "pointer",
               fontSize: "var(--text-sm)",
-              fontWeight: "var(--weight-medium)",
+              fontWeight: "var(--weight-bold)",
               color: "var(--fg-default)",
             }}
           >
-            <Info size={14} strokeWidth={1.5} />
+            <Info size={14} strokeWidth={2} />
             Details
           </button>
           <button
@@ -412,22 +407,23 @@ function FullscreenHeader({
             onClick={() => setShareOpen(true)}
             aria-label="Share"
             data-testid="file-fullscreen-share"
+            className="press-sink-lg"
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
-              height: 28,
+              height: 30,
               padding: "0 12px",
-              border: "1px solid var(--border-strong)",
+              border: "var(--border-w) solid var(--border)",
               borderRadius: "var(--radius-sm)",
-              background: "var(--bg-raised)",
+              background: "var(--violet-500)",
               cursor: "pointer",
               fontSize: "var(--text-sm)",
-              fontWeight: "var(--weight-medium)",
-              color: "var(--fg-default)",
+              fontWeight: "var(--weight-bold)",
+              color: "var(--on-violet)",
             }}
           >
-            <Share2 size={14} strokeWidth={1.5} />
+            <Share2 size={14} strokeWidth={2} />
             Share
           </button>
           <EntryKebab
@@ -501,12 +497,13 @@ function FilenameField({
         }}
         data-testid="file-fullscreen-title-input"
         style={{
-          fontSize: "var(--text-sm)",
-          fontWeight: 600,
+          fontSize: "var(--text-md)",
+          fontWeight: 700,
           color: "var(--fg-default)",
-          background: "var(--bg-canvas)",
-          border: "1px solid var(--accent)",
-          borderRadius: 6,
+          background: "var(--bg-surface)",
+          border: "var(--border-w) solid var(--violet-500)",
+          borderRadius: "var(--radius-sm)",
+          boxShadow: "2px 2px 0 0 var(--violet-500)",
           padding: "4px 8px",
           outline: "none",
           minWidth: 220,
@@ -524,12 +521,12 @@ function FilenameField({
       data-testid="file-fullscreen-title"
       disabled={!editable}
       style={{
-        fontSize: "var(--text-sm)",
-        fontWeight: 600,
+        fontSize: "var(--text-md)",
+        fontWeight: 700,
         color: "var(--fg-default)",
         background: "transparent",
-        border: "1px solid transparent",
-        borderRadius: 6,
+        border: "var(--border-w) solid transparent",
+        borderRadius: "var(--radius-sm)",
         padding: "4px 8px",
         cursor: editable ? "text" : "default",
         overflow: "hidden",
@@ -745,9 +742,7 @@ function DetailsDrawer({
         style={{
           position: "fixed",
           inset: 0,
-          background: "rgba(15, 23, 42, 0.18)",
-          backdropFilter: "blur(2px)",
-          WebkitBackdropFilter: "blur(2px)",
+          background: "var(--bg-overlay)",
           zIndex: 90,
           animation: "cd-details-fade 180ms ease-out",
         }}
@@ -780,10 +775,10 @@ function DetailsDrawer({
             alignItems: "center",
             justifyContent: "space-between",
             padding: "12px 16px",
-            borderBottom: "1px solid var(--line)",
+            borderBottom: "var(--border-w) solid var(--border)",
           }}
         >
-          <div style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--fg-default)" }}>
+          <div style={{ fontSize: "var(--text-md)", fontWeight: 700, color: "var(--fg-default)" }}>
             Details
           </div>
           <button

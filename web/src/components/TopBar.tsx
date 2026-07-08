@@ -48,19 +48,18 @@ export function TopBar({
   const popoverOpen = inputFocused && recents.length > 0;
   return (
     <header
-      className="glass--thin"
       style={{
-        // Thin glass chrome floating over the Aura — the mesh refracts
-        // through the frost, and --shadow-float gives the bar real depth
-        // off the ground (ui-vision-2026 §2.5/§5.1). Theme-adaptive peer.
+        // Neobrutalist chrome (§5): flat solid bar, hard 2px ink border and
+        // a hard offset shadow. No glass, no blur. Theme-adaptive.
         display: "flex",
         alignItems: "center",
         gap: "var(--space-2)",
-        height: 48,
+        height: 52,
         padding: "0 var(--space-3)",
-        borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--edge-hi), var(--shadow-float)",
-        border: "var(--hairline-glass)",
+        background: "var(--bg-surface)",
+        borderRadius: "var(--radius)",
+        boxShadow: "var(--shadow)",
+        border: "var(--border-w) solid var(--border)",
       }}
     >
       <div
@@ -108,25 +107,27 @@ export function TopBar({
           }}
           style={{
             width: "100%",
-            height: 30,
-            border: "1px solid var(--border-strong)",
-            background: "var(--bg-sunken)",
+            height: 34,
+            border: "var(--border-w) solid var(--border)",
+            background: "var(--bg-surface)",
             borderRadius: "var(--radius-sm)",
-            padding: "0 12px 0 30px",
+            padding: "0 12px 0 32px",
             fontFamily: "var(--font-sans)",
             fontSize: "var(--text-md)",
-            color: "var(--fg-default)",
+            fontWeight: "var(--weight-medium)",
+            color: "var(--ink)",
             outline: "none",
-            transition: "border-color var(--dur-base), box-shadow var(--dur-base)",
+            transition: "border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease)",
           }}
           onFocus={(e) => {
-            e.currentTarget.style.borderColor = "var(--border-focus)";
-            e.currentTarget.style.boxShadow = "var(--shadow-focus)";
+            // Inset focus → 2px violet border + violet hard offset shadow.
+            e.currentTarget.style.borderColor = "var(--violet-500)";
+            e.currentTarget.style.boxShadow = "2px 2px 0 0 var(--violet-500)";
             setInputFocused(true);
             setRecents(getRecent());
           }}
           onBlur={(e) => {
-            e.currentTarget.style.borderColor = "var(--border-strong)";
+            e.currentTarget.style.borderColor = "var(--border)";
             e.currentTarget.style.boxShadow = "";
             // Defer the close so a click on a popover entry
             // (mousedown fires before blur) lands before the popover
@@ -182,18 +183,19 @@ function EncryptionGlyph() {
       aria-label="Encrypted at rest with AES-256-GCM"
       title="All documents are encrypted at rest with AES-256-GCM"
       style={{
-        width: 28,
-        height: 28,
+        width: 34,
+        height: 34,
         borderRadius: "var(--radius-sm)",
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        color: "var(--status-verified-700)",
-        boxShadow: "var(--accent-glow)",
+        color: "var(--ok)",
+        background: "var(--bg-surface)",
+        border: "var(--border-w) solid var(--border)",
         flexShrink: 0,
       }}
     >
-      <KeyRound size={15} strokeWidth={1.6} aria-hidden="true" />
+      <KeyRound size={15} strokeWidth={2.4} aria-hidden="true" />
     </span>
   );
 }
@@ -208,27 +210,27 @@ function AccountButton({ username }: { username: string }) {
       aria-label={`Account — ${username}`}
       title={username}
       style={{
-        width: 28,
-        height: 28,
-        borderRadius: "var(--radius-pill)",
-        border: "none",
-        background: "var(--accent)",
-        color: "var(--accent-fg)",
+        width: 34,
+        height: 34,
+        borderRadius: "var(--radius-sm)",
+        border: "var(--border-w) solid var(--border)",
+        background: "var(--violet-500)",
+        color: "var(--on-violet)",
         cursor: "pointer",
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        fontFamily: "var(--font-display)",
-        fontWeight: "var(--weight-semibold)",
+        fontFamily: "var(--font-sans)",
+        fontWeight: "var(--weight-bold)",
         fontSize: "var(--text-sm)",
         flexShrink: 0,
-        transition: "background var(--dur-fast), transform var(--dur-instant)",
+        transition: "background var(--dur) var(--ease)",
       }}
       onMouseOver={(e) => {
-        e.currentTarget.style.background = "var(--accent-hover)";
+        e.currentTarget.style.background = "var(--violet-600)";
       }}
       onMouseOut={(e) => {
-        e.currentTarget.style.background = "var(--accent)";
+        e.currentTarget.style.background = "var(--violet-500)";
       }}
     >
       {monogram}

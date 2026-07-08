@@ -1342,7 +1342,7 @@ export function Files({
           style={{
             position: "absolute",
             inset: 0,
-            background: "rgba(245, 243, 238, 0.82)",
+            background: "var(--bg-overlay)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -1357,15 +1357,15 @@ export function Files({
               alignItems: "center",
               gap: 12,
               padding: "24px 32px",
-              border: "2px dashed var(--accent)",
-              borderRadius: "var(--radius-xl)",
-              background: "var(--bg-raised)",
-              color: "var(--fg-default)",
-              boxShadow: "var(--shadow-md)",
+              border: "3px dashed var(--violet-500)",
+              borderRadius: "var(--radius)",
+              background: "var(--bg-surface)",
+              color: "var(--ink)",
+              boxShadow: "var(--shadow-lg)",
             }}
           >
-            <UploadCloud size={28} strokeWidth={1.5} style={{ color: "var(--accent)" }} />
-            <span style={{ fontSize: "var(--text-md)", fontWeight: 500 }}>
+            <UploadCloud size={28} strokeWidth={2.4} style={{ color: "var(--violet-500)" }} />
+            <span style={{ fontSize: "var(--text-md)", fontWeight: 700 }}>
               Drop to upload to {current.name}
             </span>
           </div>
@@ -1747,10 +1747,10 @@ function Header({
           <h1
             style={{
               margin: 0,
-              fontFamily: "var(--font-display)",
+              fontFamily: "var(--font-sans)",
               fontSize: "var(--text-3xl)",
-              fontWeight: 500,
-              letterSpacing: "var(--tracking-tighter)",
+              fontWeight: 700,
+              letterSpacing: "var(--tracking-display-md)",
               color: "var(--ink)",
             }}
           >
@@ -1836,16 +1836,20 @@ function CrumbButton({ label, onClick, sep }: { label: string; onClick: () => vo
 // chroma lives HERE, on the vault surface — not in the monochrome
 // foundation tokens. Hues read on both the Registry (dark) and Reading Room
 // (light) grounds; folder + ink types resolve through theme tokens.
+// Neobrutalist type-cover colors (ui-system-neobrutal §5 / spec §2). Flat,
+// bold, vivid; the folder resolves to the violet signal. Fixed hexes read on
+// both the Paper (light) and Ink (dark) grounds — each cover is a solid fill
+// with a white glyph inside a 2px ink border.
 const KIND_HUE: Record<FileKind, string> = {
-  fold:    "#E08D12", // amber — folder (resolves to --accent below)
-  doc:     "#4B7BEC", // blue  — docx
-  sheet:   "#22A06B", // green — xlsx
-  pdf:     "#E0574A", // brick-red — pdf
-  md:      "#7C7E8A", // ink — markdown
-  text:    "#7C7E8A", // ink — txt / csv / json / yaml / source
-  generic: "#7C7E8A", // ink — unknown document
-  img:     "#0EA5C4", // cyan — image preview fallback
-  vid:     "#0EA5C4",
+  fold:    "#8B5CF6", // violet — folder
+  doc:     "#2563EB", // blue  — docx
+  sheet:   "#16A34A", // green — xlsx
+  pdf:     "#DC2626", // red   — pdf
+  md:      "#14110C", // ink   — markdown
+  text:    "#14110C", // ink   — txt / csv / json / yaml / source
+  generic: "#14110C", // ink   — unknown document
+  img:     "#0891B2", // cyan  — image preview fallback
+  vid:     "#0891B2",
   aud:     "#8B5CF6",
 };
 
@@ -1862,19 +1866,17 @@ const KIND_GLYPH: Record<FileKind, LucideIcon> = {
   aud: FileGeneric,
 };
 
-/** Per-type gradient cover + modeled glyph tile. Replaces the old blank
- * FileThumb "paper" for the vault grid. Real image previews still win when
- * a thumbnail is present. */
+/** Per-type FLAT cover band + big glyph (ui-system-neobrutal §5). Replaces
+ * the old blank FileThumb "paper" for the vault grid — never a blank
+ * thumbnail. A real image preview still wins when a thumbnail is present. */
 function DocCover({
   name,
   kind,
-  sealed,
   thumbnail,
   thumbUrls,
 }: {
   name: string;
   kind: FileKind;
-  sealed?: boolean;
   thumbnail?: string | null;
   thumbUrls?: { small: string; medium: string; large: string } | null;
 }) {
@@ -1898,30 +1900,17 @@ function DocCover({
     );
   }
 
-  const isFolder = kind === "fold";
-  const hue = KIND_HUE[kind] ?? "#7C7E8A";
+  const hue = KIND_HUE[kind] ?? "#14110C";
   const Icon = KIND_GLYPH[kind] ?? FileGeneric;
 
-  // The cover field — a type-tinted diagonal wash over the surface. Folder
-  // + amber flow through the amber-glow tokens so they track the theme.
-  const field = isFolder
-    ? "radial-gradient(120% 95% at 26% 6%, var(--amber-glow-2) 0%, transparent 64%)," +
-      " linear-gradient(155deg, var(--amber-glow-3), transparent 72%), var(--bg-surface)"
-    : `radial-gradient(120% 95% at 26% 6%, ${hue}38 0%, transparent 64%),` +
-      ` linear-gradient(155deg, ${hue}1F, ${hue}0A 72%), var(--bg-surface)`;
-
-  // The glyph tile — a stronger gradient chip with a type-tinted ink drop
-  // shadow (modeled depth, one light source) + inset top rim-light (carved).
-  const tile = isFolder
-    ? "linear-gradient(150deg, var(--accent), var(--accent-press))"
-    : `linear-gradient(150deg, ${hue}, color-mix(in oklab, ${hue} 72%, #000))`;
-  const tileShadow = isFolder
-    ? "0 6px 15px rgba(224,141,18,0.42), inset 0 1px 0 rgba(255,255,255,0.45)"
-    : `0 6px 15px ${hue}66, inset 0 1px 0 rgba(255,255,255,0.42)`;
-
+  // Neobrutalist cover band — a FLAT solid type-color fill (no gradient, no
+  // blur) with a big bold glyph and a large corner-anchored watermark glyph
+  // for texture. Every type is instantly distinguishable at a glance; there
+  // is never a blank thumbnail. The bottom 2px ink rule separates the band
+  // from the meta row (the card supplies the outer border).
   return (
     <div
-      aria-hidden={!isFolder}
+      aria-hidden={kind !== "fold"}
       style={{
         position: "relative",
         width: "100%",
@@ -1929,57 +1918,34 @@ function DocCover({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: field,
+        background: hue,
         overflow: "hidden",
       }}
     >
-      {/* Oversized watermark glyph — quiet field texture, corner-anchored. */}
+      {/* Oversized watermark glyph — flat, corner-anchored field texture. */}
       <Icon
         size={116}
-        strokeWidth={1}
+        strokeWidth={1.6}
         style={{
           position: "absolute",
           right: -22,
           bottom: -30,
-          color: isFolder ? "var(--accent)" : hue,
-          opacity: 0.06,
+          color: "#FFFFFF",
+          opacity: 0.16,
           pointerEvents: "none",
         }}
       />
-      {/* Modeled glyph tile — the identity focal point. */}
-      <span
+      {/* The identity glyph — big, bold, white on the type color. */}
+      <Icon
         className="cd-cover-tile"
+        size={40}
+        strokeWidth={2.2}
+        color="#FFFFFF"
         style={{
           position: "relative",
-          width: 52,
-          height: 52,
-          borderRadius: 15,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: tile,
-          boxShadow: tileShadow,
-          transition: "transform var(--dur-fast) var(--ease-out)",
+          transition: "transform var(--dur) var(--ease)",
         }}
-      >
-        <Icon size={25} strokeWidth={1.7} color="rgba(255,255,255,0.96)" />
-      </span>
-      {/* SEALED — hairline amber gradient top-bar (Arc space-badge analog);
-          verification is spatial identity, paired with the card's left rule. */}
-      {sealed && (
-        <span
-          aria-hidden
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 3,
-            background:
-              "linear-gradient(90deg, transparent, var(--accent) 22%, var(--accent) 78%, transparent)",
-          }}
-        />
-      )}
+      />
     </div>
   );
 }
@@ -1997,16 +1963,20 @@ function CardStatusPill({
   chainVerified?: boolean;
 }) {
   const tampered = chainVerified === false;
+  // Neobrutalist chip (§5): solid/tinted fill + 2px border, icon + label
+  // always. SEALED/verified = violet, tamper = danger, draft = quiet sunken.
   const base: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
     gap: 4,
     padding: "2px 7px",
-    borderRadius: "var(--radius-pill)",
+    borderRadius: "var(--radius-xs)",
+    border: "var(--border-w) solid var(--border)",
     fontSize: "var(--text-2xs)",
-    fontWeight: "var(--weight-semibold)",
+    fontWeight: "var(--weight-bold)",
     lineHeight: 1,
-    letterSpacing: "0.01em",
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
     whiteSpace: "nowrap",
   };
   if (tampered) {
@@ -2014,12 +1984,11 @@ function CardStatusPill({
       <span
         style={{
           ...base,
-          color: "var(--status-danger-700)",
-          background: "color-mix(in oklab, var(--status-danger) 16%, transparent)",
-          boxShadow: "var(--accent-glow)",
+          color: "#FFFFFF",
+          background: "var(--danger)",
         }}
       >
-        <ShieldAlert size={11} strokeWidth={2} aria-hidden />
+        <ShieldAlert size={11} strokeWidth={2.4} aria-hidden />
         Tamper
       </span>
     );
@@ -2030,11 +1999,11 @@ function CardStatusPill({
         title="Hash-chain sealed — tamper-evident"
         style={{
           ...base,
-          color: "var(--status-attention-700)",
-          background: "var(--amber-glow-2)",
+          color: "var(--violet-600)",
+          background: "var(--violet-100)",
         }}
       >
-        <ShieldCheck size={11} strokeWidth={2} aria-hidden />
+        <ShieldCheck size={11} strokeWidth={2.4} aria-hidden />
         Sealed{version !== null ? ` · v${version}` : ""}
       </span>
     );
@@ -2043,7 +2012,7 @@ function CardStatusPill({
     <span
       style={{
         ...base,
-        color: "var(--fg-muted)",
+        color: "var(--ink-soft)",
         background: "var(--bg-sunken)",
       }}
     >
@@ -2131,7 +2100,7 @@ function FolderCard({
           style={{
             height: "var(--cd-card-thumb-h)",
             overflow: "hidden",
-            borderBottom: "1px solid var(--border-hair)",
+            borderBottom: "var(--border-w) solid var(--border)",
           }}
         >
           <DocCover name={folder.name} kind="fold" />
@@ -2175,7 +2144,7 @@ function FileCard({
           style={{
             height: "var(--cd-card-thumb-h)",
             overflow: "hidden",
-            borderBottom: "1px solid var(--border-hair)",
+            borderBottom: "var(--border-w) solid var(--border)",
             position: "relative",
           }}
         >
@@ -2186,7 +2155,6 @@ function FileCard({
           <DocCover
             name={file.name}
             kind={kind}
-            sealed={sealed}
             thumbnail={file.thumbnail}
             thumbUrls={file.thumb_urls}
           />
@@ -2210,28 +2178,14 @@ function GhostCard({ name }: { name: string }) {
       <div
         style={{
           height: "var(--cd-card-thumb-h)",
-          borderBottom: "1px solid var(--border-hair)",
-          background:
-            "radial-gradient(120% 95% at 26% 6%, var(--amber-glow-2) 0%, transparent 64%), var(--bg-surface)",
+          borderBottom: "var(--border-w) solid var(--border)",
+          background: "var(--violet-500)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <span
-          style={{
-            width: 52,
-            height: 52,
-            borderRadius: 15,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "linear-gradient(150deg, var(--accent), var(--accent-press))",
-            boxShadow: "0 6px 15px rgba(224,141,18,0.42), inset 0 1px 0 rgba(255,255,255,0.45)",
-          }}
-        >
-          <UploadCloud size={25} strokeWidth={1.7} color="rgba(255,255,255,0.96)" />
-        </span>
+        <UploadCloud size={40} strokeWidth={2.2} color="#FFFFFF" />
       </div>
       <CardMeta name={name} kind="generic" sub="Uploading…" />
     </Card>
@@ -2258,11 +2212,13 @@ const Card = React.forwardRef<
     sealed?: boolean;
   } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "children">
 >(function Card({ children, onClick, folder, kebab, selected, sealed, ...rest }, ref) {
-  // Real modeled depth: layered ink-tinted elevation + a top rim-light
-  // ("carved" feel), lifting one level on hover (translate + shadow step),
-  // never a flat colour swap. Selection wins with an amber ring + wash.
-  const restShadow = `var(--elevation-1), var(--rim-light)`;
-  const hoverShadow = `var(--elevation-2), var(--rim-light)`;
+  // Neobrutalist tile (§5): flat surface, hard 2px ink border, hard offset
+  // shadow. Hover RAISES (translate -1,-1 + shadow grows to lg); press SINKS
+  // into the shadow (translate 2,2 + shadow shrinks to sm). Selection swaps
+  // the fill to violet-100 and thickens the border shadow to violet.
+  const restShadow = "var(--shadow)";
+  const hoverShadow = "var(--shadow-lg)";
+  const pressShadow = "var(--shadow-sm)";
   return (
     <div
       ref={ref}
@@ -2270,34 +2226,41 @@ const Card = React.forwardRef<
       className={folder ? "cd-folder-card" : "cd-file-card"}
       {...rest}
       style={{
-        background: selected ? "var(--bg-selected)" : "var(--bg-surface)",
-        border: `1px solid ${selected ? "var(--accent)" : "var(--border-hair)"}`,
-        borderRadius: "var(--radius-lg)",
+        background: selected ? "var(--violet-100)" : "var(--bg-surface)",
+        border: "var(--border-w) solid var(--border)",
+        borderRadius: "var(--radius)",
         overflow: "hidden",
         cursor: onClick ? "pointer" : "default",
         transition:
-          "transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out)",
+          "transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease)",
         boxShadow: restShadow,
         position: "relative",
         userSelect: "none",
         ...(rest.style ?? {}),
       }}
       onMouseOver={(e) => {
-        e.currentTarget.style.transform = "translateY(-3px)";
+        e.currentTarget.style.transform = "var(--lift)";
         e.currentTarget.style.boxShadow = hoverShadow;
         const tile = e.currentTarget.querySelector<HTMLElement>(".cd-cover-tile");
-        if (tile) tile.style.transform = "scale(1.06)";
-        if (!selected) e.currentTarget.style.borderColor = "var(--border-strong)";
+        if (tile) tile.style.transform = "scale(1.12)";
       }}
       onMouseOut={(e) => {
         e.currentTarget.style.transform = "";
         e.currentTarget.style.boxShadow = restShadow;
         const tile = e.currentTarget.querySelector<HTMLElement>(".cd-cover-tile");
         if (tile) tile.style.transform = "";
-        if (!selected) e.currentTarget.style.borderColor = "var(--border-hair)";
+      }}
+      onMouseDown={(e) => {
+        // The Press — the whole tile sinks into its offset shadow.
+        e.currentTarget.style.transform = "var(--lift-press)";
+        e.currentTarget.style.boxShadow = pressShadow;
+      }}
+      onMouseUp={(e) => {
+        e.currentTarget.style.transform = "var(--lift)";
+        e.currentTarget.style.boxShadow = hoverShadow;
       }}
     >
-      {/* Sealed — 3px amber left rule spanning the whole card. */}
+      {/* Sealed — 4px violet left rule spanning the whole card. */}
       {sealed && (
         <span
           aria-hidden
@@ -2306,8 +2269,9 @@ const Card = React.forwardRef<
             top: 0,
             bottom: 0,
             left: 0,
-            width: 3,
-            background: "var(--accent)",
+            width: 4,
+            background: "var(--violet-500)",
+            borderRight: "2px solid var(--border)",
             zIndex: 2,
           }}
         />
@@ -2576,7 +2540,7 @@ function VaultHeader() {
         position: "sticky",
         top: 0,
         zIndex: 1,
-        borderBottom: "1px solid var(--border-hair)",
+        borderBottom: "var(--border-w) solid var(--border)",
         fontSize: "var(--text-sm)",
         fontWeight: "var(--weight-semibold)",
         color: "var(--fg-muted)",
@@ -2676,7 +2640,7 @@ const VaultRow = React.forwardRef<
         padding: "0 var(--space-3)",
         gap: "var(--space-3)",
         cursor: onClick ? "pointer" : "default",
-        borderBottom: last ? "none" : "1px solid var(--border-hair)",
+        borderBottom: last ? "none" : "var(--border-w) solid var(--border)",
         opacity: ghost ? 0.6 : 1,
         // Near-solid glass rows (legibility); selected wins with an
         // amber wash + left rule. Leaving background undefined lets the
@@ -2861,19 +2825,18 @@ function GridSkeleton({ view }: { view: ViewMode }) {
           <div
             key={i}
             style={{
-              border: "1px solid var(--border-hair)",
-              borderRadius: "var(--radius-lg)",
+              border: "var(--border-w) solid var(--border)",
+              borderRadius: "var(--radius)",
               overflow: "hidden",
               background: "var(--bg-surface)",
-              boxShadow: "var(--elevation-1), var(--rim-light)",
+              boxShadow: "var(--shadow)",
             }}
           >
-            {/* Cover region — a modeled glyph-tile placeholder, never a
-                blank white box. */}
+            {/* Cover region — a bordered shimmer band, never a blank box. */}
             <div
               style={{
                 height: "var(--cd-card-thumb-h)",
-                borderBottom: "1px solid var(--border-hair)",
+                borderBottom: "var(--border-w) solid var(--border)",
                 background: "var(--bg-sunken)",
                 display: "flex",
                 alignItems: "center",
@@ -2882,7 +2845,7 @@ function GridSkeleton({ view }: { view: ViewMode }) {
             >
               <div
                 className="skeleton"
-                style={{ width: 52, height: 52, borderRadius: 15 }}
+                style={{ width: 44, height: 44, borderRadius: "var(--radius-sm)" }}
               />
             </div>
             <div style={{ padding: "var(--cd-card-meta-pad-y) var(--cd-card-meta-pad-x)" }}>

@@ -19,7 +19,7 @@ const HEIGHT: Record<Size, number> = { sm: 24, default: 28 };
 export const Button = forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size }
->(function Button({ variant = "secondary", size = "default", style, disabled, ...rest }, ref) {
+>(function Button({ variant = "secondary", size = "default", style, disabled, className, ...rest }, ref) {
   const [hover, setHover] = useState(false);
   const base: React.CSSProperties = {
     display: "inline-flex",
@@ -27,42 +27,47 @@ export const Button = forwardRef<
     justifyContent: "center",
     gap: "var(--space-1)",
     height: HEIGHT[size],
-    padding: `0 ${size === "sm" ? 8 : 12}px`,
+    padding: `0 ${size === "sm" ? 10 : 14}px`,
     borderRadius: "var(--radius-sm)",
     fontFamily: "var(--font-sans)",
     fontSize: "var(--text-md)",
-    fontWeight: "var(--weight-medium)",
+    fontWeight: "var(--weight-bold)",
     lineHeight: 1,
     cursor: disabled ? "not-allowed" : "pointer",
     whiteSpace: "nowrap",
     transition: "background var(--dur-instant) var(--ease), border-color var(--dur-instant) var(--ease)",
   };
+  // Neobrutalist tones (spec §5): 2px ink borders, violet primary, flat
+  // fills. Border-carrying variants also take the `.press-sink` class so
+  // they sink into their hard offset shadow on click ("The Press").
   const tone: Record<Variant, React.CSSProperties> = {
     primary: {
-      border: "1px solid transparent",
-      background: disabled ? "var(--fg-disabled)" : hover ? "var(--accent-hover)" : "var(--accent)",
-      color: "var(--accent-fg)",
+      border: "var(--border-w) solid var(--border)",
+      background: disabled ? "var(--fg-disabled)" : hover ? "var(--violet-600)" : "var(--violet-500)",
+      color: "var(--on-violet)",
     },
     secondary: {
-      border: "1px solid var(--border-strong)",
-      background: hover ? "var(--bg-hover)" : "var(--bg-raised)",
+      border: "var(--border-w) solid var(--border)",
+      background: hover ? "var(--bg-hover)" : "var(--bg-surface)",
       color: "var(--fg-default)",
     },
     danger: {
-      border: "1px solid var(--status-danger-700)",
-      background: hover ? "rgba(163,44,34,0.08)" : "transparent",
+      border: "var(--border-w) solid var(--status-danger-700)",
+      background: hover ? "rgba(220,38,38,0.08)" : "var(--bg-surface)",
       color: "var(--status-danger-700)",
     },
     ghost: {
-      border: "1px solid transparent",
+      border: "var(--border-w) solid transparent",
       background: hover ? "var(--bg-hover)" : "transparent",
       color: "var(--fg-muted)",
     },
   };
+  const pressClass = variant === "ghost" ? "" : "press-sink";
   return (
     <button
       ref={ref}
       disabled={disabled}
+      className={[pressClass, className].filter(Boolean).join(" ") || undefined}
       onMouseEnter={() => !disabled && setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{ ...base, ...tone[variant], opacity: disabled && variant !== "primary" ? 0.5 : 1, ...style }}
@@ -101,9 +106,9 @@ export const Field = forwardRef<
         style={{
           display: "block",
           width: "100%",
-          height: 30,
+          height: 32,
           padding: "0 var(--space-3)",
-          border: `1px solid ${error ? "var(--status-danger-700)" : "var(--border-strong)"}`,
+          border: `var(--border-w) solid ${error ? "var(--status-danger-700)" : "var(--border)"}`,
           borderRadius: "var(--radius-sm)",
           background: "var(--bg-sunken)",
           fontFamily: "var(--font-sans)",
@@ -114,12 +119,12 @@ export const Field = forwardRef<
           ...style,
         }}
         onFocus={(e) => {
-          e.currentTarget.style.borderColor = "var(--border-focus)";
-          e.currentTarget.style.boxShadow = "var(--shadow-focus)";
+          e.currentTarget.style.borderColor = "var(--violet-500)";
+          e.currentTarget.style.boxShadow = "2px 2px 0 0 var(--violet-500)";
           input.onFocus?.(e);
         }}
         onBlur={(e) => {
-          e.currentTarget.style.borderColor = error ? "var(--status-danger-700)" : "var(--border-strong)";
+          e.currentTarget.style.borderColor = error ? "var(--status-danger-700)" : "var(--border)";
           e.currentTarget.style.boxShadow = "none";
           input.onBlur?.(e);
         }}
@@ -163,8 +168,8 @@ export function ErrorBand({ children }: { children: React.ReactNode }) {
         alignItems: "flex-start",
         gap: "var(--space-2)",
         padding: "var(--space-2) var(--space-3)",
-        background: "rgba(163,44,34,0.06)",
-        border: "1px solid var(--status-danger-700)",
+        background: "rgba(220,38,38,0.06)",
+        border: "var(--border-w) solid var(--status-danger-700)",
         borderRadius: "var(--radius-md)",
         fontSize: "var(--text-sm)",
         color: "var(--fg-default)",

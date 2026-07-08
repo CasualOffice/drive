@@ -27,7 +27,7 @@ export function SkeletonRow({ columns = BAR_WIDTHS.length }: { columns?: number 
         height: 32,
         padding: "0 var(--space-3)",
         gap: "var(--space-3)",
-        borderBottom: "1px solid var(--border-hair)",
+        borderBottom: "var(--border-w) solid var(--border)",
       }}
     >
       {widths.map((w, i) => (

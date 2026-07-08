@@ -20,8 +20,8 @@ export function SettingsHeader({
       <h2
         style={{
           margin: 0,
-          fontSize: "var(--text-xl)",
-          fontWeight: "var(--weight-semibold)",
+          fontSize: "var(--text-2xl)",
+          fontWeight: "var(--weight-bold)",
           letterSpacing: "var(--tracking-tight)",
           color: "var(--fg-default)",
         }}
@@ -60,10 +60,11 @@ export function SettingsCard({
     <section
       style={{
         background: "var(--bg-surface)",
-        border: "1px solid var(--border-hair)",
+        border: "var(--border-w) solid var(--border)",
         borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow)",
         padding: "var(--space-4)",
-        marginBottom: "var(--space-4)",
+        marginBottom: "var(--space-5)",
       }}
     >
       {(title || action || status) && (
@@ -81,7 +82,7 @@ export function SettingsCard({
                 style={{
                   margin: 0,
                   fontSize: "var(--text-lg)",
-                  fontWeight: "var(--weight-semibold)",
+                  fontWeight: "var(--weight-bold)",
                   color: "var(--fg-default)",
                   letterSpacing: "var(--tracking-tight)",
                 }}
