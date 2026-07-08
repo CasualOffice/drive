@@ -100,7 +100,7 @@ function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label="Display option"
-      style={{ display: "inline-flex", gap: 4, padding: 3, borderRadius: "var(--radius-md)", border: "1px solid var(--border-hair)", background: "var(--bg-sunken)" }}
+      style={{ display: "inline-flex", gap: 4, padding: 3, borderRadius: "var(--radius-md)", border: "var(--border-w) solid var(--border)", background: "var(--bg-sunken)" }}
     >
       {options.map((o) => {
         const active = value === o.id;
@@ -118,13 +118,13 @@ function Segmented<T extends string>({
               gap: 6,
               padding: "5px 12px",
               borderRadius: "var(--radius-sm)",
-              border: "1px solid transparent",
-              background: active ? "var(--bg-surface)" : "transparent",
-              boxShadow: active ? "var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.10))" : "none",
-              color: active ? "var(--fg-default)" : "var(--fg-muted)",
+              border: `var(--border-w) solid ${active ? "var(--border)" : "transparent"}`,
+              background: active ? "var(--violet-100)" : "transparent",
+              boxShadow: active ? "var(--shadow-sm)" : "none",
+              color: active ? "var(--ink)" : "var(--fg-muted)",
               fontFamily: "var(--font-sans)",
               fontSize: "var(--text-sm)",
-              fontWeight: active ? "var(--weight-semibold)" : "var(--weight-body)",
+              fontWeight: active ? "var(--weight-bold)" : "var(--weight-medium)",
               cursor: "pointer",
             }}
           >

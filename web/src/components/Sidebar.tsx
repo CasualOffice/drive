@@ -6,7 +6,6 @@ import {
   Gauge,
   Home,
   Lock,
-  NotebookPen,
   Plus,
   Settings,
   Sheet,
@@ -39,7 +38,6 @@ interface NavItem {
 // dead nav surfaces don't ship. Library is the real, working scope.
 const LIBRARY: NavItem[] = [
   { id: "home", label: "My Drive", icon: Home },
-  { id: "notes", label: "Notes", icon: NotebookPen },
 ];
 
 const WORKSPACE: NavItem[] = [
@@ -78,14 +76,10 @@ export function Sidebar({
 
   return (
     <aside
-      className="glass--thin"
       style={{
-        // Light glass chrome floating over the visible Aura (ui-vision-2026
-        // §2.4/§5.1): the rail is translucent so the mesh glows through, and
-        // it uses theme-adaptive semantic tokens so it's a first-class peer
-        // in both Registry (dark) and Reading Room (light). The .glass--thin
-        // mixin supplies the frost + saturation; --shadow-float carves it off
-        // the ground. WCAG AA is measured on the opaque glass fallback.
+        // Neobrutalist chrome (ui-system-neobrutal §5): flat solid surface
+        // with a hard 2px ink border down the right edge — no glass, no
+        // blur, no shadow-float. Theme-adaptive via semantic core tokens.
         width: 240,
         flexShrink: 0,
         height: "100vh",
@@ -93,18 +87,18 @@ export function Sidebar({
         display: "flex",
         flexDirection: "column",
         gap: 4,
-        color: "var(--fg-muted)",
+        color: "var(--ink-soft)",
+        background: "var(--bg-surface)",
         borderRadius: 0,
-        borderRight: "var(--hairline-glass)",
-        boxShadow: "var(--edge-hi), var(--shadow-float)",
+        borderRight: "var(--border-w) solid var(--border)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 8px 12px" }}>
-        {/* Amber square + paper cloud, brand-locked on the dark rail. */}
-        <div style={{ color: "var(--accent)", ["--mark-fg" as string]: "#F5F3EE" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 8px 14px" }}>
+        {/* Violet square + paper document stack — the single signal color. */}
+        <div style={{ color: "var(--violet-500)", ["--mark-fg" as string]: "var(--bg-surface)" }}>
           <Logo size={30} />
         </div>
-        <div style={{ color: "var(--fg-default)" }}>
+        <div style={{ color: "var(--ink)" }}>
           <Wordmark tone="rail" />
         </div>
       </div>
@@ -120,34 +114,41 @@ export function Sidebar({
           style={{
             display: "flex",
             alignItems: "center",
+            justifyContent: "center",
             gap: 8,
             width: "100%",
-            border: "none",
+            border: "var(--border-w) solid var(--border)",
             cursor: "pointer",
-            background: "var(--accent)",
-            color: "var(--accent-fg)",
+            background: "var(--violet-500)",
+            color: "var(--on-violet)",
             fontFamily: "var(--font-sans)",
             fontSize: "var(--text-md)",
-            fontWeight: "var(--weight-medium)",
-            height: 32,
+            fontWeight: "var(--weight-bold)",
+            height: 38,
             padding: "0 12px",
             borderRadius: "var(--radius-sm)",
-            transition: "background var(--dur-fast) var(--ease-out), transform var(--dur-instant)",
+            boxShadow: "var(--shadow)",
+            transition: "background var(--dur) var(--ease), transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease)",
           }}
           onMouseOver={(e) => {
-            e.currentTarget.style.background = "var(--accent-hover)";
+            e.currentTarget.style.background = "var(--violet-600)";
           }}
           onMouseOut={(e) => {
-            e.currentTarget.style.background = "var(--accent)";
+            e.currentTarget.style.background = "var(--violet-500)";
+            e.currentTarget.style.transform = "";
+            e.currentTarget.style.boxShadow = "var(--shadow)";
           }}
           onMouseDown={(e) => {
-            e.currentTarget.style.transform = "translateY(1px)";
+            // The Press — sink into the offset shadow.
+            e.currentTarget.style.transform = "var(--lift-press)";
+            e.currentTarget.style.boxShadow = "var(--shadow-sm)";
           }}
           onMouseUp={(e) => {
             e.currentTarget.style.transform = "";
+            e.currentTarget.style.boxShadow = "var(--shadow)";
           }}
         >
-          <Plus size={16} strokeWidth={1.5} />
+          <Plus size={16} strokeWidth={2.4} />
           <span>New</span>
         </button>
         {menuOpen && (
@@ -265,27 +266,27 @@ function NavRow({
         onClick={onClick}
         aria-current={active ? "page" : undefined}
         style={{
-          // Active = amber-wash fill + 2px left amber rule + amber icon +
-          // strong (default-fg) semibold label; idle = transparent + muted
-          // text. Amber is the signal, kept AA by carrying it in the rule +
-          // icon rather than the body label.
+          // Neobrutalist nav (§5): active = violet-100 fill + 2px ink border
+          // + a violet left marker + bold ink label + violet icon. Idle is
+          // flat transparent with a 2px transparent border so the active
+          // border doesn't shift layout.
           position: "relative",
           display: "flex",
           alignItems: "center",
           gap: 8,
           width: "100%",
-          height: 28,
-          padding: "0 10px",
+          height: 34,
+          padding: "0 10px 0 12px",
           borderRadius: "var(--radius-sm)",
-          background: active ? "var(--accent-wash)" : "transparent",
-          color: active ? "var(--fg-default)" : "var(--fg-muted)",
-          border: "none",
+          background: active ? "var(--violet-100)" : "transparent",
+          color: active ? "var(--ink)" : "var(--ink-soft)",
+          border: `var(--border-w) solid ${active ? "var(--border)" : "transparent"}`,
           cursor: "pointer",
           fontFamily: "var(--font-sans)",
           fontSize: "var(--text-base)",
-          fontWeight: active ? "var(--weight-semibold)" : "var(--weight-body)",
+          fontWeight: active ? "var(--weight-bold)" : "var(--weight-medium)",
           textAlign: "left",
-          transition: "background var(--dur-base) var(--ease-out), color var(--dur-base)",
+          transition: "background var(--dur) var(--ease), color var(--dur) var(--ease)",
         }}
         onMouseOver={(e) => {
           if (!active) e.currentTarget.style.background = "var(--bg-hover)";
@@ -299,19 +300,20 @@ function NavRow({
             aria-hidden
             style={{
               position: "absolute",
-              left: 0,
-              top: 4,
-              bottom: 4,
-              width: 2,
-              borderRadius: 2,
-              background: "var(--accent)",
+              left: -2,
+              top: -2,
+              bottom: -2,
+              width: 4,
+              borderTopLeftRadius: "var(--radius-sm)",
+              borderBottomLeftRadius: "var(--radius-sm)",
+              background: "var(--violet-500)",
             }}
           />
         )}
         <Icon
           size={16}
-          strokeWidth={1.5}
-          style={{ color: active ? "var(--accent)" : "currentColor", opacity: active ? 1 : 0.9 }}
+          strokeWidth={active ? 2.4 : 2}
+          style={{ color: active ? "var(--violet-500)" : "currentColor", opacity: active ? 1 : 0.9 }}
         />
         <span style={{ flex: 1 }}>{item.label}</span>
         {item.comingSoon && (
@@ -341,20 +343,19 @@ function NavRow({
 function EncryptionFooterChip() {
   return (
     <div
-      className="glass--ultrathin"
       title="All documents are encrypted at rest with AES-256-GCM"
       style={{
         display: "flex",
         alignItems: "center",
         gap: 6,
-        margin: "6px 2px 0",
-        padding: "6px 10px",
-        borderRadius: "var(--radius-pill)",
-        border: "var(--hairline-glass)",
-        boxShadow: "var(--edge-hi)",
-        color: "var(--fg-muted)",
+        margin: "8px 2px 0",
+        padding: "7px 10px",
+        borderRadius: "var(--radius-sm)",
+        border: "var(--border-w) solid var(--border)",
+        background: "var(--bg-sunken)",
+        color: "var(--ink-soft)",
         fontSize: "var(--text-2xs)",
-        fontWeight: "var(--weight-medium)",
+        fontWeight: "var(--weight-semibold)",
         lineHeight: 1.3,
         cursor: "default",
         userSelect: "none",
@@ -362,8 +363,8 @@ function EncryptionFooterChip() {
     >
       <Lock
         size={12}
-        strokeWidth={1.6}
-        style={{ flexShrink: 0, color: "var(--accent)", borderRadius: "50%", boxShadow: "var(--accent-glow)" }}
+        strokeWidth={2.4}
+        style={{ flexShrink: 0, color: "var(--violet-500)" }}
       />
       <span>Encrypted at rest · AES-256-GCM</span>
     </div>
@@ -392,13 +393,13 @@ function NewMenu({
         top: "calc(100% + 6px)",
         left: 0,
         width: "100%",
-        background: "var(--bg-raised)",
-        border: "1px solid var(--border-hair)",
-        borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--shadow-md)",
+        background: "var(--bg-surface)",
+        border: "var(--border-w) solid var(--border)",
+        borderRadius: "var(--radius)",
+        boxShadow: "var(--shadow)",
         padding: 4,
         zIndex: 20,
-        animation: "cd-menu-in var(--dur-base) var(--ease-out)",
+        animation: "cd-menu-in var(--dur-base) var(--ease)",
       }}
     >
       <MenuItem icon={<FolderClosed size={16} strokeWidth={1.5} />} label="New folder" onClick={onNewFolder} />
@@ -478,16 +479,17 @@ function AvatarRow({ username }: { username: string }) {
     >
       <span
         style={{
-          width: 26,
-          height: 26,
-          borderRadius: "50%",
-          background: "var(--accent)",
-          color: "var(--accent-fg)",
+          width: 28,
+          height: 28,
+          borderRadius: "var(--radius-sm)",
+          background: "var(--violet-500)",
+          color: "var(--on-violet)",
+          border: "var(--border-w) solid var(--border)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontFamily: "var(--font-display)",
-          fontWeight: "var(--weight-semibold)",
+          fontFamily: "var(--font-sans)",
+          fontWeight: "var(--weight-bold)",
           fontSize: "var(--text-sm)",
           flexShrink: 0,
         }}

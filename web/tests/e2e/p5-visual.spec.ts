@@ -34,6 +34,42 @@ async function newFile(page: Page, item: RegExp, createdToast: RegExp) {
   await expect(page.getByText(createdToast)).toBeHidden({ timeout: 8_000 });
 }
 
+/**
+ * Anti-bleed guard. After an editor mounts, the docs SDK stylesheet
+ * (`@casualoffice/docs/dist/styles.css`) has lazy-injected its own full
+ * design-token set on a plain `:root {}`, using canonical names that overlap
+ * Drive's (--font-sans, --space-*, --radius-*, --text-*, --ease-*, …) but with
+ * the SDK's palette. Drive defines those on `html:root` (specificity 0,1,1) so
+ * it stays authoritative regardless of injection order. This asserts Drive's
+ * signal accent is still VIOLET #8B5CF6 (the neobrutalist redesign's signal —
+ * previously amber) and that a representative SDK-overlapping token still
+ * resolves to Drive's value, i.e. the SDK sheet did not repaint the chrome.
+ */
+// Drive's signal violet — theme-aware (the redesign brightens it on dark "Ink").
+// Both are Drive's own values; neither is the SDK's cyan.
+const DRIVE_VIOLET = { light: "#8b5cf6", dark: "#9b6cff" } as const;
+
+async function assertNoSdkBleed(page: Page, theme: "light" | "dark") {
+  const tokens = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      accent: cs.getPropertyValue("--accent").trim(),
+      violet: cs.getPropertyValue("--violet-500").trim(),
+      // SDK-overlapping token: Drive's radius scale (8px), not the SDK's.
+      radiusSm: cs.getPropertyValue("--radius-sm").trim(),
+      // SDK-overlapping token: Drive's Inter/Geist stack, not the SDK's.
+      fontSans: cs.getPropertyValue("--font-sans").trim(),
+    };
+  });
+  // Drive's signal accent is violet (redesign), resolved through --violet-500,
+  // and --accent aliases it — proving the SDK sheet did not repaint the signal.
+  expect(tokens.violet.toLowerCase()).toBe(DRIVE_VIOLET[theme]);
+  expect(tokens.accent.toLowerCase()).toBe(DRIVE_VIOLET[theme]);
+  // SDK-overlapping tokens still carry Drive's values (no cyan/SDK bleed).
+  expect(tokens.radiusSm).toBe("8px");
+  expect(tokens.fontSans).toMatch(/Inter/);
+}
+
 test.beforeEach(async ({ page }) => {
   await resetDemoState(page);
   await signInDemo(page);
@@ -60,8 +96,14 @@ test("docx — editor + preview, light + dark", async ({ page }) => {
 
   await setTheme(page, "light");
   await page.screenshot({ path: `${OUT}/docx-editor-light.png`, fullPage: false });
+  // With the docs SDK stylesheet now injected, Drive's chrome tokens must still
+  // resolve to Drive's own values (violet signal, no SDK cyan bleed) in light.
+  await assertNoSdkBleed(page, "light");
   await setTheme(page, "dark");
   await page.screenshot({ path: `${OUT}/docx-editor-dark.png`, fullPage: false });
+  // …and in dark (Drive brightens its own --violet-500 to #9b6cff; the
+  // SDK-overlapping tokens still resolve to Drive's, not the SDK's, values).
+  await assertNoSdkBleed(page, "dark");
 
   // The editor wrapper reflects the resolved theme (item 1a — docs SDK follows
   // Drive's dark via the wrapper's data-theme, incl. the scoped path).

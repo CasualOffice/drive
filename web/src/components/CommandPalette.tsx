@@ -80,7 +80,6 @@ const DOC_ACTIONS: DocAction[] = [
 // out of GO TO — only real, navigable surfaces appear.
 const NAV_ACTIONS: NavAction[] = [
   { id: "home", label: "My Drive", icon: Home, hint: "Files + folders" },
-  { id: "notes", label: "Notes", icon: NotebookPen, hint: "Pages + wiki" },
   { id: "activity", label: "Activity", icon: ActivityIcon, hint: "Audit feed" },
   { id: "admin", label: "Admin", icon: Gauge, hint: "System + users" },
   { id: "trash", label: "Trash", icon: Trash2, hint: "Deleted items" },

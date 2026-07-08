@@ -75,7 +75,7 @@ const year = 2026;
   .footer {
     margin-top: var(--space-16);
     padding-block: var(--space-16) var(--space-8);
-    border-top: 1px solid var(--line);
+    border-top: var(--border-w) solid var(--border);
     background: var(--paper-2);
   }
 
@@ -96,8 +96,9 @@ const year = 2026;
     display: inline-flex;
     align-items: center;
     gap: var(--space-3);
-    font-weight: 600;
-    font-size: var(--text-md);
+    font-weight: 700;
+    font-size: var(--text-lg);
+    letter-spacing: -0.01em;
   }
 
   .footer-tag {
@@ -146,7 +147,7 @@ const year = 2026;
   .footer-meta {
     margin-top: var(--space-10);
     padding-top: var(--space-6);
-    border-top: 1px solid var(--line);
+    border-top: var(--border-w) solid var(--border);
     font-size: var(--text-xs);
     color: var(--muted-2);
     display: flex;

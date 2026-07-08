@@ -1,8 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import "@fontsource-variable/inter";
-import "@fontsource-variable/newsreader"; // serif DISPLAY face — hero titles + big trust numerals
+import "@fontsource-variable/inter"; // variable — covers 450 body through 700 heavy display
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "./styles/tokens.css";

@@ -8,8 +8,8 @@
 .cd-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 20, 24, 0.4);
-  backdrop-filter: blur(2px);
+  /* Neobrutalist: dimmed flat scrim — no blur, no glass. */
+  background: var(--bg-overlay);
   z-index: 90;
   animation: cd-dialog-overlay-in 160ms var(--ease);
 }
@@ -21,10 +21,11 @@
   transform: translate(-50%, -50%);
   z-index: 91;
   width: min(420px, calc(100vw - 32px));
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: var(--shadow-hover);
+  background: var(--bg-surface);
+  /* Solid bordered surface + hard offset shadow (matches Spotlight). */
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
   padding: 22px 22px 18px;
   font-family: var(--font-sans);
   color: var(--ink);
@@ -39,9 +40,9 @@
 }
 
 .cd-dialog-title {
-  font-family: var(--font-display, var(--font-sans));
+  font-family: var(--font-sans);
   font-size: var(--text-lg, 1.05rem);
-  font-weight: 600;
+  font-weight: var(--weight-bold);
   letter-spacing: -0.01em;
   color: var(--ink);
   margin: 0;
@@ -60,8 +61,9 @@
 }
 
 .cd-dialog-icon--warn {
-  background: rgba(178, 36, 36, 0.10);
-  color: var(--danger, #b22424);
+  background: var(--bg-surface);
+  border: var(--border-w) solid var(--danger, #DC2626);
+  color: var(--danger, #DC2626);
 }
 
 .cd-dialog-body {
@@ -77,20 +79,20 @@
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  background: var(--bg-sunken);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
   outline: none;
   transition: border-color 120ms, box-shadow 120ms;
 }
 
 .cd-dialog-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-muted);
+  border-color: var(--violet-500);
+  box-shadow: 2px 2px 0 0 var(--violet-500);
 }
 
 .cd-dialog-input[aria-invalid="true"] {
-  border-color: var(--danger, #b22424);
+  border-color: var(--danger, #DC2626);
 }
 
 .cd-dialog-actions {
@@ -104,49 +106,59 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  font-weight: 500;
-  transition: background 120ms, color 120ms, border-color 120ms;
+  font-weight: var(--weight-bold);
+  box-shadow: var(--shadow-sm);
+  transition: background 120ms, color 120ms, border-color 120ms,
+              transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+/* The Press — every dialog button sinks into its offset shadow on click. */
+.cd-dialog-btn:active:not(:disabled) {
+  transform: var(--lift-press);
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cd-dialog-btn:active:not(:disabled) { transform: none; }
 }
 
 .cd-dialog-btn:disabled {
   opacity: 0.5;
   cursor: default;
+  box-shadow: none;
 }
 
 .cd-dialog-btn--ghost {
-  background: transparent;
-  color: var(--ink-soft);
-  border-color: var(--line);
+  background: var(--bg-surface);
+  color: var(--ink);
 }
 
 .cd-dialog-btn--ghost:hover:not(:disabled) {
   background: var(--bg-hover);
-  color: var(--ink);
 }
 
 .cd-dialog-btn--primary {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--violet-500);
+  color: var(--on-violet);
 }
 
 .cd-dialog-btn--primary:hover:not(:disabled) {
-  background: var(--ink-soft);
+  background: var(--violet-600);
 }
 
 .cd-dialog-btn--danger {
-  background: var(--danger, #b22424);
-  color: var(--paper);
+  background: var(--danger, #DC2626);
+  color: #FFFFFF;
 }
 
 .cd-dialog-btn--danger:hover:not(:disabled) {
-  filter: brightness(0.92);
+  filter: brightness(0.94);
 }
 
 @keyframes cd-dialog-overlay-in {

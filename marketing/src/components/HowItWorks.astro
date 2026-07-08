@@ -71,27 +71,37 @@ const steps = [
   }
 
   .how-step {
+    position: relative;
     padding: var(--space-6);
     background: var(--card);
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
   }
 
   .how-num {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--accent-strong);
-    letter-spacing: 0.15em;
-    font-weight: 600;
+    font-size: var(--text-md);
+    color: var(--on-violet);
+    background: var(--violet-500);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius-md);
+    letter-spacing: 0;
+    font-weight: 700;
   }
 
   .how-title {
     font-size: var(--text-xl);
     letter-spacing: -0.015em;
+    font-weight: 650;
   }
 
   .how-desc {
@@ -103,8 +113,10 @@ const steps = [
   .how-code {
     margin-top: auto;
     padding: var(--space-3) var(--space-4);
-    background: var(--paper);
-    border: 1px solid var(--line);
+    background: var(--paper-2);
+    border: var(--border-w) solid var(--border);
+    box-shadow: var(--shadow-soft);
+    color: var(--ink);
     font-size: var(--text-xs);
     border-radius: var(--radius-sm);
     white-space: pre-wrap;

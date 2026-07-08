@@ -89,7 +89,9 @@ export function VersionHistoryPage({ fileId }: { fileId: string }) {
         inset: 0,
         display: "flex",
         flexDirection: "column",
-        background: "var(--bg-canvas)",
+        // Flat neobrutalist canvas — let the fixed ambient dotted-grid
+        // ground show through (not an opaque surface panel).
+        background: "transparent",
       }}
     >
       <header
@@ -98,8 +100,8 @@ export function VersionHistoryPage({ fileId }: { fileId: string }) {
           display: "flex",
           alignItems: "center",
           gap: "var(--space-3)",
-          padding: "10px var(--space-6)",
-          borderBottom: "1px solid var(--border-hair)",
+          padding: "12px var(--space-6)",
+          borderBottom: "var(--border-w) solid var(--border)",
           background: "var(--bg-surface)",
         }}
       >
@@ -108,9 +110,10 @@ export function VersionHistoryPage({ fileId }: { fileId: string }) {
           onClick={goBack}
           aria-label="Back"
           title="Back (Esc)"
+          className="press-sink"
           style={{
-            padding: 6,
-            border: "1px solid var(--border-hair)",
+            padding: 7,
+            border: "var(--border-w) solid var(--border)",
             borderRadius: "var(--radius-sm)",
             background: "var(--bg-surface)",
             color: "var(--fg-default)",
@@ -118,9 +121,9 @@ export function VersionHistoryPage({ fileId }: { fileId: string }) {
             display: "inline-flex",
           }}
         >
-          <ArrowLeft size={16} strokeWidth={1.5} />
+          <ArrowLeft size={16} strokeWidth={2} />
         </button>
-        <div className="caps-label">Version history</div>
+        <div className="caps-label" style={{ color: "var(--fg-default)", fontWeight: "var(--weight-bold)" }}>Version history</div>
       </header>
 
       <main

@@ -521,8 +521,9 @@ function Card({
     <section
       style={{
         background: "var(--bg-surface)",
-        border: "1px solid var(--border-hair)",
+        border: "var(--border-w) solid var(--border)",
         borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow)",
         padding: "var(--space-4)",
       }}
     >
@@ -531,7 +532,7 @@ function Card({
           style={{
             margin: 0,
             fontSize: "var(--text-lg)",
-            fontWeight: "var(--weight-semibold)",
+            fontWeight: "var(--weight-bold)",
             color: "var(--fg-default)",
             letterSpacing: "var(--tracking-tight)",
           }}
@@ -569,8 +570,9 @@ function Notice({ children }: { children: React.ReactNode }) {
     <section
       style={{
         background: "var(--bg-surface)",
-        border: "1px solid var(--border-hair)",
+        border: "var(--border-w) solid var(--border)",
         borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow)",
         padding: "var(--space-4)",
         textAlign: "center",
         color: "var(--fg-muted)",
@@ -586,9 +588,9 @@ function Notice({ children }: { children: React.ReactNode }) {
 
 const inlineInput: React.CSSProperties = {
   width: 68,
-  height: 24,
+  height: 26,
   padding: "0 var(--space-2)",
-  border: "1px solid var(--border-strong)",
+  border: "var(--border-w) solid var(--border)",
   borderRadius: "var(--radius-sm)",
   background: "var(--bg-sunken)",
   color: "var(--fg-default)",

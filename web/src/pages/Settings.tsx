@@ -95,7 +95,8 @@ function SectionNav({
     <nav
       aria-label="Settings sections"
       style={{
-        borderRight: "1px solid var(--border-hair)",
+        borderRight: "var(--border-w) solid var(--border)",
+        background: "var(--bg-surface)",
         padding: "var(--space-6) var(--space-3) var(--space-4)",
         overflowY: "auto",
         display: "flex",
@@ -106,8 +107,8 @@ function SectionNav({
       <h1
         style={{
           margin: "0 var(--space-2) var(--space-4)",
-          fontSize: "var(--text-xl)",
-          fontWeight: "var(--weight-semibold)",
+          fontSize: "var(--text-2xl)",
+          fontWeight: "var(--weight-bold)",
           letterSpacing: "var(--tracking-tight)",
           color: "var(--fg-default)",
         }}
@@ -153,20 +154,21 @@ function NavItem({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       style={{
+        position: "relative",
         display: "flex",
         alignItems: "center",
         gap: "var(--space-2)",
         width: "100%",
-        height: 28,
-        padding: "0 var(--space-2)",
+        height: 32,
+        padding: "0 var(--space-2) 0 var(--space-3)",
         borderRadius: "var(--radius-sm)",
-        borderLeft: `2px solid ${active ? "var(--accent)" : "transparent"}`,
-        background: active ? "var(--bg-selected)" : "transparent",
-        color: active ? "var(--fg-default)" : "var(--fg-muted)",
+        border: `var(--border-w) solid ${active ? "var(--border)" : "transparent"}`,
+        background: active ? "var(--violet-100)" : "transparent",
+        color: active ? "var(--ink)" : "var(--fg-muted)",
         cursor: "pointer",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-md)",
-        fontWeight: active ? "var(--weight-semibold)" : "var(--weight-body)",
+        fontWeight: active ? "var(--weight-bold)" : "var(--weight-medium)",
         textAlign: "left",
         transition: "background var(--dur-instant) var(--ease), color var(--dur-instant) var(--ease)",
       }}
@@ -177,7 +179,22 @@ function NavItem({
         if (!active) e.currentTarget.style.background = "transparent";
       }}
     >
-      <Icon size={16} strokeWidth={1.5} aria-hidden style={{ flexShrink: 0, color: active ? "var(--fg-default)" : "var(--fg-subtle)" }} />
+      {active && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: -2,
+            top: -2,
+            bottom: -2,
+            width: 4,
+            borderTopLeftRadius: "var(--radius-sm)",
+            borderBottomLeftRadius: "var(--radius-sm)",
+            background: "var(--violet-500)",
+          }}
+        />
+      )}
+      <Icon size={16} strokeWidth={active ? 2.4 : 2} aria-hidden style={{ flexShrink: 0, color: active ? "var(--violet-500)" : "var(--fg-subtle)" }} />
       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{def.label}</span>
     </button>
   );

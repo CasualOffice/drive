@@ -141,8 +141,6 @@ export function PreviewModal({
             position: "fixed",
             inset: 0,
             background: "var(--bg-overlay)",
-            backdropFilter: "blur(6px)",
-            WebkitBackdropFilter: "blur(6px)",
             zIndex: "var(--z-modal)" as unknown as number,
             animation: "cd-fade-in 280ms var(--ease)",
           }}

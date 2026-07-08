@@ -83,18 +83,12 @@ export function SignIn() {
         alignItems: "center",
         justifyContent: "center",
         padding: "24px",
-        // Transparent so the fixed <AmbientGround/> Aura glows through; a
-        // gentle centre-lit vignette adds depth and pulls the eye to the card
-        // (kills the barren flat-void first impression).
-        background:
-          "radial-gradient(120% 90% at 50% 32%, transparent 0%, var(--signin-vignette) 100%)",
+        // Flat — the fixed dotted <AmbientGround/> shows through; the card
+        // carries all the depth via its hard border + offset shadow.
+        background: "transparent",
         overflow: "hidden",
       }}
     >
-      {/* The single amber light — a soft focal bloom behind the card. The
-          brand's "one lamp that means verified", rendered as atmosphere. */}
-      <div aria-hidden="true" className="signin-bloom" />
-
       <form
         onSubmit={onSubmit}
         className="signin-card"
@@ -104,7 +98,10 @@ export function SignIn() {
           width: 408,
           maxWidth: "100%",
           padding: "36px 32px 30px",
-          borderRadius: "var(--radius-xl)",
+          background: "var(--bg-surface)",
+          border: "var(--border-w) solid var(--border)",
+          boxShadow: "var(--shadow-lg)",
+          borderRadius: "var(--radius)",
           display: "flex",
           flexDirection: "column",
           gap: 18,
@@ -113,21 +110,20 @@ export function SignIn() {
       >
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
           <div
-            className="signin-mark"
-            style={{ color: "var(--accent)" }}
+            style={{ color: "var(--violet-500)", ["--mark-fg" as string]: "var(--bg-surface)" }}
             aria-hidden="true"
           >
-            <Logo size={44} />
+            <Logo size={48} />
           </div>
           <h1
             style={{
               margin: 0,
-              fontFamily: "var(--font-display)",
+              fontFamily: "var(--font-sans)",
               fontSize: "var(--text-display-lg)",
               lineHeight: "var(--leading-display-lg)",
-              fontWeight: 600,
+              fontWeight: 700,
               letterSpacing: "var(--tracking-display-lg)",
-              color: "var(--fg-default)",
+              color: "var(--ink)",
               textAlign: "center",
             }}
           >
@@ -156,15 +152,15 @@ export function SignIn() {
               alignItems: "flex-start",
               gap: 11,
               padding: "12px 14px",
-              background: "var(--amber-glow-2)",
-              border: "1px solid var(--amber-glow-1)",
-              borderRadius: "var(--radius-lg)",
+              background: "var(--violet-100)",
+              border: "var(--border-w) solid var(--border)",
+              borderRadius: "var(--radius-sm)",
               fontSize: "var(--text-sm)",
-              color: "var(--fg-default)",
+              color: "var(--ink)",
               lineHeight: "var(--leading-normal)",
             }}
           >
-            <Sparkles size={14} strokeWidth={2} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 2 }} />
+            <Sparkles size={14} strokeWidth={2.4} style={{ color: "var(--violet-500)", flexShrink: 0, marginTop: 2 }} />
             <div>
               Username{" "}
               <code style={kbdStyle()}>{DEMO_USERNAME}</code>
@@ -191,25 +187,34 @@ export function SignIn() {
               padding: "12px",
               fontFamily: "var(--font-sans)",
               fontSize: "var(--text-md)",
-              fontWeight: 500,
-              color: "var(--fg-default)",
-              background: "var(--bg-hover)",
-              border: "1px solid var(--border-strong)",
+              fontWeight: 650,
+              color: "var(--ink)",
+              background: "var(--bg-surface)",
+              border: "var(--border-w) solid var(--border)",
               borderRadius: "var(--radius-sm)",
+              boxShadow: "var(--shadow)",
               textDecoration: "none",
               cursor: "pointer",
-              transition: "background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)",
+              transition: "transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease)",
             }}
             onMouseOver={(e) => {
-              e.currentTarget.style.transform = "translateY(-1px)";
-              e.currentTarget.style.background = "var(--bg-active)";
+              e.currentTarget.style.transform = "var(--lift)";
+              e.currentTarget.style.boxShadow = "var(--shadow-lg)";
             }}
             onMouseOut={(e) => {
               e.currentTarget.style.transform = "";
-              e.currentTarget.style.background = "var(--bg-hover)";
+              e.currentTarget.style.boxShadow = "var(--shadow)";
+            }}
+            onMouseDown={(e) => {
+              e.currentTarget.style.transform = "var(--lift-press)";
+              e.currentTarget.style.boxShadow = "var(--shadow-sm)";
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = "var(--lift)";
+              e.currentTarget.style.boxShadow = "var(--shadow-lg)";
             }}
           >
-            <KeyRound size={15} strokeWidth={2} />
+            <KeyRound size={15} strokeWidth={2.4} />
             Sign in with {oidcLabel}
           </a>
         )}
@@ -301,34 +306,40 @@ export function SignIn() {
               padding: "13px",
               fontFamily: "var(--font-sans)",
               fontSize: "var(--text-md)",
-              fontWeight: 600,
+              fontWeight: 700,
               letterSpacing: "var(--tracking-tight)",
-              color: submitDisabled ? "var(--fg-disabled)" : "var(--accent-fg)",
-              background: submitDisabled ? "var(--bg-sunken)" : "var(--accent)",
-              border: "1px solid transparent",
+              color: submitDisabled ? "var(--fg-disabled)" : "var(--on-violet)",
+              background: submitDisabled ? "var(--bg-sunken)" : "var(--violet-500)",
+              border: "var(--border-w) solid var(--border)",
               borderRadius: "var(--radius-sm)",
               cursor: submitDisabled ? "default" : "pointer",
-              boxShadow: submitDisabled
-                ? "none"
-                : "0 6px 20px rgba(242, 163, 36, 0.35), var(--edge-hi)",
+              boxShadow: submitDisabled ? "none" : "var(--shadow)",
               transition:
-                "background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out)",
+                "background var(--dur) var(--ease), transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease)",
             }}
             onMouseOver={(e) => {
               if (submitDisabled) return;
-              e.currentTarget.style.transform = "translateY(-1px)";
-              e.currentTarget.style.background = "var(--accent-hover)";
-              e.currentTarget.style.boxShadow =
-                "0 8px 26px rgba(242, 163, 36, 0.45), var(--edge-hi)";
+              e.currentTarget.style.transform = "var(--lift)";
+              e.currentTarget.style.background = "var(--violet-600)";
+              e.currentTarget.style.boxShadow = "var(--shadow-lg)";
             }}
             onMouseOut={(e) => {
               e.currentTarget.style.transform = "";
               e.currentTarget.style.background = submitDisabled
                 ? "var(--bg-sunken)"
-                : "var(--accent)";
-              e.currentTarget.style.boxShadow = submitDisabled
-                ? "none"
-                : "0 6px 20px rgba(242, 163, 36, 0.35), var(--edge-hi)";
+                : "var(--violet-500)";
+              e.currentTarget.style.boxShadow = submitDisabled ? "none" : "var(--shadow)";
+            }}
+            onMouseDown={(e) => {
+              if (submitDisabled) return;
+              // The Press — sink into the offset shadow.
+              e.currentTarget.style.transform = "var(--lift-press)";
+              e.currentTarget.style.boxShadow = "var(--shadow-sm)";
+            }}
+            onMouseUp={(e) => {
+              if (submitDisabled) return;
+              e.currentTarget.style.transform = "var(--lift)";
+              e.currentTarget.style.boxShadow = "var(--shadow-lg)";
             }}
           >
             {busy ? "Signing in…" : "Sign in"}
@@ -340,11 +351,11 @@ export function SignIn() {
             role="alert"
             style={{
               padding: "11px 13px",
-              background: "var(--amber-glow-2)",
-              border: "1px solid var(--amber-glow-1)",
-              borderRadius: "var(--radius-lg)",
+              background: "var(--violet-100)",
+              border: "var(--border-w) solid var(--border)",
+              borderRadius: "var(--radius-sm)",
               fontSize: "var(--text-xs)",
-              color: "var(--fg-default)",
+              color: "var(--ink)",
             }}
           >
             Sign-in is disabled. Ask the operator to set
@@ -370,11 +381,11 @@ export function SignIn() {
         >
           <span
             style={{
-              width: 5,
-              height: 5,
-              borderRadius: "50%",
-              background: "var(--status-verified)",
-              boxShadow: "0 0 8px var(--status-verified)",
+              width: 7,
+              height: 7,
+              borderRadius: 2,
+              background: "var(--ok)",
+              border: "1.5px solid var(--border)",
               flexShrink: 0,
             }}
           />
@@ -384,65 +395,6 @@ export function SignIn() {
 
       <style>
         {`
-          :root { --signin-vignette: rgba(22, 22, 26, 0.05); }
-          :root[data-theme="dark"], .dark { --signin-vignette: rgba(0, 0, 0, 0.55); }
-          @media (prefers-color-scheme: dark) {
-            :root:not([data-theme]), :root[data-theme="system"] {
-              --signin-vignette: rgba(0, 0, 0, 0.55);
-            }
-          }
-
-          /* The glass sign-in card — real depth: rim-light + deep float
-             shadow over the blurred Aura. */
-          .signin-card {
-            background: var(--mat-thick);
-            backdrop-filter: blur(var(--blur-overlay)) saturate(var(--saturate));
-            -webkit-backdrop-filter: blur(var(--blur-overlay)) saturate(var(--saturate));
-            border: var(--hairline-glass);
-            box-shadow: var(--edge-hi), var(--shadow-overlay);
-          }
-          @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-            .signin-card { background: var(--glass-solid); }
-          }
-          @media (prefers-reduced-transparency: reduce) {
-            .signin-card {
-              background: var(--glass-solid);
-              backdrop-filter: none;
-              -webkit-backdrop-filter: none;
-            }
-          }
-
-          /* The amber focal bloom behind the card. */
-          .signin-bloom {
-            position: absolute;
-            top: 30%;
-            left: 50%;
-            width: 640px;
-            height: 640px;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            pointer-events: none;
-            z-index: 0;
-            background: radial-gradient(
-              circle at center,
-              var(--amber-glow-1) 0%,
-              var(--amber-glow-2) 30%,
-              transparent 66%
-            );
-            filter: blur(28px);
-            opacity: 0.9;
-            animation: cd-bloom-breathe 7s var(--ease-inout) infinite alternate;
-          }
-
-          .signin-mark svg {
-            filter: drop-shadow(0 4px 14px var(--amber-glow-2));
-          }
-
-          @keyframes cd-bloom-breathe {
-            from { opacity: 0.72; transform: translate(-50%, -50%) scale(0.98); }
-            to   { opacity: 1;    transform: translate(-50%, -50%) scale(1.04); }
-          }
-
           @keyframes cd-shake {
             0%,100% { transform: translateX(0); }
             25%     { transform: translateX(-6px); }
@@ -450,7 +402,6 @@ export function SignIn() {
           }
           @media (prefers-reduced-motion: reduce) {
             .signin-card { animation: none !important; }
-            .signin-bloom { animation: none; }
           }
         `}
       </style>
@@ -462,11 +413,11 @@ function kbdStyle(): React.CSSProperties {
   return {
     fontFamily: "var(--font-mono, ui-monospace, monospace)",
     background: "var(--bg-sunken)",
-    border: "1px solid var(--border-hair)",
+    border: "var(--border-w) solid var(--border)",
     borderRadius: "var(--radius-xs)",
     padding: "1px 6px",
     fontSize: 11,
-    color: "var(--fg-default)",
+    color: "var(--ink)",
   };
 }
 
@@ -514,22 +465,23 @@ function Input({
         padding: "12px 14px",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-md)",
-        color: "var(--fg-default)",
-        background: "var(--bg-sunken)",
-        border: `1px solid ${invalid ? "var(--status-danger)" : "var(--border-hair)"}`,
+        fontWeight: "var(--weight-medium)",
+        color: "var(--ink)",
+        background: "var(--bg-surface)",
+        border: `var(--border-w) solid ${invalid ? "var(--danger)" : "var(--border)"}`,
         borderRadius: "var(--radius-sm)",
         outline: "none",
-        transition: "border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out)",
+        transition: "border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease)",
       }}
       onFocus={(e) => {
-        // Retuned amber focus ring (§2.2): 2px surface gap + amber glow.
-        e.currentTarget.style.borderColor = invalid ? "var(--status-danger)" : "var(--accent)";
+        // Inset focus → violet border + violet hard offset shadow.
+        e.currentTarget.style.borderColor = invalid ? "var(--danger)" : "var(--violet-500)";
         e.currentTarget.style.boxShadow = invalid
-          ? "0 0 0 2px var(--bg-surface), 0 0 0 4px var(--status-danger)"
-          : "0 0 0 2px var(--bg-surface), 0 0 0 4px var(--amber-glow-1)";
+          ? "2px 2px 0 0 var(--danger)"
+          : "2px 2px 0 0 var(--violet-500)";
       }}
       onBlur={(e) => {
-        e.currentTarget.style.borderColor = invalid ? "var(--status-danger)" : "var(--border-hair)";
+        e.currentTarget.style.borderColor = invalid ? "var(--danger)" : "var(--border)";
         e.currentTarget.style.boxShadow = "";
         onCapsLockChange?.(false);
       }}

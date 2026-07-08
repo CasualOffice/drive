@@ -307,9 +307,9 @@ export function CodeTextEditor({ file, onSaveStatus, onSaved, collab }: CodeText
           display: "flex",
           alignItems: "center",
           gap: 10,
-          height: 40,
+          height: 44,
           padding: "0 16px",
-          borderBottom: "1px solid var(--border-hair)",
+          borderBottom: "var(--border-w) solid var(--border)",
           background: "var(--bg-surface)",
         }}
       >
@@ -319,26 +319,27 @@ export function CodeTextEditor({ file, onSaveStatus, onSaved, collab }: CodeText
           disabled={saving || !dirty}
           data-testid="code-text-editor-save"
           title="Save (⌘S)"
+          className="press-sink-lg"
           style={{
             display: "inline-flex",
             alignItems: "center",
             gap: 6,
-            height: 28,
-            padding: "0 12px",
-            border: "1px solid var(--border-strong)",
+            height: 30,
+            padding: "0 14px",
+            border: "var(--border-w) solid var(--border)",
             borderRadius: "var(--radius-sm)",
-            background: dirty ? "var(--accent, var(--bg-raised))" : "var(--bg-raised)",
-            color: dirty ? "var(--accent-fg, var(--fg-default))" : "var(--fg-muted)",
+            background: dirty ? "var(--violet-500)" : "var(--bg-surface)",
+            color: dirty ? "var(--on-violet)" : "var(--fg-muted)",
             cursor: saving || !dirty ? "default" : "pointer",
             opacity: saving ? 0.7 : 1,
             fontSize: "var(--text-sm)",
-            fontWeight: "var(--weight-medium)",
+            fontWeight: "var(--weight-bold)",
           }}
         >
-          <Save size={14} strokeWidth={1.5} />
+          <Save size={14} strokeWidth={2} />
           Save
         </button>
-        <span style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+        <span style={{ fontSize: "var(--text-xs)", fontWeight: "var(--weight-medium)", color: "var(--fg-muted)" }}>
           {dirty ? "Unsaved changes" : "All changes saved"}
         </span>
       </div>
@@ -359,7 +360,7 @@ export function CodeTextEditor({ file, onSaveStatus, onSaved, collab }: CodeText
             lineHeight: 1.6,
             color: "var(--fg-faint, var(--fg-muted))",
             background: "var(--bg-sunken)",
-            borderRight: "1px solid var(--border-hair)",
+            borderRight: "var(--border-w) solid var(--border)",
             userSelect: "none",
           }}
         >

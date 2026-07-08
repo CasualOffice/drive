@@ -120,15 +120,15 @@ export function App() {
         position="bottom-center"
         toastOptions={{
           style: {
-            background: "var(--bg-raised)",
+            background: "var(--bg-surface)",
             color: "var(--fg-default)",
-            border: "1px solid var(--border-hair)",
-            borderRadius: "var(--radius-md)",
+            border: "var(--border-w) solid var(--border)",
+            borderRadius: "var(--radius)",
             fontFamily: "var(--font-sans)",
             fontSize: "var(--text-sm)",
-            fontWeight: 500,
+            fontWeight: 600,
             padding: "10px 14px",
-            boxShadow: "var(--shadow-md)",
+            boxShadow: "var(--shadow-lg)",
           },
         }}
       />

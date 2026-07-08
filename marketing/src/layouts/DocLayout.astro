@@ -118,9 +118,10 @@ const nav = [
 
   /* ── Mobile sidebar (≤ 1024) ─────────────────────────────────────── */
   .docs-sidebar-mobile {
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-md);
     background: var(--card);
+    box-shadow: var(--shadow-soft);
   }
 
   @media (min-width: 1024px) {
@@ -148,7 +149,7 @@ const nav = [
 
   .docs-sidebar-mobile[open] .docs-sidebar-list {
     padding: var(--space-2);
-    border-top: 1px solid var(--line);
+    border-top: var(--border-w) solid var(--border);
   }
 
   /* ── Desktop sidebar (≥ 1024) ────────────────────────────────────── */
@@ -196,14 +197,15 @@ const nav = [
   }
 
   .docs-sidebar-link:hover {
-    background: var(--bg-hover);
+    background: var(--paper-2);
     color: var(--ink);
   }
 
   .docs-sidebar-link.active {
-    background: var(--accent-muted);
-    color: var(--accent-strong);
-    font-weight: 500;
+    background: var(--violet-100);
+    color: var(--ink);
+    border: var(--border-w) solid var(--border);
+    font-weight: 650;
   }
 
   /* ── Content ─────────────────────────────────────────────────────── */
@@ -213,18 +215,24 @@ const nav = [
   }
 
   .docs-eyebrow {
+    display: inline-block;
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--accent-strong);
-    margin-bottom: var(--space-3);
+    letter-spacing: 0.12em;
+    color: var(--ink);
+    background: var(--violet-100);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-3);
+    margin-bottom: var(--space-4);
   }
 
   .docs-h1 {
     font-size: var(--text-4xl);
     letter-spacing: -0.03em;
     margin-bottom: var(--space-3);
+    font-weight: 700;
   }
 
   @media (min-width: 768px) {
@@ -289,8 +297,9 @@ const nav = [
     margin: var(--space-5) 0;
     padding: var(--space-4) var(--space-5);
     background: var(--paper-2);
-    border: 1px solid var(--line);
+    border: var(--border-w) solid var(--border);
     border-radius: var(--radius-md);
+    box-shadow: var(--shadow-soft);
     overflow-x: auto;
     font-size: var(--text-sm);
     line-height: 1.6;
@@ -321,26 +330,28 @@ const nav = [
   .docs-body :global(td) {
     padding: var(--space-3);
     text-align: left;
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--border-w) solid var(--border);
     vertical-align: top;
   }
 
   .docs-body :global(th) {
-    color: var(--muted);
-    font-weight: 500;
+    color: var(--on-violet);
+    font-weight: 700;
     font-size: var(--text-xs);
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    background: var(--paper-2);
+    background: var(--ink);
   }
 
   .docs-body :global(blockquote) {
     margin: var(--space-5) 0;
     padding: var(--space-4) var(--space-5);
-    border-left: 3px solid var(--accent);
-    background: var(--accent-muted);
-    border-radius: var(--radius-sm);
-    color: var(--ink-soft);
+    border: var(--border-w) solid var(--border);
+    border-left-width: 4px;
+    background: var(--violet-100);
+    box-shadow: var(--shadow-soft);
+    border-radius: var(--radius-md);
+    color: var(--ink);
   }
 
   .docs-body :global(blockquote p) {
@@ -349,7 +360,7 @@ const nav = [
 
   .docs-body :global(hr) {
     border: none;
-    border-top: 1px solid var(--line);
+    border-top: var(--border-w) solid var(--border);
     margin: var(--space-10) 0;
   }
 </style>
