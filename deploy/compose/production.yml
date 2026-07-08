@@ -1,0 +1,110 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SAMPLE: production (HARDENED TEMPLATE — read before use, not turnkey)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#   docker compose --env-file ../.env -f production.yml up -d --build
+#
+# WHEN TO USE
+#   A realistic starting point for a hardened, internet-facing deployment:
+#   external managed collab, external Postgres, external S3-compatible storage,
+#   NO dev-default secrets (every required value must come from the environment
+#   — there are no `:-` fallbacks), and DOCHUB_PROD=true so the binary enforces
+#   its production invariants (distinct origins, no dev-default secrets).
+#
+#   THIS IS A TEMPLATE, NOT A ONE-COMMAND STACK. It assumes you operate the
+#   collab gateway, Postgres, and object storage yourself (or via managed
+#   services). Fill in ../.env, put a TLS reverse proxy in front, then deploy.
+#
+# ── TLS reverse proxy (required) ─────────────────────────────────────────────
+# dochub speaks plain HTTP and binds to loopback here (127.0.0.1:8080). Front
+# it with Caddy / Traefik / nginx terminating TLS on :443, forwarding:
+#   - DOCHUB_APP_ORIGIN          → dochub :8080
+#   - DOCHUB_USERCONTENT_ORIGIN  → dochub :8080 (SAME binary, different Host;
+#                                   MUST be a distinct hostname — prod boot
+#                                   refuses app_origin == usercontent_origin)
+#   - the collab gateway host    → your managed/self-run collab on :443/wss
+# Set X-Forwarded-Proto=https on the proxy so cookies get the Secure attribute.
+# Example Caddyfile:
+#     drive.example.org            { reverse_proxy 127.0.0.1:8080 }
+#     usercontent.example.org      { reverse_proxy 127.0.0.1:8080 }
+#     collab.example.org           { reverse_proxy your-collab-host:8080 }
+#
+# ── Dual collab-URL footgun (still applies) ──────────────────────────────────
+# DOCHUB_COLLAB_URL and VITE_DRIVE_COLLAB_BACKEND_URL are BROWSER-facing. In
+# production they must be your PUBLIC collab hostname (https/wss via the proxy),
+# NOT an internal address the browser can't reach. VITE_DRIVE_COLLAB_BACKEND_URL
+# is a BUILD arg — it is baked into the SPA bundle at `docker build`, so you
+# must rebuild the image whenever the public collab URL changes.
+#
+# ── Shared secret ────────────────────────────────────────────────────────────
+# The external collab gateway's CASUAL_JWT_SECRET MUST equal DOCHUB_WOPI_HMAC_
+# SECRET set here. The gateway is external in this template, so wire that on the
+# gateway side to the SAME value.
+#
+# ── Required env (no fallbacks — boot fails if any is unset) ──────────────────
+#   DOCHUB_APP_ORIGIN, DOCHUB_USERCONTENT_ORIGIN   distinct public HTTPS origins
+#   DOCHUB_MASTER_KEY                               base64 32-byte KEK (at-rest enc.)
+#   DOCHUB_SESSION_SECRET / _WOPI_HMAC_SECRET / _SIGNED_URL_HMAC_SECRET  >=32 bytes,
+#                                                   NOT the dev defaults
+#   DOCHUB_ADMIN_USER, DOCHUB_ADMIN_PASSWORD_HASH  argon2id hash
+#   DOCHUB_DB_URL                                   external Postgres URL
+#   DOCHUB_S3_BUCKET / _REGION / _ENDPOINT, AWS_ACCESS_KEY_ID / _SECRET_ACCESS_KEY
+#   DOCHUB_COLLAB_URL, VITE_DRIVE_COLLAB_BACKEND_URL  public collab host
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  dochub:
+    build:
+      context: ../..
+      args:
+        # Public collab ws URL — baked into the SPA bundle at build time.
+        VITE_DRIVE_COLLAB_BACKEND_URL: "${VITE_DRIVE_COLLAB_BACKEND_URL:?public collab wss URL, e.g. wss://collab.example.org}"
+    image: "${DOCHUB_IMAGE:-casual-dochub:prod}"
+    restart: always
+    environment:
+      DOCHUB_PROD: "true"
+      # Distinct public origins — prod boot refuses if they match.
+      DOCHUB_APP_ORIGIN: "${DOCHUB_APP_ORIGIN:?public app origin, e.g. https://drive.example.org}"
+      DOCHUB_USERCONTENT_ORIGIN: "${DOCHUB_USERCONTENT_ORIGIN:?public user-content origin, MUST differ from app origin}"
+      # Bind is inside the container; the proxy fronts it. Port mapping below
+      # publishes only to loopback on the host.
+      DOCHUB_BIND: "0.0.0.0:8080"
+      DOCHUB_BODY_LIMIT_MB: "${DOCHUB_BODY_LIMIT_MB:-100}"
+
+      # External S3-compatible storage.
+      DOCHUB_BACKEND: "s3"
+      DOCHUB_S3_BUCKET: "${DOCHUB_S3_BUCKET:?external bucket name}"
+      DOCHUB_S3_REGION: "${DOCHUB_S3_REGION:-us-east-1}"
+      DOCHUB_S3_ENDPOINT: "${DOCHUB_S3_ENDPOINT:-}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:?S3 access key}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:?S3 secret key}"
+
+      # External Postgres.
+      DOCHUB_DB_URL: "${DOCHUB_DB_URL:?external postgres URL, e.g. postgres://user:pass@db.example.org:5432/dochub}"
+
+      # Browser-facing public collab host (https → backend reflects to wss/yjs).
+      DOCHUB_COLLAB_URL: "${DOCHUB_COLLAB_URL:?public collab origin, e.g. https://collab.example.org}"
+
+      # At-rest encryption KEK — required, no default.
+      DOCHUB_MASTER_KEY: "${DOCHUB_MASTER_KEY:?base64 32-byte master KEK}"
+
+      # Secrets — required, >=32 bytes, and NOT the dev defaults (prod rejects
+      # dev-default values). DOCHUB_WOPI_HMAC_SECRET must equal the external
+      # collab gateway's CASUAL_JWT_SECRET.
+      DOCHUB_SESSION_SECRET: "${DOCHUB_SESSION_SECRET:?>=32-byte session secret}"
+      DOCHUB_WOPI_HMAC_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:?>=32-byte HMAC secret (== collab CASUAL_JWT_SECRET)}"
+      DOCHUB_SIGNED_URL_HMAC_SECRET: "${DOCHUB_SIGNED_URL_HMAC_SECRET:?>=32-byte HMAC secret}"
+
+      DOCHUB_ADMIN_USER: "${DOCHUB_ADMIN_USER:?admin username}"
+      DOCHUB_ADMIN_PASSWORD_HASH: "${DOCHUB_ADMIN_PASSWORD_HASH:?argon2id hash of the admin password}"
+
+      RUST_LOG: "${RUST_LOG:-info}"
+    # Publish to loopback only — the TLS reverse proxy is the public entrypoint.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+# NOTE: no collab / postgres / minio services here — all three are external in
+# this template. If you prefer to run the collab gateway in-compose, copy the
+# `collab` service block from coediting.yml and set DOCHUB_COLLAB_URL /
+# VITE_DRIVE_COLLAB_BACKEND_URL to its PUBLIC (proxy-fronted) hostname, not the
+# compose-internal name.

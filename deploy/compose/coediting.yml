@@ -1,0 +1,139 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SAMPLE: co-editing (full self-host stack WITH real-time collaboration)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#   docker compose --env-file ../.env -f coediting.yml up -d --build
+#
+# WHEN TO USE
+#   The complete self-hosted deployment: multiple people editing the SAME
+#   document at once with live cursors and presence. This is the canonical
+#   full stack — Doc-Hub + the collab gateway + bundled MinIO object storage.
+#   Start here unless you specifically want the simpler single-user deploy.
+#
+# SERVICES
+#   dochub      Doc-Hub — SPA + JSON API + WOPI host (Rust single binary).  :8080
+#   collab      casualoffice/docs:v0.0.5 in GATEWAY_HOST=inline mode
+#               (Hocuspocus/Yjs). Format-agnostic: ONE service brokers BOTH
+#               .docx and .xlsx rooms.                                        :8082
+#   minio       S3-compatible object storage, bucket `drive-dev`.     :9000/:9001
+#   minio-init  one-shot bucket creation.                                      —
+#
+# ── The dual collab-URL footgun ──────────────────────────────────────────────
+# There are TWO collab URLs and both point at the SAME host-published gateway
+# (:8082), because BOTH are consumed in the BROWSER, never server-side:
+#
+#   1. DOCHUB_COLLAB_URL (dochub runtime env) is NOT a URL dochub dials. The
+#      backend only reflects it into the room `ws_url` it hands to the browser
+#      (crates/dochub-http/src/collab.rs `collab_ws_url`, http→ws, path /yjs).
+#      So it must be reachable FROM THE BROWSER — the host-published gateway,
+#      never the compose-internal `http://collab:8080`.
+#   2. VITE_DRIVE_COLLAB_BACKEND_URL (SPA build-arg) is baked into the bundle
+#      for the SDK direct-mount collab path. Also browser-facing ⇒ also the
+#      host-published ws URL.
+#
+# ── Shared secret ────────────────────────────────────────────────────────────
+# The gateway validates the per-file HS256 editor tokens dochub mints, so its
+# CASUAL_JWT_SECRET MUST EQUAL dochub's DOCHUB_WOPI_HMAC_SECRET. Both reference
+# the single ${DOCHUB_WOPI_HMAC_SECRET} interpolation, so they can never drift.
+#
+# ── At-rest encryption ───────────────────────────────────────────────────────
+# DOCHUB_MASTER_KEY (base64 32-byte KEK) is REQUIRED — the binary refuses to
+# boot without it (crates/dochub-core/src/config.rs). The dev default below
+# keeps `up` one-command; override it in ../.env before any real use.
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  collab:
+    image: casualoffice/docs:v0.0.5
+    container_name: casual-dochub-collab
+    restart: unless-stopped
+    environment:
+      GATEWAY_HOST: "inline"
+      # MUST equal dochub's DOCHUB_WOPI_HMAC_SECRET (same HS256 signing key).
+      CASUAL_JWT_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
+      LOG_FORMAT: "json"
+      ACCESS_LOG: "true"
+    # Host-published so the BROWSER opens the Yjs WebSocket directly.
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  dochub:
+    build:
+      context: ../..
+      args:
+        # Baked into the SPA bundle (browser-facing ⇒ host-published ws URL).
+        VITE_DRIVE_COLLAB_BACKEND_URL: "${VITE_DRIVE_COLLAB_BACKEND_URL:-ws://localhost:8082}"
+    image: casual-dochub:dev
+    restart: unless-stopped
+    environment:
+      DOCHUB_APP_ORIGIN: "http://127.0.0.1:8080"
+      DOCHUB_USERCONTENT_ORIGIN: "http://127.0.0.1:8081"
+      DOCHUB_BIND: "0.0.0.0:8080"
+      DOCHUB_BACKEND: "minio"
+      DOCHUB_S3_BUCKET: "drive-dev"
+      DOCHUB_S3_ENDPOINT: "http://minio:9000"
+      DOCHUB_S3_REGION: "auto"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      DOCHUB_DB_URL: "sqlite:///data/drive.db"
+      # Browser-reachable collab URL (host-published gateway, never compose DNS).
+      DOCHUB_COLLAB_URL: "${DOCHUB_COLLAB_URL:-http://localhost:8082}"
+      # Required base64 32-byte KEK — boot refuses without it.
+      DOCHUB_MASTER_KEY: "${DOCHUB_MASTER_KEY:-SUE1Sjdva3RpaVBiUlhGcWlPVHluWGw0dGdKakpFM1k=}"
+      # Dev-only secrets — DO NOT use in prod. DOCHUB_WOPI_HMAC_SECRET is ALSO
+      # the collab gateway's CASUAL_JWT_SECRET (single interpolation above).
+      DOCHUB_SESSION_SECRET: "${DOCHUB_SESSION_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-aa}"
+      DOCHUB_WOPI_HMAC_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
+      DOCHUB_SIGNED_URL_HMAC_SECRET: "${DOCHUB_SIGNED_URL_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-cc}"
+      DOCHUB_ADMIN_USER: "admin"
+      # argon2id of "admin" — replace before any real use.
+      DOCHUB_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=19456,t=2,p=1$$ZGV2c2FsdGRldnNhbHQ$$REPLACE_BEFORE_PROD"
+      RUST_LOG: "info,dochub=debug"
+    ports:
+      - "8080:8080"
+    volumes:
+      - dochub_data:/data
+    depends_on:
+      minio:
+        condition: service_healthy
+      collab:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >-
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      (mc mb local/drive-dev || true) &&
+      echo bucket-ready"
+
+volumes:
+  dochub_data:
+  minio_data:
