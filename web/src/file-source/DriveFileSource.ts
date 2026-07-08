@@ -25,7 +25,7 @@
  *     because the wrapper requires a fileId prop. Throws if hit.
  */
 
-import type { FileSource, FileEntry } from "@schnsrw/docx-js-editor";
+import type { FileSource, FileEntry } from "@casualoffice/docs";
 
 import { ApiError, DEMO_MODE, getCsrfToken, type FileDto } from "../api/client.ts";
 import { demoRequest } from "../api/demo.ts";

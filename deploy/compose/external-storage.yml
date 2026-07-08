@@ -1,0 +1,97 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SAMPLE: external-storage (co-editing stack, external S3-compatible bucket)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#   docker compose --env-file ../.env -f external-storage.yml up -d --build
+#
+# WHEN TO USE
+#   The full co-editing stack, but object storage lives in a real external
+#   S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2, Wasabi, …)
+#   instead of the bundled MinIO. Use when you already run managed object
+#   storage, want durability/replication you don't operate, or are deploying
+#   across hosts. The `minio` + `minio-init` services are gone; everything
+#   else matches coediting.yml.
+#
+# SERVICES
+#   dochub      Doc-Hub (Rust single binary).                              :8080
+#   collab      casualoffice/docs:v0.0.5 gateway (Hocuspocus/Yjs).         :8082
+#   (no minio — storage is your external bucket)
+#
+# ── Storage wiring ───────────────────────────────────────────────────────────
+# Doc-Hub's storage facade is OpenDAL-backed; the `s3` backend targets any
+# S3-compatible endpoint. Set these in ../.env (no dev fallbacks — you must
+# supply real values):
+#   DOCHUB_S3_BUCKET          bucket name
+#   DOCHUB_S3_REGION          e.g. us-east-1 (R2/B2: use `auto` or the provider default)
+#   DOCHUB_S3_ENDPOINT        provider endpoint, e.g.
+#                               AWS   https://s3.us-east-1.amazonaws.com (or omit for AWS default)
+#                               R2    https://<account>.r2.cloudflarestorage.com
+#                               B2    https://s3.<region>.backblazeb2.com
+#   AWS_ACCESS_KEY_ID         access key / R2 token id
+#   AWS_SECRET_ACCESS_KEY     secret key / R2 token secret
+# Bucket creation is NOT automated here — create it in your provider first.
+#
+# Dual collab-URL footgun + shared secret: identical to coediting.yml.
+# DOCHUB_COLLAB_URL and VITE_DRIVE_COLLAB_BACKEND_URL are BROWSER-facing
+# (host-published :8082); the gateway's CASUAL_JWT_SECRET MUST equal dochub's
+# DOCHUB_WOPI_HMAC_SECRET. DOCHUB_MASTER_KEY (base64 32-byte KEK) is REQUIRED.
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  collab:
+    image: casualoffice/docs:v0.0.5
+    container_name: casual-dochub-collab
+    restart: unless-stopped
+    environment:
+      GATEWAY_HOST: "inline"
+      CASUAL_JWT_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
+      LOG_FORMAT: "json"
+      ACCESS_LOG: "true"
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  dochub:
+    build:
+      context: ../..
+      args:
+        VITE_DRIVE_COLLAB_BACKEND_URL: "${VITE_DRIVE_COLLAB_BACKEND_URL:-ws://localhost:8082}"
+    image: casual-dochub:dev
+    restart: unless-stopped
+    environment:
+      DOCHUB_APP_ORIGIN: "http://127.0.0.1:8080"
+      DOCHUB_USERCONTENT_ORIGIN: "http://127.0.0.1:8081"
+      DOCHUB_BIND: "0.0.0.0:8080"
+      # External S3-compatible bucket — supply all of these in ../.env.
+      DOCHUB_BACKEND: "s3"
+      DOCHUB_S3_BUCKET: "${DOCHUB_S3_BUCKET:?set your external bucket name in .env}"
+      DOCHUB_S3_REGION: "${DOCHUB_S3_REGION:-us-east-1}"
+      # Omit / leave empty for real AWS S3 to use the default endpoint; set it
+      # for R2 / B2 / MinIO-elsewhere.
+      DOCHUB_S3_ENDPOINT: "${DOCHUB_S3_ENDPOINT:-}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:?set your S3 access key in .env}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:?set your S3 secret key in .env}"
+      DOCHUB_DB_URL: "sqlite:///data/drive.db"
+      DOCHUB_COLLAB_URL: "${DOCHUB_COLLAB_URL:-http://localhost:8082}"
+      DOCHUB_MASTER_KEY: "${DOCHUB_MASTER_KEY:-SUE1Sjdva3RpaVBiUlhGcWlPVHluWGw0dGdKakpFM1k=}"
+      DOCHUB_SESSION_SECRET: "${DOCHUB_SESSION_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-aa}"
+      DOCHUB_WOPI_HMAC_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
+      DOCHUB_SIGNED_URL_HMAC_SECRET: "${DOCHUB_SIGNED_URL_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-cc}"
+      DOCHUB_ADMIN_USER: "admin"
+      DOCHUB_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=19456,t=2,p=1$$ZGV2c2FsdGRldnNhbHQ$$REPLACE_BEFORE_PROD"
+      RUST_LOG: "info,dochub=debug"
+    ports:
+      - "8080:8080"
+    volumes:
+      - dochub_data:/data
+    depends_on:
+      collab:
+        condition: service_healthy
+
+volumes:
+  dochub_data:

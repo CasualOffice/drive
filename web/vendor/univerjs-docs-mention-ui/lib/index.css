@@ -1,0 +1,89 @@
+.univer-pointer-events-none {
+  pointer-events: none;
+}
+
+.univer-mb-2 {
+  margin-bottom: .5rem;
+}
+
+.univer-mr-1\.5 {
+  margin-right: .375rem;
+}
+
+.univer-flex {
+  display: flex;
+}
+
+.univer-size-6 {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.univer-max-h-72 {
+  max-height: 18rem;
+}
+
+.univer-w-72 {
+  width: 18rem;
+}
+
+.univer-flex-1 {
+  flex: 1;
+}
+
+.univer-flex-\[0_0_auto\] {
+  flex: none;
+}
+
+.univer-cursor-pointer {
+  cursor: pointer;
+}
+
+.univer-items-center {
+  align-items: center;
+}
+
+.univer-overflow-hidden {
+  overflow: hidden;
+}
+
+.univer-truncate {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.univer-rounded-lg {
+  border-radius: .5rem;
+}
+
+.univer-rounded-md {
+  border-radius: .375rem;
+}
+
+.univer-bg-gray-50 {
+  background-color: var(--univer-gray-50);
+}
+
+.univer-bg-white {
+  background-color: var(--univer-white);
+}
+
+.univer-p-2 {
+  padding: .5rem;
+}
+
+.univer-font-medium {
+  font-weight: 500;
+}
+
+.univer-shadow-md {
+  --univer-tw-shadow: 0px 1px 6px -2px #1e284d14, 0px 2px 6px -1px #1e284d1a;
+  --univer-tw-shadow-colored: 0px 1px 6px -2px var(--univer-tw-shadow-color), 0px 2px 6px -1px var(--univer-tw-shadow-color);
+  box-shadow: 0 0 #0000, 0 0 #0000, 0 1px 6px -2px #1e284d14, 0 2px 6px -1px #1e284d1a;
+  box-shadow: var(--univer-tw-ring-offset-shadow, 0 0 #0000), var(--univer-tw-ring-shadow, 0 0 #0000), var(--univer-tw-shadow);
+}
+
+.hover\:univer-bg-gray-50:hover {
+  background-color: var(--univer-gray-50);
+}

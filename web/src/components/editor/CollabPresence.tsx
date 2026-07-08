@@ -29,10 +29,10 @@ export function CollabPresence({ session }: { session: CollabSession }) {
 
   const dot =
     session.status === "connected"
-      ? "var(--status-success-500, #16a34a)"
+      ? "var(--ok)"
       : session.status === "connecting"
-        ? "var(--status-warning-500, #d97706)"
-        : "var(--fg-faint, #94a3b8)";
+        ? "var(--warn)"
+        : "var(--ink-soft)";
   const label =
     session.status === "connected"
       ? peers.length > 0
@@ -57,24 +57,25 @@ export function CollabPresence({ session }: { session: CollabSession }) {
           alignItems: "center",
           gap: 6,
           height: 22,
-          padding: "0 8px",
-          borderRadius: "var(--radius-full, 999px)",
-          border: "1px solid var(--border-hair)",
-          background: "var(--bg-sunken)",
+          padding: "0 9px",
+          borderRadius: "var(--radius-xs)",
+          border: "var(--border-w) solid var(--border)",
+          boxShadow: "var(--shadow-sm)",
+          background: "var(--bg-surface)",
           fontSize: "var(--text-2xs)",
-          fontWeight: "var(--weight-medium)",
-          color: "var(--fg-muted)",
+          fontWeight: "var(--weight-semibold)",
+          color: "var(--ink)",
           whiteSpace: "nowrap",
         }}
       >
         <span
           aria-hidden
           style={{
-            width: 7,
-            height: 7,
+            width: 8,
+            height: 8,
             borderRadius: "50%",
             background: dot,
-            boxShadow: session.status === "connected" ? `0 0 0 3px color-mix(in srgb, ${dot} 22%, transparent)` : "none",
+            border: "1.5px solid var(--border)",
           }}
         />
         {label}
@@ -100,7 +101,7 @@ export function CollabPresence({ session }: { session: CollabSession }) {
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
-                border: "2px solid var(--bg-surface)",
+                border: "var(--border-w) solid var(--border)",
                 marginLeft: i === 0 ? 0 : -OVERLAP,
                 zIndex: 10 - i,
                 flexShrink: 0,
@@ -116,10 +117,10 @@ export function CollabPresence({ session }: { session: CollabSession }) {
               style={{
                 marginLeft: -OVERLAP + 4,
                 fontSize: 10,
-                fontWeight: 600,
-                color: "var(--fg-muted)",
-                background: "var(--bg-raised)",
-                border: "1px solid var(--border-hair)",
+                fontWeight: 700,
+                color: "var(--ink)",
+                background: "var(--bg-surface)",
+                border: "var(--border-w) solid var(--border)",
                 borderRadius: SIZE / 2,
                 height: SIZE,
                 minWidth: SIZE,

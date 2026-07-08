@@ -24,12 +24,16 @@
  *     `<SignIn />`. The fullscreen route only renders when authed.
  *   - File picker / sidebar — the editor wants the whole viewport.
  *     Use the back arrow (or browser back) to return to `/home`.
- *   - Co-edit: P2.3 wires a live collab room here via `useCollabSession`
- *     (GET /api/files/{id}/collab → Yjs `y-websocket`). The plain-text
- *     editor binds a shared `Y.Text` for true co-editing; the SDK iframe
- *     editors consume the session for the presence indicator only (their
- *     CRDT lives behind the iframe protocol — a follow-up). A 404 / no
- *     collab server falls back to single-user editing, unchanged.
+ *   - Co-edit: this page brokers a per-file collab room (GET
+ *     /api/files/{id}/collab). Two transports, by kind:
+ *       · plain-text (.md/.txt/…): `useCollabSession` opens a standalone
+ *         `y-websocket` provider and `CodeTextEditor` binds a shared `Y.Text`.
+ *       · `.docx` / `.xlsx` (P3): the SDK owns the provider. We fetch just the
+ *         room *grant* via `useCollabGrant` and feed it to the editor's
+ *         declarative `collab` prop — real CRDT sync + cursors + presence. The
+ *         SDK reports presence back up (via `onPresence`) for the shared header
+ *         indicator; we never open a second provider on the same room.
+ *     A 404 / no collab server falls back to single-user editing, unchanged.
  */
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -48,11 +52,14 @@ import type { SaveStatus } from "../components/editor/save-status.ts";
 import { ShareDialog } from "../components/ShareDialog.tsx";
 import { useReportViewing } from "../state/PresenceContext.tsx";
 import {
+  DISABLED_SESSION,
   tintFor,
+  useCollabGrant,
   useCollabSession,
   type CollabIdentity,
   type CollabSession,
 } from "../lib/collab.ts";
+import type { CollabRoom } from "../api/client.ts";
 
 /** Editor surfaces that host a live editing session (and thus a collab
  *  room). Viewers (pdf / generic preview) get no room. */
@@ -216,19 +223,35 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
   // round-trips. The pill collapses to nothing in the idle state.
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: "idle" });
 
-  // P2.3 — live co-editing room. Only editable surfaces join; viewers and
-  // non-editor kinds stay `disabled` (single-user). Identity is published
-  // over Yjs awareness so peers render in the presence indicator.
+  // Live co-editing room. Only editable surfaces join; viewers and non-editor
+  // kinds stay single-user. Identity is published over awareness so peers
+  // render in the presence indicator.
   const { status: authStatus } = useAuth();
   const file = state.kind === "ready" ? state.file : null;
-  const editable = file ? isEditableKind(inferKind(file.name, file.content_type)) : false;
+  const kind = file ? inferKind(file.name, file.content_type) : null;
+  const editable = kind ? isEditableKind(kind) : false;
+  // Two collab transports, split by kind (see the module docblock):
+  //   · text/md → standalone y-websocket provider (CodeTextEditor binds Y.Text)
+  //   · doc/sheet → the SDK owns the provider; we only broker the room grant.
+  // Splitting them keeps a single provider on each room (no ghost peer).
+  const textKind = kind === "text" || kind === "md";
+  const sdkKind = kind === "doc" || kind === "sheet";
   const identity = useMemo<CollabIdentity>(() => {
     const name = authStatus.kind === "authed" ? authStatus.me.admin : "You";
     const userId =
       (authStatus.kind === "authed" ? authStatus.me.user_id : null) ?? name ?? "anon";
     return { userId, name, tint: tintFor(userId), activity: "editing" };
   }, [authStatus]);
-  const collab = useCollabSession(fileId, identity, { enabled: editable });
+
+  // Plain-text co-editing: standalone provider + shared Y.Text.
+  const session = useCollabSession(fileId, identity, { enabled: editable && textKind });
+  // SDK editors: broker the room grant only (the SDK opens the provider).
+  const { grant, resolved: grantResolved } = useCollabGrant(fileId, editable && sdkKind);
+  // Presence lifted from the SDK's collab callbacks, for the shared header.
+  const [sdkCollab, setSdkCollab] = useState<CollabSession>(DISABLED_SESSION);
+
+  // The session that drives the header presence indicator, per transport.
+  const headerCollab = textKind ? session : sdkKind ? sdkCollab : DISABLED_SESSION;
 
   // Details drawer state — opens via the header Details pill, slides
   // in from the right edge with the same DetailsPanel the modal uses.
@@ -249,7 +272,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
       <FullscreenHeader
         state={state}
         saveStatus={saveStatus}
-        collab={collab}
+        collab={headerCollab}
         onBack={goBack}
         onRename={onRename}
         onOpenDetails={() => setDetailsOpen(true)}
@@ -273,7 +296,11 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
       <main style={{ flex: 1, minHeight: 0, position: "relative" }}>
         <FullscreenBody
           state={state}
-          collab={collab}
+          session={session}
+          grant={grant}
+          grantResolved={grantResolved}
+          onPresence={setSdkCollab}
+          user={{ name: identity.name, color: identity.tint }}
           onSaveStatus={setSaveStatus}
           onSaved={(file) => setState({ kind: "ready", file })}
         />
@@ -550,12 +577,26 @@ function FilenameField({
 
 function FullscreenBody({
   state,
-  collab,
+  session,
+  grant,
+  grantResolved,
+  onPresence,
+  user,
   onSaveStatus,
   onSaved,
 }: {
   state: LoadState;
-  collab: CollabSession;
+  /** Standalone-provider session — plain-text editor only. */
+  session: CollabSession;
+  /** SDK-editor room grant (doc/sheet), or `null` when collab is off. */
+  grant: CollabRoom | null;
+  /** True once the grant broker call has settled — gate the SDK-editor mount
+   *  on this so it doesn't import single-user content then re-attach collab. */
+  grantResolved: boolean;
+  /** Presence sink for the SDK editors → header indicator. */
+  onPresence: (session: CollabSession) => void;
+  /** Drive's signed-in user, threaded to the doc editor for authorship. */
+  user: { name: string; color: string };
   onSaveStatus: (s: SaveStatus) => void;
   onSaved: (file: FileDto) => void;
 }) {
@@ -581,9 +622,9 @@ function FullscreenBody({
             width: "min(640px, 100%)",
             height: "min(100%, 520px)",
             background: "var(--bg-surface)",
-            border: "1px solid var(--border-hair)",
-            borderRadius: "var(--radius-lg)",
-            boxShadow: "var(--shadow-sm)",
+            border: "var(--border-w) solid var(--border)",
+            borderRadius: "var(--radius)",
+            boxShadow: "var(--shadow)",
             padding: "32px clamp(20px, 6vw, 44px)",
             boxSizing: "border-box",
             display: "flex",
@@ -610,30 +651,43 @@ function FullscreenBody({
           width: "100%",
           height: "100%",
           display: "flex",
-          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          gap: 10,
           padding: 24,
-          textAlign: "center",
           background: "var(--bg-canvas)",
         }}
       >
-        <span
+        <div
           style={{
-            display: "inline-flex",
+            display: "flex",
+            flexDirection: "column",
             alignItems: "center",
-            gap: 7,
-            fontSize: "var(--text-md)",
-            fontWeight: "var(--weight-semibold)",
-            color: "var(--status-danger-700)",
+            gap: 10,
+            textAlign: "center",
+            maxWidth: 460,
+            padding: "28px 32px",
+            background: "var(--bg-surface)",
+            border: "var(--border-w) solid var(--border)",
+            borderRadius: "var(--radius)",
+            boxShadow: "var(--shadow)",
           }}
         >
-          <AlertTriangle size={16} strokeWidth={1.5} aria-hidden />
-          Couldn&apos;t open this file
-        </span>
-        <div style={{ fontSize: "var(--text-base)", color: "var(--fg-muted)", maxWidth: 420 }}>
-          {state.message}
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: "var(--text-md)",
+              fontWeight: "var(--weight-bold)",
+              color: "var(--danger)",
+            }}
+          >
+            <AlertTriangle size={16} strokeWidth={2.2} aria-hidden />
+            Couldn&apos;t open this file
+          </span>
+          <div style={{ fontSize: "var(--text-base)", color: "var(--ink-soft)" }}>
+            {state.message}
+          </div>
         </div>
       </div>
     );
@@ -642,17 +696,36 @@ function FullscreenBody({
   const { file } = state;
   const kind = inferKind(file.name, file.content_type);
 
-  if (kind === "doc") {
+  if (kind === "doc" || kind === "sheet") {
+    // Gate the SDK-editor mount until the room grant resolves: mounting first
+    // would import single-user content and then re-attach collab on top of it
+    // (double-load / racey sync). Once resolved, `grant` is stable for the
+    // file's lifetime, so the SDK attaches exactly once.
+    if (!grantResolved) return <LoadingFallback />;
+    if (kind === "doc") {
+      return (
+        <Suspense fallback={<LoadingFallback />}>
+          <CasualDocEditor
+            file={file}
+            mode="editor"
+            onSaveStatus={onSaveStatus}
+            user={user}
+            collab={grant}
+            onPresence={onPresence}
+          />
+        </Suspense>
+      );
+    }
     return (
       <Suspense fallback={<LoadingFallback />}>
-        <CasualDocEditor file={file} mode="editor" onSaveStatus={onSaveStatus} />
-      </Suspense>
-    );
-  }
-  if (kind === "sheet") {
-    return (
-      <Suspense fallback={<LoadingFallback />}>
-        <CasualSheetWorkspace file={file} mode="editor" onSaveStatus={onSaveStatus} />
+        <CasualSheetWorkspace
+          file={file}
+          mode="editor"
+          onSaveStatus={onSaveStatus}
+          user={user}
+          collab={grant}
+          onPresence={onPresence}
+        />
       </Suspense>
     );
   }
@@ -662,7 +735,7 @@ function FullscreenBody({
   if (kind === "text" || kind === "md") {
     return (
       <Suspense fallback={<LoadingFallback />}>
-        <CodeTextEditor file={file} collab={collab} onSaveStatus={onSaveStatus} onSaved={onSaved} />
+        <CodeTextEditor file={file} collab={session} onSaveStatus={onSaveStatus} onSaved={onSaved} />
       </Suspense>
     );
   }
@@ -692,17 +765,40 @@ function FullscreenBody({
 function LoadingFallback() {
   return (
     <div
+      role="status"
+      aria-label="Loading editor"
       style={{
         width: "100%",
         height: "100%",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontSize: "var(--text-sm)",
-        color: "var(--fg-muted)",
+        padding: 24,
+        boxSizing: "border-box",
+        background: "var(--bg-canvas)",
       }}
     >
-      Loading editor…
+      <div
+        style={{
+          width: "min(640px, 100%)",
+          height: "min(100%, 520px)",
+          background: "var(--bg-surface)",
+          border: "var(--border-w) solid var(--border)",
+          borderRadius: "var(--radius)",
+          boxShadow: "var(--shadow)",
+          padding: "32px clamp(20px, 6vw, 44px)",
+          boxSizing: "border-box",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          overflow: "hidden",
+        }}
+      >
+        <div className="skeleton" style={{ height: 20, width: "48%", borderRadius: "var(--radius-xs)", marginBottom: 8 }} />
+        {["96%", "88%", "92%", "70%", "94%", "82%", "90%", "58%"].map((w, i) => (
+          <div key={i} className="skeleton" style={{ height: 11, width: w, borderRadius: "var(--radius-2xs)" }} />
+        ))}
+      </div>
     </div>
   );
 }

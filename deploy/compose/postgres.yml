@@ -1,0 +1,138 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SAMPLE: postgres (co-editing stack, Postgres instead of SQLite)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#   docker compose --env-file ../.env -f postgres.yml up -d --build
+#
+# WHEN TO USE
+#   The full co-editing stack, but backed by Postgres instead of the default
+#   file-based SQLite. Use when you expect concurrent load, want managed
+#   backups/replication, or are sizing beyond a single-VPS demo. Doc-Hub's
+#   sqlx pool is backend-erased (crates/dochub-db/src/pool.rs uses `sqlx::Any`)
+#   and every migration is portable across SQLite and Postgres, so the ONLY
+#   change from coediting.yml is DOCHUB_DB_URL + a `postgres` service.
+#
+# SERVICES
+#   dochub      Doc-Hub (Rust single binary).                              :8080
+#   collab      casualoffice/docs:v0.0.5 gateway (Hocuspocus/Yjs).         :8082
+#   postgres    Postgres 16 — Doc-Hub metadata / version chain / audit log.  —
+#   minio       S3-compatible object storage, bucket `drive-dev`.     :9000/:9001
+#   minio-init  one-shot bucket creation.                                      —
+#
+# Dual collab-URL footgun + shared secret: identical to coediting.yml — see
+# that file's header. DOCHUB_COLLAB_URL and VITE_DRIVE_COLLAB_BACKEND_URL are
+# BROWSER-facing (host-published :8082), and the gateway's CASUAL_JWT_SECRET
+# MUST equal dochub's DOCHUB_WOPI_HMAC_SECRET.
+#
+# At-rest encryption: DOCHUB_MASTER_KEY (base64 32-byte KEK) is REQUIRED.
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  collab:
+    image: casualoffice/docs:v0.0.5
+    container_name: casual-dochub-collab
+    restart: unless-stopped
+    environment:
+      GATEWAY_HOST: "inline"
+      CASUAL_JWT_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
+      LOG_FORMAT: "json"
+      ACCESS_LOG: "true"
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  dochub:
+    build:
+      context: ../..
+      args:
+        VITE_DRIVE_COLLAB_BACKEND_URL: "${VITE_DRIVE_COLLAB_BACKEND_URL:-ws://localhost:8082}"
+    image: casual-dochub:dev
+    restart: unless-stopped
+    environment:
+      DOCHUB_APP_ORIGIN: "http://127.0.0.1:8080"
+      DOCHUB_USERCONTENT_ORIGIN: "http://127.0.0.1:8081"
+      DOCHUB_BIND: "0.0.0.0:8080"
+      DOCHUB_BACKEND: "minio"
+      DOCHUB_S3_BUCKET: "drive-dev"
+      DOCHUB_S3_ENDPOINT: "http://minio:9000"
+      DOCHUB_S3_REGION: "auto"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      # Postgres instead of SQLite. Points at the compose-internal `postgres`
+      # service (server-side connection, so compose DNS is correct here — this
+      # is NOT the browser-facing collab URL). Credentials match the postgres
+      # service env below.
+      DOCHUB_DB_URL: "${DOCHUB_DB_URL:-postgres://dochub:dochub@postgres:5432/dochub}"
+      DOCHUB_COLLAB_URL: "${DOCHUB_COLLAB_URL:-http://localhost:8082}"
+      DOCHUB_MASTER_KEY: "${DOCHUB_MASTER_KEY:-SUE1Sjdva3RpaVBiUlhGcWlPVHluWGw0dGdKakpFM1k=}"
+      DOCHUB_SESSION_SECRET: "${DOCHUB_SESSION_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-aa}"
+      DOCHUB_WOPI_HMAC_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
+      DOCHUB_SIGNED_URL_HMAC_SECRET: "${DOCHUB_SIGNED_URL_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-cc}"
+      DOCHUB_ADMIN_USER: "admin"
+      DOCHUB_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=19456,t=2,p=1$$ZGV2c2FsdGRldnNhbHQ$$REPLACE_BEFORE_PROD"
+      RUST_LOG: "info,dochub=debug"
+    ports:
+      - "8080:8080"
+    volumes:
+      - dochub_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      collab:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "dochub"
+      POSTGRES_PASSWORD: "dochub"
+      POSTGRES_DB: "dochub"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dochub -d dochub"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >-
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      (mc mb local/drive-dev || true) &&
+      echo bucket-ready"
+
+volumes:
+  dochub_data:
+  minio_data:
+  postgres_data:

@@ -28,18 +28,22 @@ export function SaveStatusPill({ status }: Props) {
 
   if (status.kind === "idle") return null;
 
-  const [icon, label, color] =
+  // Neobrutalist pill: 2px ink border + small hard offset shadow. The
+  // signal colour tints the icon (and the fill for the live "saving"
+  // state) — violet for the saving/saved signal, danger for a failure.
+  const failed = status.kind === "failed";
+  const [icon, label, signal] =
     status.kind === "saving"
-      ? [<Loader2 key="i" size={13} className="cd-save-spin" />, "Saving…", "var(--ink-soft)"]
+      ? [<Loader2 key="i" size={13} className="cd-save-spin" />, "Saving…", "var(--violet-500)"]
       : status.kind === "saved"
         ? [
-            <Check key="i" size={13} />,
+            <Check key="i" size={13} strokeWidth={2.4} />,
             status.version != null
               ? `Saved as v${status.version}`
               : `Saved ${formatAgo(now - status.at)}`,
-            "var(--ink-soft)",
+            "var(--violet-500)",
           ]
-        : [<AlertCircle key="i" size={13} />, "Save failed", "var(--danger, #d63a2f)"];
+        : [<AlertCircle key="i" size={13} strokeWidth={2.4} />, "Save failed", "var(--danger)"];
 
   return (
     <div
@@ -50,16 +54,21 @@ export function SaveStatusPill({ status }: Props) {
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
-        padding: "4px 10px",
-        borderRadius: 999,
-        background: "var(--bg-subtle)",
-        color,
-        fontSize: "var(--text-xs)",
-        fontWeight: 500,
+        height: 22,
+        padding: "0 9px",
+        borderRadius: "var(--radius-xs)",
+        border: "var(--border-w) solid var(--border)",
+        boxShadow: "var(--shadow-sm)",
+        background: status.kind === "saving" ? "var(--violet-100)" : "var(--bg-surface)",
+        color: failed ? "var(--danger)" : "var(--ink)",
+        fontSize: "var(--text-2xs)",
+        fontWeight: "var(--weight-semibold)",
         whiteSpace: "nowrap",
       }}
     >
-      {icon}
+      <span aria-hidden style={{ display: "inline-flex", color: signal }}>
+        {icon}
+      </span>
       {label}
       <style>{`
         @keyframes cd-save-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

@@ -25,7 +25,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import type { UseFileSourceAutoSaveReturn } from "@schnsrw/docx-js-editor";
+import type { UseFileSourceAutoSaveReturn } from "@casualoffice/docs";
 
 import { downloadUrl, type FileDto } from "../api/client.ts";
 import { useReportViewing } from "../state/PresenceContext.tsx";
@@ -39,7 +39,7 @@ import { ShareDialog } from "./ShareDialog.tsx";
 // never load at app boot. Suspense fallback is null because the dot
 // is decorative chrome only shown when a .docx is open.
 const AutosaveStatus = lazy(() =>
-  import("@schnsrw/docx-js-editor").then((m) => ({ default: m.AutosaveStatus })),
+  import("@casualoffice/docs").then((m) => ({ default: m.AutosaveStatus })),
 );
 
 export function PreviewModal({
@@ -213,12 +213,13 @@ export function PreviewModal({
                   top: 10,
                   left: 12,
                   zIndex: 2,
-                  fontSize: "var(--text-xs)",
-                  color: "var(--fg-muted)",
-                  background: "var(--bg-raised)",
-                  border: "1px solid var(--border-hair)",
+                  fontSize: "var(--text-2xs)",
+                  fontWeight: "var(--weight-semibold)",
+                  color: "var(--ink)",
+                  background: "var(--bg-surface)",
+                  border: "var(--border-w) solid var(--border)",
                   padding: "3px 9px",
-                  borderRadius: "var(--radius-sm)",
+                  borderRadius: "var(--radius-xs)",
                   boxShadow: "var(--shadow-sm)",
                   pointerEvents: "none",
                 }}
@@ -264,11 +265,11 @@ export function PreviewModal({
 
           {/* Footer — title + proof one-liner + primary action (§3.3) */}
           <footer
-            className="glass"
             style={{
               flexShrink: 0,
               padding: "12px 20px 14px",
-              borderTop: "1px solid var(--border-hair)",
+              background: "var(--bg-surface)",
+              borderTop: "var(--border-w) solid var(--border)",
               display: "flex",
               alignItems: "center",
               gap: 16,
@@ -281,7 +282,7 @@ export function PreviewModal({
                 borderRadius: "var(--radius-sm)",
                 overflow: "hidden",
                 flexShrink: 0,
-                border: "1px solid var(--border-hair)",
+                border: "var(--border-w) solid var(--border)",
               }}
             >
               <FileThumb name={file.name} kind={kind} size="small" thumbnail={file.thumbnail} />
@@ -327,25 +328,25 @@ export function PreviewModal({
               title="Details"
               data-testid="preview-details-toggle"
               onClick={() => setShowDetails((v) => !v)}
+              className="press-sink"
               style={{
                 flexShrink: 0,
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 6,
                 height: 34,
-                padding: "0 12px",
-                border: `1px solid ${showDetails ? "var(--fg-default)" : "var(--border-strong)"}`,
-                background: showDetails ? "var(--bg-hover)" : "var(--bg-raised)",
-                color: "var(--fg-default)",
+                padding: "0 14px",
+                border: "var(--border-w) solid var(--border)",
+                background: showDetails ? "var(--violet-100)" : "var(--bg-surface)",
+                color: "var(--ink)",
                 cursor: "pointer",
                 borderRadius: "var(--radius-sm)",
                 fontFamily: "var(--font-sans)",
                 fontSize: "var(--text-sm)",
-                fontWeight: "var(--weight-medium)",
-                transition: "background var(--dur-fast) var(--ease-out)",
+                fontWeight: "var(--weight-bold)",
               }}
             >
-              <PanelRight size={15} strokeWidth={1.5} />
+              <PanelRight size={15} strokeWidth={2} />
               Details
             </button>
 
@@ -446,28 +447,27 @@ function NavArrow({ side, onClick }: { side: "prev" | "next"; onClick: () => voi
       type="button"
       aria-label={side === "prev" ? "Previous file" : "Next file"}
       onClick={onClick}
+      className="press-sink"
       style={
         {
           position: "absolute",
           top: "50%",
           transform: "translateY(-50%)",
           [side === "prev" ? "left" : "right"]: 16,
-          width: 32,
-          height: 32,
-          borderRadius: "var(--radius-pill)",
-          background: "var(--bg-raised)",
-          border: "1px solid var(--border-strong)",
+          width: 34,
+          height: 34,
+          borderRadius: "var(--radius-sm)",
+          background: "var(--bg-surface)",
+          border: "var(--border-w) solid var(--border)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           cursor: "pointer",
-          color: "var(--fg-default)",
-          boxShadow: "var(--shadow-sm)",
-          transition: "background var(--dur-instant) var(--ease-out)",
+          color: "var(--ink)",
         } as React.CSSProperties
       }
-      onMouseOver={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
-      onMouseOut={(e) => (e.currentTarget.style.background = "var(--bg-raised)")}
+      onMouseOver={(e) => (e.currentTarget.style.background = "var(--violet-100)")}
+      onMouseOut={(e) => (e.currentTarget.style.background = "var(--bg-surface)")}
     >
       {side === "prev" ? (
         <ChevronLeft size={16} strokeWidth={1.5} />
@@ -496,14 +496,15 @@ function ActionButton({
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
+      className={primary ? "press-sink-lg" : "press-sink"}
       style={{
         flex: icon ? "0 0 34px" : primary ? 1.4 : 1,
         height: 34,
-        border: `1px solid ${primary ? "var(--fg-default)" : "var(--border-strong)"}`,
-        background: primary ? "var(--fg-default)" : "var(--bg-raised)",
-        color: primary ? "var(--bg-surface)" : "var(--fg-default)",
+        border: "var(--border-w) solid var(--border)",
+        background: primary ? "var(--violet-500)" : "var(--bg-surface)",
+        color: primary ? "var(--on-violet)" : "var(--ink)",
         cursor: "pointer",
-        padding: "0 12px",
+        padding: "0 14px",
         borderRadius: "var(--radius-sm)",
         display: "flex",
         alignItems: "center",
@@ -511,16 +512,13 @@ function ActionButton({
         gap: 7,
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
-        fontWeight: "var(--weight-medium)",
-        transition: "background var(--dur-fast) var(--ease-out)",
+        fontWeight: "var(--weight-bold)",
       }}
       onMouseOver={(e) => {
-        if (primary) e.currentTarget.style.opacity = "0.88";
-        else e.currentTarget.style.background = "var(--bg-hover)";
+        e.currentTarget.style.background = primary ? "var(--violet-600)" : "var(--violet-100)";
       }}
       onMouseOut={(e) => {
-        if (primary) e.currentTarget.style.opacity = "1";
-        else e.currentTarget.style.background = "var(--bg-raised)";
+        e.currentTarget.style.background = primary ? "var(--violet-500)" : "var(--bg-surface)";
       }}
     >
       {children}

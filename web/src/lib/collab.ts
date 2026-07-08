@@ -18,24 +18,29 @@
  * Teardown is clean: the provider + doc are destroyed on unmount / id
  * change / disable, and awareness is cleared so peers see us leave.
  *
- * What lives here vs. the editors:
- *   - This hook owns the transport (doc, provider, awareness, status).
- *   - `CodeTextEditor` binds a `Y.Text` (`getText(TEXT_KEY)`) to its
- *     buffer for real end-to-end co-editing of the plain-text kinds.
- *   - The SDK iframe editors (`.docx` / `.xlsx`) can't reach a Yjs doc
- *     across the iframe boundary today (the `CasualEditorIframe` /
- *     `SheetEmbed` protocols expose no collab channel — collab lives on
- *     the SDKs' *direct* mounts via `useCollab` / `attachCollab`). They
- *     consume this session for the presence indicator only and keep the
- *     single-user save→version path; deep CRDT binding is a follow-up
- *     gated on the iframe protocol carrying the SDK's collab API.
+ * What lives here vs. the editors (post-P3):
+ *   - `useCollabSession` owns a *standalone* `y-websocket` transport (doc,
+ *     provider, awareness, status). Only the plain-text editor
+ *     (`CodeTextEditor`, `.md`/`.txt`/…) uses it — it binds a `Y.Text`
+ *     (`getText(TEXT_KEY)`) to its buffer for real co-editing, since it
+ *     has no SDK collab of its own.
+ *   - The SDK editors (`.docx` via `@casualoffice/docs`, `.xlsx` via
+ *     `@casualoffice/sheets`) now mount in-app (P1/P2) and own their OWN
+ *     Yjs provider via the declarative `collab` prop (P3). They must NOT
+ *     also open the standalone provider — that would double-connect two
+ *     providers (+ a ghost awareness entry for the same user) to one room.
+ *     Instead they fetch just the room *grant* via {@link useCollabGrant}
+ *     and feed it to the SDK; the SDK runs sync + cursors + presence, and
+ *     reports presence back up (docs `onCollabState`, sheets `collab.onStatus`)
+ *     which the wrappers map to a {@link CollabSession} via
+ *     {@link presenceSession} for the shared header indicator.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 
-import { getCollabRoom } from "../api/client.ts";
+import { getCollabRoom, type CollabRoom } from "../api/client.ts";
 
 /** Shared-doc key the plain-text editor binds its buffer to. Both peers
  *  (and the server-side seed, when it lands) must agree on this name. */
@@ -244,6 +249,70 @@ export function useCollabSession(
   }, [session.awareness, identity.userId, identity.name, identity.tint, identity.activity]);
 
   return useMemo(() => session, [session]);
+}
+
+/** The always-safe "no collab" session — single-user fallback. Exported so
+ *  the SDK-editor wrappers can reset the shared header indicator on unmount /
+ *  when a grant is declined. */
+export const DISABLED_SESSION: CollabSession = DISABLED;
+
+/**
+ * Build a presence-only {@link CollabSession} from an SDK collab callback.
+ * The `.docx` / `.xlsx` editors own their Yjs provider inside the SDK, so
+ * there's no `doc` / `provider` / `awareness` to hand back here — only the
+ * live `status` + `peers` the SDK reports. The shared `<CollabPresence>`
+ * header reads exactly those three fields (plus `enabled`), so this adapter
+ * lets the SDK drive the same indicator the standalone provider drives for
+ * the plain-text editor, without a second socket on the room.
+ */
+export function presenceSession(status: CollabStatus, peers: CollabPeer[]): CollabSession {
+  return { status, enabled: true, peers, doc: null, provider: null, awareness: null };
+}
+
+export interface CollabGrantResult {
+  /** The room grant, or `null` when collab is disabled / declined (404). */
+  grant: CollabRoom | null;
+  /** True once the broker call has settled (resolved to grant-or-null). Hosts
+   *  gate the editor mount on this so the SDK doesn't first import single-user
+   *  content and then re-attach collab on top of it (double-load). */
+  resolved: boolean;
+}
+
+/**
+ * Fetch a co-editing room *grant* for `fileId` — the `{ ws_url, room, token }`
+ * the SDK editors feed to their declarative `collab` prop. Unlike
+ * {@link useCollabSession} this opens NO provider: the SDK owns the transport.
+ *
+ * A `404` (collab disabled / no `DOCHUB_COLLAB_URL`) or any broker error
+ * resolves to `grant: null` — the editor then runs single-user, unchanged.
+ * `resolved` flips true either way so the caller can stop waiting.
+ */
+export function useCollabGrant(fileId: string, enabled: boolean): CollabGrantResult {
+  const [state, setState] = useState<CollabGrantResult>({ grant: null, resolved: false });
+
+  useEffect(() => {
+    if (!enabled || !fileId) {
+      // Nothing to broker — resolve immediately to the single-user path.
+      setState({ grant: null, resolved: true });
+      return;
+    }
+    let cancelled = false;
+    setState({ grant: null, resolved: false });
+    (async () => {
+      let room: CollabRoom | null = null;
+      try {
+        room = await getCollabRoom(fileId);
+      } catch {
+        room = null;
+      }
+      if (!cancelled) setState({ grant: room, resolved: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId, enabled]);
+
+  return state;
 }
 
 /** Peers other than the local user — what the presence stack renders. */

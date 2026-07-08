@@ -15,7 +15,20 @@
 
 @import "tailwindcss";
 
-:root {
+/* `html:root` (specificity 0,1,1), not a bare `:root` (0,1,0): the docs SDK
+   (`@casualoffice/docs/dist/styles.css`) ships its OWN full design-token set on
+   a plain `:root {}` using canonical names that overlap Drive's — with SDK
+   v1.3.0 the overlap is --font-sans / --font-display / --font-mono, --space-*,
+   --text-*, --radius-*, --leading-*, --tracking-*, --weight-*, and
+   --ease-out / --ease-spring — but carrying the SDK's own (cyan/aura) values.
+   That sheet is lazy-injected when an editor mounts, so at equal `:root`
+   specificity it would win by source order and repaint Drive's chrome.
+   `html:root` keeps Drive's tokens authoritative on <html> regardless of
+   injection order, while staying BELOW Drive's own `:root[data-theme="dark"]`
+   overrides (0,2,0), which must remain unchanged. The neobrutalist redesign
+   folded the former ambient/glass token block into this single base block, so
+   this one selector now guards every SDK-overlapping name. See §1b, P5. */
+html:root {
   /* ══ CORE — theme-dependent (Light "Paper", default) ══════════════ */
   --bg-app:      #F4F1EA;   /* warm paper canvas */
   --bg-surface:  #FFFFFF;   /* cards, panels, inputs */

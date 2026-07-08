@@ -21,7 +21,7 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { AlertTriangle, Download, ScrollText } from "lucide-react";
 
-import type { UseFileSourceAutoSaveReturn } from "@schnsrw/docx-js-editor";
+import type { UseFileSourceAutoSaveReturn } from "@casualoffice/docs";
 
 import { downloadUrl, type FileDto } from "../../api/client.ts";
 import { FileThumb, inferKind, type FileKind } from "../FileThumb.tsx";
@@ -274,7 +274,7 @@ function GlyphFallback({ file, kind }: { file: FileDto; kind: FileKind }) {
         style={{
           width: "min(300px, 68%)",
           aspectRatio: isFolder ? "1 / 1" : "1 / 1.3",
-          borderRadius: "var(--radius-lg)",
+          borderRadius: "var(--radius)",
           overflow: "hidden",
           border: "var(--border-w) solid var(--border)",
           boxShadow: "var(--shadow)",
@@ -385,7 +385,7 @@ function ErrorState({ file }: { file: FileDto }) {
         style={{
           width: "min(220px, 52%)",
           aspectRatio: "1 / 1.3",
-          borderRadius: "var(--radius-lg)",
+          borderRadius: "var(--radius)",
           overflow: "hidden",
           border: "var(--border-w) solid var(--border)",
           boxShadow: "var(--shadow)",
@@ -401,11 +401,11 @@ function ErrorState({ file }: { file: FileDto }) {
             alignItems: "center",
             gap: 6,
             fontSize: "var(--text-sm)",
-            fontWeight: "var(--weight-medium)",
-            color: "var(--status-danger-700)",
+            fontWeight: "var(--weight-bold)",
+            color: "var(--danger)",
           }}
         >
-          <AlertTriangle size={14} strokeWidth={1.5} aria-hidden />
+          <AlertTriangle size={14} strokeWidth={2.2} aria-hidden />
           Couldn&apos;t load the preview.
         </span>
         <DownloadButton file={file} />
@@ -419,6 +419,7 @@ function DownloadButton({ file }: { file: FileDto }) {
     <a
       href={downloadUrl(file.id)}
       download
+      className="press-sink"
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -432,11 +433,11 @@ function DownloadButton({ file }: { file: FileDto }) {
         color: "var(--fg-default)",
         fontFamily: "var(--font-sans)",
         fontSize: "var(--text-sm)",
-        fontWeight: "var(--weight-medium)",
+        fontWeight: "var(--weight-bold)",
         textDecoration: "none",
       }}
     >
-      <Download size={14} strokeWidth={1.5} aria-hidden />
+      <Download size={14} strokeWidth={2.2} aria-hidden />
       Download
     </a>
   );
@@ -453,10 +454,11 @@ function TruncatedBanner({ cap }: { cap: number }) {
         background: "var(--accent-wash)",
         borderBottom: "var(--border-w) solid var(--border)",
         fontSize: "var(--text-xs)",
-        color: "var(--amber-700)",
+        fontWeight: "var(--weight-semibold)",
+        color: "var(--violet-600)",
       }}
     >
-      <ScrollText size={13} strokeWidth={1.5} aria-hidden />
+      <ScrollText size={13} strokeWidth={2} aria-hidden />
       Showing the first {formatBytes(cap)}. Download the full file for the rest.
     </div>
   );
