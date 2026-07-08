@@ -127,6 +127,7 @@ export function VersionHistoryPage({ fileId }: { fileId: string }) {
       </header>
 
       <main
+        className="cd-history-main"
         style={{
           flex: 1,
           minHeight: 0,

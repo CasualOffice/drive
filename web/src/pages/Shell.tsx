@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import { Menu } from "lucide-react";
 
 import { DEMO_MODE } from "../api/client.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
@@ -6,9 +7,11 @@ import { CommandPalette } from "../components/CommandPalette.tsx";
 import { DemoBanner } from "../components/DemoBanner.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { HelpModal } from "../components/HelpModal.tsx";
+import { Logo, Wordmark } from "../components/Logo.tsx";
 import { Sidebar, type NavId } from "../components/Sidebar.tsx";
 import { TopBar, type Density, type ViewMode } from "../components/TopBar.tsx";
 import { decodeSearchState } from "../lib/searchUrl.ts";
+import { useIsMobile } from "../lib/useMediaQuery.ts";
 import { Activity } from "./Activity.tsx";
 import { Admin } from "./Admin.tsx";
 import { Files } from "./Files.tsx";
@@ -48,6 +51,15 @@ export function Shell() {
   const [newBlankKind, setNewBlankKind] = useState<"docx" | "xlsx" | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Responsive shell — on phones the fixed sidebar becomes a
+  // hamburger-triggered drawer over a dimmed scrim.
+  const isMobile = useIsMobile();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // Close the drawer whenever we leave the mobile breakpoint so it never
+  // lingers mounted on a resize back to desktop.
+  useEffect(() => {
+    if (!isMobile) setDrawerOpen(false);
+  }, [isMobile]);
 
   // SR7 — `?note=<id>` deep-link from a copied note search-result.
   // Routes to the Notes tab + fires `cd:open-note` once Notes has had
@@ -109,30 +121,44 @@ export function Shell() {
     };
   }, []);
 
+  // Sidebar props are identical for the desktop rail and the mobile
+  // drawer; only `onSelect` differs (the drawer also closes on nav).
+  const sidebarProps = {
+    current: nav,
+    itemCount,
+    onNewFolder: () => setNewFolderTick((t) => t + 1),
+    onUpload: () => setUploadTick((t) => t + 1),
+    onNewDocument: () => {
+      setNewBlankKind("docx");
+      setNewBlankTick((t) => t + 1);
+    },
+    onNewSpreadsheet: () => {
+      setNewBlankKind("xlsx");
+      setNewBlankTick((t) => t + 1);
+    },
+    username,
+  };
+
   return (
     <div className="h-full w-full flex flex-col" style={{ background: "transparent" }}>
       {DEMO_MODE && <DemoBanner />}
       <div className="flex" style={{ flex: 1, minHeight: 0 }}>
-      <Sidebar
-        current={nav}
-        onSelect={setNav}
-        itemCount={itemCount}
-        onNewFolder={() => setNewFolderTick((t) => t + 1)}
-        onUpload={() => setUploadTick((t) => t + 1)}
-        onNewDocument={() => {
-          setNewBlankKind("docx");
-          setNewBlankTick((t) => t + 1);
-        }}
-        onNewSpreadsheet={() => {
-          setNewBlankKind("xlsx");
-          setNewBlankTick((t) => t + 1);
-        }}
-        username={username}
-      />
+      {!isMobile && <Sidebar {...sidebarProps} onSelect={setNav} />}
       <div className="flex-1 flex flex-col" style={{ minWidth: 0 }}>
+        {/* Mobile chrome — the hamburger lives in the TopBar on Home, and
+            in a slim header on every other tab so the drawer is always
+            reachable once the fixed rail is gone. */}
+        {isMobile && nav !== "home" && (
+          <MobileHeader onMenuClick={() => setDrawerOpen(true)} />
+        )}
         {nav === "home" && (
-          <div style={{ padding: "8px var(--space-6) 0" }}>
-            <TopBar query={query} onQueryChange={setQuery} username={username} />
+          <div style={{ padding: isMobile ? "8px var(--space-3) 0" : "8px var(--space-6) 0" }}>
+            <TopBar
+              query={query}
+              onQueryChange={setQuery}
+              username={username}
+              onMenuClick={isMobile ? () => setDrawerOpen(true) : undefined}
+            />
           </div>
         )}
         <main style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -176,6 +202,18 @@ export function Shell() {
         </main>
       </div>
       </div>
+
+      {isMobile && (
+        <SidebarDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+          <Sidebar
+            {...sidebarProps}
+            onSelect={(id) => {
+              setNav(id);
+              setDrawerOpen(false);
+            }}
+          />
+        </SidebarDrawer>
+      )}
 
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <CommandPalette
@@ -233,6 +271,130 @@ function readDensity(): Density {
   } catch {
     return "comfortable";
   }
+}
+
+/** Slim mobile chrome for the non-Home tabs (Activity / Admin / Settings /
+ * Notes / Trash) — carries the hamburger + wordmark so the drawer stays
+ * reachable once the fixed rail collapses. Neobrutalist: flat surface,
+ * 2px ink bottom border. */
+function MobileHeader({ onMenuClick }: { onMenuClick: () => void }) {
+  return (
+    <header
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        height: 52,
+        flexShrink: 0,
+        padding: "0 var(--space-3)",
+        background: "var(--bg-surface)",
+        borderBottom: "var(--border-w) solid var(--border)",
+      }}
+    >
+      <button
+        type="button"
+        aria-label="Open menu"
+        data-testid="mobile-menu"
+        className="press-sink"
+        onClick={onMenuClick}
+        style={{
+          width: 40,
+          height: 40,
+          flexShrink: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: "var(--border-w) solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          background: "var(--bg-surface)",
+          color: "var(--fg-default)",
+          cursor: "pointer",
+        }}
+      >
+        <Menu size={18} strokeWidth={2.2} />
+      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ color: "var(--violet-500)", ["--mark-fg" as string]: "var(--bg-surface)" }}>
+          <Logo size={26} />
+        </div>
+        <div style={{ color: "var(--ink)" }}>
+          <Wordmark tone="rail" />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/** Off-canvas sidebar drawer for phones. Hidden by default; opens over a
+ * dimmed (not blurred) scrim as a neobrutalist bordered panel with a hard
+ * offset shadow. Closes on scrim click, Esc, or nav (the child's onSelect
+ * closes it). The child <Sidebar> keeps its own 240px width + border. */
+function SidebarDrawer({
+  open,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <>
+      <div
+        aria-hidden
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "var(--bg-overlay)",
+          zIndex: 90,
+          animation: "cd-scrim-in 160ms var(--ease)",
+        }}
+      />
+      <div
+        role="dialog"
+        aria-label="Navigation"
+        data-testid="sidebar-drawer"
+        style={{
+          position: "fixed",
+          top: 0,
+          bottom: 0,
+          left: 0,
+          zIndex: 100,
+          maxWidth: "86vw",
+          boxShadow: "var(--shadow-lg)",
+          borderRight: "var(--border-w) solid var(--border)",
+          animation: "cd-drawer-in 200ms var(--ease)",
+        }}
+      >
+        {children}
+      </div>
+      <style>{`
+        @keyframes cd-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes cd-drawer-in {
+          from { transform: translateX(-100%); }
+          to   { transform: translateX(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [data-testid="sidebar-drawer"] { animation: none; }
+        }
+      `}</style>
+    </>
+  );
 }
 
 function CenteredPane({ children }: { children: React.ReactNode }) {

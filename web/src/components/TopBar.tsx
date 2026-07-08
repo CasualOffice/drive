@@ -1,8 +1,9 @@
 import { ChangeEvent, useEffect, useState } from "react";
-import { KeyRound, Search } from "lucide-react";
+import { KeyRound, Menu, Search, X } from "lucide-react";
 
 import { clearRecent, getRecent, type RecentSearch } from "../lib/recentSearches.ts";
 import { markKeystroke } from "../lib/searchMetrics.ts";
+import { useIsMobile } from "../lib/useMediaQuery.ts";
 import { NotificationsBell } from "./NotificationsBell.tsx";
 import { RecentSearchesPopover } from "./RecentSearchesPopover.tsx";
 
@@ -21,11 +22,19 @@ export function TopBar({
   query,
   onQueryChange,
   username,
+  onMenuClick,
 }: {
   query: string;
   onQueryChange: (q: string) => void;
   username: string;
+  /** Mobile only — opens the sidebar drawer. When provided (phone
+   * breakpoint), a hamburger renders at the left of the bar. */
+  onMenuClick?: () => void;
 }) {
+  const isMobile = useIsMobile();
+  // On phones the search field collapses to an icon so the bar never
+  // overflows; tapping it expands the input over the bar's full width.
+  const [searchExpanded, setSearchExpanded] = useState(false);
   // SR11 — recent-searches dropdown state. Recents are loaded lazily
   // (only when the input gains focus, so a never-focused TopBar
   // doesn't pay the localStorage parse) and refreshed whenever Files
@@ -62,9 +71,41 @@ export function TopBar({
         border: "var(--border-w) solid var(--border)",
       }}
     >
+      {onMenuClick && (
+        <button
+          type="button"
+          aria-label="Open menu"
+          data-testid="topbar-menu"
+          className="press-sink"
+          onClick={onMenuClick}
+          style={{
+            width: 40,
+            height: 40,
+            flexShrink: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "var(--border-w) solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--bg-surface)",
+            color: "var(--fg-default)",
+            cursor: "pointer",
+          }}
+        >
+          <Menu size={18} strokeWidth={2.2} />
+        </button>
+      )}
+      {/* Search — full field on desktop; on phones it collapses to a
+          single icon and expands over the bar so the row never overflows. */}
+      {(!isMobile || searchExpanded) && (
       <div
         role="search"
-        style={{ position: "relative", flex: "1 1 auto", maxWidth: 320, marginLeft: "auto" }}
+        style={{
+          position: "relative",
+          flex: "1 1 auto",
+          maxWidth: isMobile ? "none" : 320,
+          marginLeft: isMobile ? 0 : "auto",
+        }}
       >
         <Search
           size={15}
@@ -81,6 +122,7 @@ export function TopBar({
         <input
           type="text"
           placeholder="Search documents and folders"
+          autoFocus={isMobile && searchExpanded}
           value={query}
           role="combobox"
           aria-autocomplete="list"
@@ -165,12 +207,60 @@ export function TopBar({
           onClose={() => setInputFocused(false)}
         />
       </div>
+      )}
 
-      <NotificationsBell />
-      <EncryptionGlyph />
-      <AccountButton username={username} />
+      {isMobile && searchExpanded ? (
+        <button
+          type="button"
+          aria-label="Close search"
+          className="press-sink"
+          onClick={() => setSearchExpanded(false)}
+          style={rightIconBtn()}
+        >
+          <X size={18} strokeWidth={2.2} />
+        </button>
+      ) : (
+        <>
+          {isMobile && (
+            <>
+              <div style={{ flex: 1 }} />
+              <button
+                type="button"
+                aria-label="Search"
+                data-testid="topbar-search-toggle"
+                className="press-sink"
+                onClick={() => setSearchExpanded(true)}
+                style={rightIconBtn()}
+              >
+                <Search size={18} strokeWidth={2.2} />
+              </button>
+            </>
+          )}
+          <NotificationsBell />
+          {!isMobile && <EncryptionGlyph />}
+          <AccountButton username={username} />
+        </>
+      )}
     </header>
   );
+}
+
+/** Shared 40px chrome icon button used by the mobile search toggle /
+ * close controls — tap-target compliant (≥40px). */
+function rightIconBtn(): React.CSSProperties {
+  return {
+    width: 40,
+    height: 40,
+    flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "var(--border-w) solid var(--border)",
+    borderRadius: "var(--radius-sm)",
+    background: "var(--bg-surface)",
+    color: "var(--fg-default)",
+    cursor: "pointer",
+  };
 }
 
 /** Always-on trust cue in the chrome — encryption at rest is a product

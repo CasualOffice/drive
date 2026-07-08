@@ -1053,6 +1053,7 @@ export function Files({
   return (
     <div
       data-density={density}
+      className="cd-files-page"
       onDragOver={(e) => {
         e.preventDefault();
         setDragOver(true);
@@ -1688,7 +1689,7 @@ function Header({
   const current = path[path.length - 1];
 
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 14, marginBottom: 30 }}>
+    <div className="cd-files-header" style={{ display: "flex", alignItems: "flex-end", gap: 14, marginBottom: 30 }}>
       {deep && (
         <button
           type="button"
@@ -1745,6 +1746,7 @@ function Header({
 
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <h1
+            className="cd-files-title"
             style={{
               margin: 0,
               fontFamily: "var(--font-sans)",
@@ -2042,7 +2044,7 @@ function GridView({
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+        gridTemplateColumns: "var(--files-grid)",
         gap: 16,
       }}
     >
@@ -2548,10 +2550,10 @@ function VaultHeader() {
     >
       <span aria-hidden />
       <span style={cell}>Name</span>
-      <span style={cell}>Version</span>
+      <span className="cd-col-version" style={cell}>Version</span>
       <span style={cell}>Status</span>
-      <span style={cell}>Updated</span>
-      <span style={{ ...cell, textAlign: "right" }}>Size</span>
+      <span className="cd-col-updated" style={cell}>Updated</span>
+      <span className="cd-col-size" style={{ ...cell, textAlign: "right" }}>Size</span>
     </div>
   );
 }
@@ -2689,7 +2691,7 @@ const VaultRow = React.forwardRef<
       </div>
 
       {/* Version — compliance-conditional (empty when versions ≤ 1) */}
-      <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+      <span className="mono cd-col-version" style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
         {showVersion ? `v${version}` : ""}
       </span>
 
@@ -2699,13 +2701,13 @@ const VaultRow = React.forwardRef<
       </span>
 
       {/* Updated */}
-      <span style={{ ...cell, fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+      <span className="cd-col-updated" style={{ ...cell, fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
         {modified}
       </span>
 
       {/* Size — right-hairline-aligned numeric (ui-system). */}
       <span
-        className="tnum"
+        className="tnum cd-col-size"
         style={{ ...cell, textAlign: "right", fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}
       >
         {isFile && size !== undefined ? formatSize(size) : ""}

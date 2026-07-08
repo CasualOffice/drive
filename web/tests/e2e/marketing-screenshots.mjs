@@ -114,29 +114,24 @@ const SHOTS = [
     },
   },
   {
-    id: "notes",
+    // Version-history route (UX-18) — the flagship compliance surface.
+    // Right-click the first file row → "Version history" opens the
+    // /document/{id}/history ledger.
+    id: "version-history",
     viewport: "desktop",
     setup: async (page) => {
       await signInDemo(page);
-      await page.getByRole("button", { name: /^Notes/ }).first().click();
-      await page.waitForTimeout(200);
-      // Create a note + write some body so the editor shows something useful.
-      const newBtn = page.getByRole("button", { name: /New page/ }).first();
-      if (await newBtn.count()) await newBtn.click();
-      await page.waitForTimeout(200);
-      const title = page.getByPlaceholder(/Title…/);
-      if (await title.count()) await title.fill("Sprint planning");
-      const body = page.getByPlaceholder(/Start writing in markdown/);
-      if (await body.count()) {
-        await body.fill(
-          "# Sprint planning\n\nFor the **June kick-off**:\n\n" +
-            "- Migration timeline locked.\n" +
-            "- Owners: Alex, Sam, Priya.\n" +
-            "- Linked from [[Onboarding]] and [[Q3 roadmap]].\n\n" +
-            "Decisions land in [[Decisions]].\n",
-        );
+      await page.waitForTimeout(300);
+      const row = page.locator('[role="row"]').nth(1);
+      if (await row.count()) {
+        await row.click({ button: "right" });
+        await page.waitForTimeout(200);
       }
-      await page.waitForTimeout(600); // let preview + debounce settle
+      const historyItem = page.getByText(/Version history/).first();
+      if (await historyItem.count()) {
+        await historyItem.click();
+        await page.waitForTimeout(500);
+      }
     },
   },
   {
@@ -149,7 +144,7 @@ const SHOTS = [
       await page.waitForTimeout(300);
       await page.keyboard.press(process.platform === "darwin" ? "Meta+K" : "Control+K");
       await page.waitForTimeout(200);
-      const input = page.getByPlaceholder(/Search files, notes/);
+      const input = page.getByPlaceholder(/Search documents, notes/);
       if (await input.count()) await input.fill("se");
       await page.waitForTimeout(400);
     },

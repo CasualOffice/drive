@@ -56,6 +56,11 @@ export function SelectionBar({
         transform: "translateX(-50%)",
         display: "flex",
         alignItems: "center",
+        justifyContent: "center",
+        // Never exceed the viewport on phones; wrap the actions instead of
+        // overflowing off-screen at 360–414px widths.
+        flexWrap: "wrap",
+        maxWidth: "calc(100vw - 24px)",
         gap: 8,
         padding: "10px 12px 10px 18px",
         background: "var(--bg-surface)",

@@ -8,6 +8,7 @@
  */
 import { useState } from "react";
 import {
+  ArrowLeft,
   Bell,
   Key,
   KeyRound,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { ComingSoon } from "../components/ComingSoon.tsx";
+import { useIsMobile } from "../lib/useMediaQuery.ts";
 import { AccountSection } from "./settings/AccountSection.tsx";
 import { DisplaySection } from "./settings/DisplaySection.tsx";
 import { EncryptionSection } from "./settings/EncryptionSection.tsx";
@@ -67,6 +69,71 @@ const GROUPS: { id: GroupId; label: string }[] = [
 export function Settings() {
   const [current, setCurrent] = useState<SectionId>("account");
   const currentDef = SECTIONS.find((s) => s.id === current)!;
+  const isMobile = useIsMobile();
+  // On phones the two-pane shell collapses to a single column: the section
+  // list is the master view; picking one pushes the detail pane with a
+  // back affordance (a Settings-app / iOS pattern).
+  const [mobilePane, setMobilePane] = useState<"nav" | "detail">("nav");
+
+  if (isMobile) {
+    if (mobilePane === "nav") {
+      return (
+        <div style={{ flex: 1, background: "var(--bg-canvas)", minHeight: 0, overflowY: "auto" }}>
+          <SectionNav
+            current={current}
+            fullWidth
+            onSelect={(id) => {
+              setCurrent(id);
+              setMobilePane("detail");
+            }}
+          />
+        </div>
+      );
+    }
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "var(--bg-canvas)", minHeight: 0 }}>
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-2)",
+            height: 52,
+            flexShrink: 0,
+            padding: "0 var(--space-3)",
+            background: "var(--bg-surface)",
+            borderBottom: "var(--border-w) solid var(--border)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setMobilePane("nav")}
+            aria-label="Back to settings"
+            data-testid="settings-back"
+            className="press-sink"
+            style={{
+              width: 40,
+              height: 40,
+              flexShrink: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "var(--border-w) solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--bg-surface)",
+              color: "var(--fg-default)",
+              cursor: "pointer",
+            }}
+          >
+            <ArrowLeft size={18} strokeWidth={2.2} />
+          </button>
+          <span style={{ fontSize: "var(--text-md)", fontWeight: "var(--weight-bold)", color: "var(--fg-default)" }}>
+            {currentDef.label}
+          </span>
+        </header>
+        <ContentPane>{renderSection(currentDef)}</ContentPane>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -87,15 +154,18 @@ export function Settings() {
 function SectionNav({
   current,
   onSelect,
+  fullWidth,
 }: {
   current: SectionId;
   onSelect: (id: SectionId) => void;
+  /** Mobile master view — drop the right border + fill the column. */
+  fullWidth?: boolean;
 }) {
   return (
     <nav
       aria-label="Settings sections"
       style={{
-        borderRight: "var(--border-w) solid var(--border)",
+        borderRight: fullWidth ? "none" : "var(--border-w) solid var(--border)",
         background: "var(--bg-surface)",
         padding: "var(--space-6) var(--space-3) var(--space-4)",
         overflowY: "auto",

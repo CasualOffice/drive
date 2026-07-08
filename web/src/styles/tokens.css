@@ -146,6 +146,13 @@
   --space-12: 48px;
   --space-16: 64px;
 
+  /* ══ Responsive grids (feat/ui-mobile) ════════════════════════════
+     Resolved by inline `gridTemplateColumns: var(--…)` so a media query
+     can reflow the vault table + document grid without JS. Keep the
+     breakpoints in sync with src/lib/useMediaQuery.ts. */
+  --vault-grid: 24px minmax(0, 1fr) 56px 112px 96px 68px;
+  --files-grid: repeat(auto-fill, minmax(190px, 1fr));
+
   /* ══ Radii — softly rounded, not pills, not sharp ═════════════════ */
   --radius-2xs: 4px;
   --radius-xs:  6px;
@@ -678,5 +685,71 @@ body {
       rgba(241, 238, 247, 0.05) 1px,
       transparent 1.4px
     );
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Mobile responsive (feat/ui-mobile). Breakpoints mirror
+   src/lib/useMediaQuery.ts: phone ≤768px, tablet ≤1024px. Structural
+   changes (drawer / hamburger / pane stacking) live in the components;
+   these rules cover reflow that is cleaner in CSS (grid templates,
+   column hiding, container padding). Neobrutalist tokens unchanged.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Tablet — the document grid tightens before the phone breakpoint. */
+@media (max-width: 1024px) {
+  :root {
+    --files-grid: repeat(auto-fill, minmax(168px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    /* Vault table collapses to the essentials: select · name · status.
+       The dropped cells stay in the DOM (display:none) so e2e testids,
+       roles, and the grid contract survive. */
+    --vault-grid: 22px minmax(0, 1fr) auto;
+    /* Documents grid: 2-up on phones, shrinking to 1-up on the narrowest. */
+    --files-grid: repeat(auto-fill, minmax(148px, 1fr));
+  }
+
+  /* Non-essential vault columns fold away — name + status remain. */
+  .cd-col-version,
+  .cd-col-updated,
+  .cd-col-size {
+    display: none !important;
+  }
+
+  /* Reduce the generous desktop gutters so nothing clips at 360–414px. */
+  .cd-files-page {
+    padding-left: var(--space-3) !important;
+    padding-right: var(--space-3) !important;
+  }
+  .cd-files-header {
+    margin-bottom: var(--space-4) !important;
+  }
+  .cd-files-title {
+    font-size: var(--text-2xl) !important;
+  }
+
+  /* Editor fullscreen header wraps instead of overflowing. */
+  .cd-fs-header {
+    flex-wrap: wrap !important;
+    height: auto !important;
+    min-height: 52px;
+    padding: 8px 12px !important;
+    row-gap: 8px;
+  }
+
+  /* Version-history route drops its wide gutter. */
+  .cd-history-main {
+    padding: var(--space-3) !important;
+  }
+}
+
+/* Narrowest phones — documents grid goes 1-up so cards never squeeze. */
+@media (max-width: 430px) {
+  :root {
+    --files-grid: 1fr;
   }
 }

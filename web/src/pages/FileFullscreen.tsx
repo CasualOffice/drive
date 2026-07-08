@@ -309,6 +309,7 @@ function FullscreenHeader({
 
   return (
     <header
+      className="cd-fs-header"
       style={{
         flex: "0 0 auto",
         display: "flex",
