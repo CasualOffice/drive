@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight as ChevronRightSeparator,
   File as FileGeneric,
+  FileImage,
   FileSpreadsheet,
   FileText,
   Folder as FolderIcon,
@@ -15,6 +16,7 @@ import {
   Upload,
   UploadCloud,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { toast } from "sonner";
@@ -42,7 +44,7 @@ import { forbiddenUploadExtension } from "../api/uploadPolicy.ts";
 import { EmptyState, EmptyStateButton } from "../components/EmptyState.tsx";
 import { SkeletonRow, VAULT_GRID } from "../components/ds/SkeletonRow.tsx";
 import { EntryContextMenu, EntryKebab, type Entry as MenuEntry, type EntryMenuHandlers } from "../components/EntryMenu.tsx";
-import { FileMiniIcon, FileThumb, inferKind, type FileKind } from "../components/FileThumb.tsx";
+import { inferKind, type FileKind } from "../components/FileThumb.tsx";
 import { FileViewingDot } from "../components/FileViewingDot.tsx";
 import { NoResultsRecovery } from "../components/NoResultsRecovery.tsx";
 import { PreviewModal } from "../components/PreviewModal.tsx";
@@ -1826,6 +1828,230 @@ function CrumbButton({ label, onClick, sep }: { label: string; onClick: () => vo
   );
 }
 
+// ─── Document identity (vault surface only) ──────────────────────────
+// Kills the blank white 96px thumbnail (defect #3 / P1). Every doc + folder
+// gets a per-file-type gradient cover FIELD + a colored, modeled glyph TILE
+// (type-tinted ink drop shadow + top rim-light = carved depth) so a PDF, a
+// Sheet and a Doc are instantly distinguishable at a glance. File-type
+// chroma lives HERE, on the vault surface — not in the monochrome
+// foundation tokens. Hues read on both the Registry (dark) and Reading Room
+// (light) grounds; folder + ink types resolve through theme tokens.
+const KIND_HUE: Record<FileKind, string> = {
+  fold:    "#E08D12", // amber — folder (resolves to --accent below)
+  doc:     "#4B7BEC", // blue  — docx
+  sheet:   "#22A06B", // green — xlsx
+  pdf:     "#E0574A", // brick-red — pdf
+  md:      "#7C7E8A", // ink — markdown
+  text:    "#7C7E8A", // ink — txt / csv / json / yaml / source
+  generic: "#7C7E8A", // ink — unknown document
+  img:     "#0EA5C4", // cyan — image preview fallback
+  vid:     "#0EA5C4",
+  aud:     "#8B5CF6",
+};
+
+const KIND_GLYPH: Record<FileKind, LucideIcon> = {
+  fold: FolderIcon,
+  doc: FileText,
+  sheet: FileSpreadsheet,
+  pdf: FileText,
+  md: FileText,
+  text: FileText,
+  generic: FileGeneric,
+  img: FileImage,
+  vid: FileImage,
+  aud: FileGeneric,
+};
+
+/** Per-type gradient cover + modeled glyph tile. Replaces the old blank
+ * FileThumb "paper" for the vault grid. Real image previews still win when
+ * a thumbnail is present. */
+function DocCover({
+  name,
+  kind,
+  sealed,
+  thumbnail,
+  thumbUrls,
+}: {
+  name: string;
+  kind: FileKind;
+  sealed?: boolean;
+  thumbnail?: string | null;
+  thumbUrls?: { small: string; medium: string; large: string } | null;
+}) {
+  const effectiveThumb = (thumbUrls && thumbUrls.medium) ?? thumbnail ?? null;
+
+  // A real image preview always wins over the procedural cover.
+  if (kind === "img" && effectiveThumb) {
+    return (
+      <div
+        role="img"
+        aria-label={`Preview of ${name}`}
+        style={{
+          width: "100%",
+          height: "100%",
+          backgroundImage: `url(${JSON.stringify(effectiveThumb)})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+        }}
+      />
+    );
+  }
+
+  const isFolder = kind === "fold";
+  const hue = KIND_HUE[kind] ?? "#7C7E8A";
+  const Icon = KIND_GLYPH[kind] ?? FileGeneric;
+
+  // The cover field — a type-tinted diagonal wash over the surface. Folder
+  // + amber flow through the amber-glow tokens so they track the theme.
+  const field = isFolder
+    ? "radial-gradient(120% 95% at 26% 6%, var(--amber-glow-2) 0%, transparent 64%)," +
+      " linear-gradient(155deg, var(--amber-glow-3), transparent 72%), var(--bg-surface)"
+    : `radial-gradient(120% 95% at 26% 6%, ${hue}38 0%, transparent 64%),` +
+      ` linear-gradient(155deg, ${hue}1F, ${hue}0A 72%), var(--bg-surface)`;
+
+  // The glyph tile — a stronger gradient chip with a type-tinted ink drop
+  // shadow (modeled depth, one light source) + inset top rim-light (carved).
+  const tile = isFolder
+    ? "linear-gradient(150deg, var(--accent), var(--accent-press))"
+    : `linear-gradient(150deg, ${hue}, color-mix(in oklab, ${hue} 72%, #000))`;
+  const tileShadow = isFolder
+    ? "0 6px 15px rgba(224,141,18,0.42), inset 0 1px 0 rgba(255,255,255,0.45)"
+    : `0 6px 15px ${hue}66, inset 0 1px 0 rgba(255,255,255,0.42)`;
+
+  return (
+    <div
+      aria-hidden={!isFolder}
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: field,
+        overflow: "hidden",
+      }}
+    >
+      {/* Oversized watermark glyph — quiet field texture, corner-anchored. */}
+      <Icon
+        size={116}
+        strokeWidth={1}
+        style={{
+          position: "absolute",
+          right: -22,
+          bottom: -30,
+          color: isFolder ? "var(--accent)" : hue,
+          opacity: 0.06,
+          pointerEvents: "none",
+        }}
+      />
+      {/* Modeled glyph tile — the identity focal point. */}
+      <span
+        className="cd-cover-tile"
+        style={{
+          position: "relative",
+          width: 52,
+          height: 52,
+          borderRadius: 15,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: tile,
+          boxShadow: tileShadow,
+          transition: "transform var(--dur-fast) var(--ease-out)",
+        }}
+      >
+        <Icon size={25} strokeWidth={1.7} color="rgba(255,255,255,0.96)" />
+      </span>
+      {/* SEALED — hairline amber gradient top-bar (Arc space-badge analog);
+          verification is spatial identity, paired with the card's left rule. */}
+      {sealed && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 3,
+            background:
+              "linear-gradient(90deg, transparent, var(--accent) 22%, var(--accent) 78%, transparent)",
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Compact status pill for a grid card. Sealed (chained, version > 1) reads
+ * amber; a broken chain is the sole tamper alarm (danger); everything else
+ * is a quiet "Draft". Icon + label always — never colour-only. */
+function CardStatusPill({
+  sealed,
+  version,
+  chainVerified,
+}: {
+  sealed: boolean;
+  version: number | null;
+  chainVerified?: boolean;
+}) {
+  const tampered = chainVerified === false;
+  const base: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "2px 7px",
+    borderRadius: "var(--radius-pill)",
+    fontSize: "var(--text-2xs)",
+    fontWeight: "var(--weight-semibold)",
+    lineHeight: 1,
+    letterSpacing: "0.01em",
+    whiteSpace: "nowrap",
+  };
+  if (tampered) {
+    return (
+      <span
+        style={{
+          ...base,
+          color: "var(--status-danger-700)",
+          background: "color-mix(in oklab, var(--status-danger) 16%, transparent)",
+          boxShadow: "var(--accent-glow)",
+        }}
+      >
+        <ShieldAlert size={11} strokeWidth={2} aria-hidden />
+        Tamper
+      </span>
+    );
+  }
+  if (sealed) {
+    return (
+      <span
+        title="Hash-chain sealed — tamper-evident"
+        style={{
+          ...base,
+          color: "var(--status-attention-700)",
+          background: "var(--amber-glow-2)",
+        }}
+      >
+        <ShieldCheck size={11} strokeWidth={2} aria-hidden />
+        Sealed{version !== null ? ` · v${version}` : ""}
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{
+        ...base,
+        color: "var(--fg-muted)",
+        background: "var(--bg-sunken)",
+      }}
+    >
+      Draft
+    </span>
+  );
+}
+
 // ─── Views ───────────────────────────────────────────────────────────
 
 function GridView({
@@ -1901,8 +2127,14 @@ function FolderCard({
         selected={selected}
         kebab={<EntryKebab entry={{ kind: "folder", folder }} handlers={handlers} />}
       >
-        <div style={{ height: "var(--cd-card-thumb-h)", overflow: "hidden" }}>
-          <FileThumb name={folder.name} kind="fold" />
+        <div
+          style={{
+            height: "var(--cd-card-thumb-h)",
+            overflow: "hidden",
+            borderBottom: "1px solid var(--border-hair)",
+          }}
+        >
+          <DocCover name={folder.name} kind="fold" />
         </div>
         <CardMeta name={folder.name} kind="fold" sub={`Folder · ${relative(folder.modified_at)}`} />
       </Card>
@@ -1924,19 +2156,26 @@ function FileCard({
   handlers: EntryMenuHandlers;
 }) {
   const kind = inferKind(file.name, file.content_type);
+  const version = file.version ?? null;
+  // Sealed = a committed, hash-chained document worth flagging (matches the
+  // list view's `showVersion` gate: version > 1). Verification is spatial
+  // identity here — an amber left rule + top-bar + pill, never a loud badge.
+  const sealed = version !== null && version > 1;
+  const chainVerified = readChainVerified(file);
   return (
     <EntryContextMenu entry={{ kind: "file", file }} handlers={handlers}>
       <Card
         onClick={onClick}
         onDoubleClick={onDoubleClick}
         selected={selected}
+        sealed={sealed}
         kebab={<EntryKebab entry={{ kind: "file", file }} handlers={handlers} />}
       >
         <div
           style={{
             height: "var(--cd-card-thumb-h)",
             overflow: "hidden",
-            borderBottom: "1px solid var(--line)",
+            borderBottom: "1px solid var(--border-hair)",
             position: "relative",
           }}
         >
@@ -1944,14 +2183,22 @@ function FileCard({
               is viewing this file; tinted with that peer's avatar
               colour when they are. */}
           <FileViewingDot fileId={file.id} placement="card" />
-          <FileThumb
+          <DocCover
             name={file.name}
             kind={kind}
+            sealed={sealed}
             thumbnail={file.thumbnail}
             thumbUrls={file.thumb_urls}
           />
         </div>
-        <CardMeta name={file.name} kind={kind} sub={`${labelForKind(kind)} · ${relative(file.modified_at)}`} />
+        <CardMeta
+          name={file.name}
+          kind={kind}
+          sealed={sealed}
+          version={version}
+          chainVerified={chainVerified}
+          trailing={sealed ? `v${version}` : relative(file.modified_at)}
+        />
       </Card>
     </EntryContextMenu>
   );
@@ -1963,13 +2210,28 @@ function GhostCard({ name }: { name: string }) {
       <div
         style={{
           height: "var(--cd-card-thumb-h)",
-          background: "var(--bg-hover)",
+          borderBottom: "1px solid var(--border-hair)",
+          background:
+            "radial-gradient(120% 95% at 26% 6%, var(--amber-glow-2) 0%, transparent 64%), var(--bg-surface)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <UploadCloud size={28} strokeWidth={1.6} style={{ color: "var(--accent)" }} />
+        <span
+          style={{
+            width: 52,
+            height: 52,
+            borderRadius: 15,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "linear-gradient(150deg, var(--accent), var(--accent-press))",
+            boxShadow: "0 6px 15px rgba(224,141,18,0.42), inset 0 1px 0 rgba(255,255,255,0.45)",
+          }}
+        >
+          <UploadCloud size={25} strokeWidth={1.7} color="rgba(255,255,255,0.96)" />
+        </span>
       </div>
       <CardMeta name={name} kind="generic" sub="Uploading…" />
     </Card>
@@ -1991,8 +2253,16 @@ const Card = React.forwardRef<
     folder?: boolean;
     kebab?: React.ReactNode;
     selected?: boolean;
+    /** Sealed docs carry a 3px amber left rule (verification as spatial
+     * identity, §5.2). Pairs with the cover's amber top-bar. */
+    sealed?: boolean;
   } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "children">
->(function Card({ children, onClick, folder, kebab, selected, ...rest }, ref) {
+>(function Card({ children, onClick, folder, kebab, selected, sealed, ...rest }, ref) {
+  // Real modeled depth: layered ink-tinted elevation + a top rim-light
+  // ("carved" feel), lifting one level on hover (translate + shadow step),
+  // never a flat colour swap. Selection wins with an amber ring + wash.
+  const restShadow = `var(--elevation-1), var(--rim-light)`;
+  const hoverShadow = `var(--elevation-2), var(--rim-light)`;
   return (
     <div
       ref={ref}
@@ -2000,28 +2270,48 @@ const Card = React.forwardRef<
       className={folder ? "cd-folder-card" : "cd-file-card"}
       {...rest}
       style={{
-        background: selected ? "var(--bg-selected)" : "var(--card)",
-        border: `${selected ? "2px" : "1px"} solid ${selected ? "var(--accent)" : "var(--line)"}`,
-        borderRadius: "var(--radius)",
+        background: selected ? "var(--bg-selected)" : "var(--bg-surface)",
+        border: `1px solid ${selected ? "var(--accent)" : "var(--border-hair)"}`,
+        borderRadius: "var(--radius-lg)",
         overflow: "hidden",
         cursor: onClick ? "pointer" : "default",
-        transition: "transform 300ms var(--ease), box-shadow 300ms, border-color 300ms",
-        boxShadow: "var(--shadow)",
+        transition:
+          "transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out)",
+        boxShadow: restShadow,
         position: "relative",
         userSelect: "none",
         ...(rest.style ?? {}),
       }}
       onMouseOver={(e) => {
         e.currentTarget.style.transform = "translateY(-3px)";
-        e.currentTarget.style.boxShadow = "var(--shadow-hover)";
-        if (!selected) e.currentTarget.style.borderColor = "var(--line-strong)";
+        e.currentTarget.style.boxShadow = hoverShadow;
+        const tile = e.currentTarget.querySelector<HTMLElement>(".cd-cover-tile");
+        if (tile) tile.style.transform = "scale(1.06)";
+        if (!selected) e.currentTarget.style.borderColor = "var(--border-strong)";
       }}
       onMouseOut={(e) => {
         e.currentTarget.style.transform = "";
-        e.currentTarget.style.boxShadow = "var(--shadow)";
-        if (!selected) e.currentTarget.style.borderColor = "var(--line)";
+        e.currentTarget.style.boxShadow = restShadow;
+        const tile = e.currentTarget.querySelector<HTMLElement>(".cd-cover-tile");
+        if (tile) tile.style.transform = "";
+        if (!selected) e.currentTarget.style.borderColor = "var(--border-hair)";
       }}
     >
+      {/* Sealed — 3px amber left rule spanning the whole card. */}
+      {sealed && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: 3,
+            background: "var(--accent)",
+            zIndex: 2,
+          }}
+        />
+      )}
       {children}
       {kebab && (
         <span
@@ -2088,19 +2378,34 @@ function CardMeta({
   name,
   kind,
   sub,
+  sealed,
+  version,
+  chainVerified,
+  trailing,
 }: {
   name: string;
   kind: FileKind;
-  sub: string;
+  /** Folder / ghost cards render this plain sub-line instead of a pill row. */
+  sub?: string;
+  sealed?: boolean;
+  version?: number | null;
+  chainVerified?: boolean;
+  /** File cards: right-aligned mono tail — the version tag when sealed, else
+   * the relative modified time. */
+  trailing?: string;
 }) {
+  const isFolder = kind === "fold";
+  const glyphColor = isFolder ? "var(--accent)" : (KIND_HUE[kind] ?? "#7C7E8A");
+  const Glyph = KIND_GLYPH[kind] ?? FileGeneric;
   return (
     <div style={{ padding: "var(--cd-card-meta-pad-y) var(--cd-card-meta-pad-x)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <FileMiniIcon kind={kind} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Glyph size={15} strokeWidth={1.8} style={{ color: glyphColor, flexShrink: 0 }} aria-hidden />
         <span
           style={{
-            fontSize: "var(--text-base)",
-            fontWeight: 500,
+            fontSize: "var(--text-md)",
+            fontWeight: "var(--weight-medium)",
+            color: "var(--fg-default)",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -2109,17 +2414,41 @@ function CardMeta({
           {name}
         </span>
       </div>
-      <div
-        style={{
-          fontSize: "var(--text-xs)",
-          color: "var(--muted)",
-          marginTop: 6,
-          display: "flex",
-          gap: 7,
-        }}
-      >
-        <span>{sub}</span>
-      </div>
+      {sub !== undefined ? (
+        <div
+          style={{
+            fontSize: "var(--text-xs)",
+            color: "var(--fg-muted)",
+            marginTop: 7,
+          }}
+        >
+          {sub}
+        </div>
+      ) : (
+        <div
+          style={{
+            marginTop: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <CardStatusPill sealed={!!sealed} version={version ?? null} chainVerified={chainVerified} />
+          {trailing && (
+            <span
+              className="mono"
+              style={{
+                marginLeft: "auto",
+                fontSize: "var(--mono-xs)",
+                color: "var(--fg-subtle)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {trailing}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2531,13 +2860,39 @@ function GridSkeleton({ view }: { view: ViewMode }) {
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="skeleton"
             style={{
               border: "1px solid var(--border-hair)",
-              borderRadius: "var(--radius-md)",
-              height: 188,
+              borderRadius: "var(--radius-lg)",
+              overflow: "hidden",
+              background: "var(--bg-surface)",
+              boxShadow: "var(--elevation-1), var(--rim-light)",
             }}
-          />
+          >
+            {/* Cover region — a modeled glyph-tile placeholder, never a
+                blank white box. */}
+            <div
+              style={{
+                height: "var(--cd-card-thumb-h)",
+                borderBottom: "1px solid var(--border-hair)",
+                background: "var(--bg-sunken)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div
+                className="skeleton"
+                style={{ width: 52, height: 52, borderRadius: 15 }}
+              />
+            </div>
+            <div style={{ padding: "var(--cd-card-meta-pad-y) var(--cd-card-meta-pad-x)" }}>
+              <div className="skeleton" style={{ height: 12, width: "72%", borderRadius: "var(--radius-2xs)" }} />
+              <div
+                className="skeleton"
+                style={{ height: 10, width: "44%", borderRadius: "var(--radius-2xs)", marginTop: 10 }}
+              />
+            </div>
+          </div>
         ))}
       </div>
     );
@@ -2591,23 +2946,6 @@ function verbFor(action: string): string | null {
       return "created folder";
     default:
       return null;
-  }
-}
-
-function labelForKind(k: ReturnType<typeof inferKind>): string {
-  switch (k) {
-    case "fold":
-      return "Folder";
-    case "doc":
-      return "Document";
-    case "sheet":
-      return "Spreadsheet";
-    case "pdf":
-      return "PDF";
-    case "img":
-      return "Image";
-    default:
-      return "Document";
   }
 }
 

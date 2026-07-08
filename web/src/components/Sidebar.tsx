@@ -80,10 +80,12 @@ export function Sidebar({
     <aside
       className="glass--thin"
       style={{
-        // Dark ink rail (§7.1 dark-on-light) — stays dark even when the
-        // rest of the app is in light mode. The glass mixin adds the
-        // chrome blur + edge light; the opaque rail background is kept
-        // inline so body text stays AA on the solid (never the frost).
+        // Light glass chrome floating over the visible Aura (ui-vision-2026
+        // §2.4/§5.1): the rail is translucent so the mesh glows through, and
+        // it uses theme-adaptive semantic tokens so it's a first-class peer
+        // in both Registry (dark) and Reading Room (light). The .glass--thin
+        // mixin supplies the frost + saturation; --shadow-float carves it off
+        // the ground. WCAG AA is measured on the opaque glass fallback.
         width: 240,
         flexShrink: 0,
         height: "100vh",
@@ -91,11 +93,10 @@ export function Sidebar({
         display: "flex",
         flexDirection: "column",
         gap: 4,
-        background: "var(--rail)",
-        color: "var(--rail-text)",
+        color: "var(--fg-muted)",
         borderRadius: 0,
-        borderRight: "1px solid var(--rail-line)",
-        boxShadow: "var(--edge-hi)",
+        borderRight: "var(--hairline-glass)",
+        boxShadow: "var(--edge-hi), var(--shadow-float)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 8px 12px" }}>
@@ -103,7 +104,7 @@ export function Sidebar({
         <div style={{ color: "var(--accent)", ["--mark-fg" as string]: "#F5F3EE" }}>
           <Logo size={30} />
         </div>
-        <div style={{ color: "var(--rail-active-text)" }}>
+        <div style={{ color: "var(--fg-default)" }}>
           <Wordmark tone="rail" />
         </div>
       </div>
@@ -225,7 +226,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
     <>
       <span
         className="caps-label"
-        style={{ color: "var(--rail-muted)", padding: "10px 10px 4px" }}
+        style={{ color: "var(--fg-subtle)", padding: "10px 10px 4px" }}
       >
         {label}
       </span>
@@ -264,8 +265,10 @@ function NavRow({
         onClick={onClick}
         aria-current={active ? "page" : undefined}
         style={{
-          // Active = amber-wash fill + 2px left amber rule + paper text
-          // (semibold); idle = transparent + rail-text.
+          // Active = amber-wash fill + 2px left amber rule + amber icon +
+          // strong (default-fg) semibold label; idle = transparent + muted
+          // text. Amber is the signal, kept AA by carrying it in the rule +
+          // icon rather than the body label.
           position: "relative",
           display: "flex",
           alignItems: "center",
@@ -274,8 +277,8 @@ function NavRow({
           height: 28,
           padding: "0 10px",
           borderRadius: "var(--radius-sm)",
-          background: active ? "var(--rail-active)" : "transparent",
-          color: active ? "var(--rail-active-text)" : "var(--rail-text)",
+          background: active ? "var(--accent-wash)" : "transparent",
+          color: active ? "var(--fg-default)" : "var(--fg-muted)",
           border: "none",
           cursor: "pointer",
           fontFamily: "var(--font-sans)",
@@ -285,7 +288,7 @@ function NavRow({
           transition: "background var(--dur-base) var(--ease-out), color var(--dur-base)",
         }}
         onMouseOver={(e) => {
-          if (!active) e.currentTarget.style.background = "var(--rail-2)";
+          if (!active) e.currentTarget.style.background = "var(--bg-hover)";
         }}
         onMouseOut={(e) => {
           if (!active) e.currentTarget.style.background = "transparent";
@@ -305,10 +308,14 @@ function NavRow({
             }}
           />
         )}
-        <Icon size={16} strokeWidth={1.5} style={{ opacity: active ? 1 : 0.9 }} />
+        <Icon
+          size={16}
+          strokeWidth={1.5}
+          style={{ color: active ? "var(--accent)" : "currentColor", opacity: active ? 1 : 0.9 }}
+        />
         <span style={{ flex: 1 }}>{item.label}</span>
         {item.comingSoon && (
-          <span className="caps-label" style={{ color: "var(--rail-muted)" }}>
+          <span className="caps-label" style={{ color: "var(--fg-subtle)" }}>
             soon
           </span>
         )}
@@ -317,7 +324,7 @@ function NavRow({
             className="tnum"
             style={{
               fontSize: "var(--text-sm)",
-              color: active ? "var(--rail-active-text)" : "var(--rail-muted)",
+              color: active ? "var(--fg-default)" : "var(--fg-subtle)",
               opacity: active ? 0.8 : 1,
             }}
           >
@@ -334,7 +341,7 @@ function NavRow({
 function EncryptionFooterChip() {
   return (
     <div
-      className="glass--thin"
+      className="glass--ultrathin"
       title="All documents are encrypted at rest with AES-256-GCM"
       style={{
         display: "flex",
@@ -344,7 +351,8 @@ function EncryptionFooterChip() {
         padding: "6px 10px",
         borderRadius: "var(--radius-pill)",
         border: "var(--hairline-glass)",
-        color: "var(--rail-text)",
+        boxShadow: "var(--edge-hi)",
+        color: "var(--fg-muted)",
         fontSize: "var(--text-2xs)",
         fontWeight: "var(--weight-medium)",
         lineHeight: 1.3,
@@ -465,7 +473,7 @@ function AvatarRow({ username }: { username: string }) {
         textAlign: "left",
         transition: "background var(--dur-fast)",
       }}
-      onMouseOver={(e) => (e.currentTarget.style.background = "var(--rail-2)")}
+      onMouseOver={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
       onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <span
@@ -492,7 +500,7 @@ function AvatarRow({ username }: { username: string }) {
             display: "block",
             fontSize: "var(--text-sm)",
             fontWeight: "var(--weight-medium)",
-            color: "var(--rail-active-text)",
+            color: "var(--fg-default)",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",

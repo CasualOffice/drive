@@ -50,13 +50,16 @@ export function TopBar({
     <header
       className="glass--thin"
       style={{
+        // Thin glass chrome floating over the Aura — the mesh refracts
+        // through the frost, and --shadow-float gives the bar real depth
+        // off the ground (ui-vision-2026 §2.5/§5.1). Theme-adaptive peer.
         display: "flex",
         alignItems: "center",
         gap: "var(--space-2)",
         height: 48,
         padding: "0 var(--space-3)",
         borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--edge-hi)",
+        boxShadow: "var(--edge-hi), var(--shadow-float)",
         border: "var(--hairline-glass)",
       }}
     >

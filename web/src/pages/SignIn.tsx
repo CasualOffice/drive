@@ -76,49 +76,76 @@ export function SignIn() {
   return (
     <div
       style={{
+        position: "relative",
         height: "100%",
         width: "100%",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "var(--paper)",
+        padding: "24px",
+        // Transparent so the fixed <AmbientGround/> Aura glows through; a
+        // gentle centre-lit vignette adds depth and pulls the eye to the card
+        // (kills the barren flat-void first impression).
+        background:
+          "radial-gradient(120% 90% at 50% 32%, transparent 0%, var(--signin-vignette) 100%)",
+        overflow: "hidden",
       }}
     >
+      {/* The single amber light — a soft focal bloom behind the card. The
+          brand's "one lamp that means verified", rendered as atmosphere. */}
+      <div aria-hidden="true" className="signin-bloom" />
+
       <form
         onSubmit={onSubmit}
+        className="signin-card"
         style={{
-          width: 360,
-          padding: "32px 26px 26px",
-          background: "var(--card)",
-          border: "1px solid var(--line)",
+          position: "relative",
+          zIndex: 1,
+          width: 408,
+          maxWidth: "100%",
+          padding: "36px 32px 30px",
           borderRadius: "var(--radius-xl)",
-          boxShadow: "var(--shadow-soft, var(--shadow))",
           display: "flex",
           flexDirection: "column",
-          gap: 16,
+          gap: 18,
           animation: shake ? "cd-shake 300ms var(--ease)" : undefined,
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-          <div style={{ color: "var(--ink)", marginBottom: 4 }}>
-            <Logo size={36} />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+          <div
+            className="signin-mark"
+            style={{ color: "var(--accent)" }}
+            aria-hidden="true"
+          >
+            <Logo size={44} />
           </div>
           <h1
             style={{
               margin: 0,
               fontFamily: "var(--font-display)",
-              fontSize: "var(--text-2xl)",
-              fontWeight: 500,
-              letterSpacing: "var(--tracking-tight)",
-              color: "var(--ink)",
+              fontSize: "var(--text-display-lg)",
+              lineHeight: "var(--leading-display-lg)",
+              fontWeight: 600,
+              letterSpacing: "var(--tracking-display-lg)",
+              color: "var(--fg-default)",
+              textAlign: "center",
             }}
           >
             Doc-Hub
           </h1>
-          <p style={{ margin: 0, fontSize: "var(--text-base)", color: "var(--muted)" }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "var(--text-md)",
+              lineHeight: "var(--leading-normal)",
+              color: "var(--fg-muted)",
+              textAlign: "center",
+              maxWidth: 300,
+            }}
+          >
             {DEMO_MODE && passwordEnabled
-              ? "Demo build · sign in with the pre-filled credentials."
-              : "Sign in to continue."}
+              ? "A reading room for permanent records. Sign in with the pre-filled credentials."
+              : "Sign in to your registry to continue."}
           </p>
         </div>
 
@@ -128,23 +155,23 @@ export function SignIn() {
               display: "flex",
               alignItems: "flex-start",
               gap: 11,
-              padding: "11px 13px",
-              background: "var(--accent-muted)",
-              border: "1px solid rgba(200, 164, 92, 0.32)",
-              borderRadius: 12,
-              fontSize: "var(--text-xs)",
-              color: "var(--ink-soft)",
+              padding: "12px 14px",
+              background: "var(--amber-glow-2)",
+              border: "1px solid var(--amber-glow-1)",
+              borderRadius: "var(--radius-lg)",
+              fontSize: "var(--text-sm)",
+              color: "var(--fg-default)",
               lineHeight: "var(--leading-normal)",
             }}
           >
-            <Sparkles size={14} strokeWidth={1.8} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 1 }} />
+            <Sparkles size={14} strokeWidth={2} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 2 }} />
             <div>
               Username{" "}
               <code style={kbdStyle()}>{DEMO_USERNAME}</code>
               {" · "}
               Password{" "}
               <code style={kbdStyle()}>{DEMO_PASSWORD}</code>
-              <div style={{ marginTop: 4, color: "var(--muted)" }}>
+              <div style={{ marginTop: 4, color: "var(--fg-muted)" }}>
                 Any credentials work — this build has no real auth.
               </div>
             </div>
@@ -154,6 +181,7 @@ export function SignIn() {
         {oidcEnabled && (
           <a
             href={oidcLoginUrl()}
+            className="signin-oidc"
             style={{
               display: "flex",
               alignItems: "center",
@@ -162,22 +190,26 @@ export function SignIn() {
               width: "100%",
               padding: "12px",
               fontFamily: "var(--font-sans)",
-              fontSize: "var(--text-sm)",
+              fontSize: "var(--text-md)",
               fontWeight: 500,
-              color: "var(--paper)",
-              background: "var(--ink)",
-              border: "none",
-              borderRadius: 12,
+              color: "var(--fg-default)",
+              background: "var(--bg-hover)",
+              border: "1px solid var(--border-strong)",
+              borderRadius: "var(--radius-sm)",
               textDecoration: "none",
               cursor: "pointer",
-              transition: "background 200ms var(--ease), transform 200ms",
+              transition: "background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)",
             }}
             onMouseOver={(e) => {
               e.currentTarget.style.transform = "translateY(-1px)";
+              e.currentTarget.style.background = "var(--bg-active)";
             }}
-            onMouseOut={(e) => (e.currentTarget.style.transform = "")}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = "";
+              e.currentTarget.style.background = "var(--bg-hover)";
+            }}
           >
-            <KeyRound size={15} strokeWidth={1.8} />
+            <KeyRound size={15} strokeWidth={2} />
             Sign in with {oidcLabel}
           </a>
         )}
@@ -189,20 +221,20 @@ export function SignIn() {
               display: "flex",
               alignItems: "center",
               gap: 10,
-              fontSize: "var(--text-xs)",
-              color: "var(--muted)",
+              fontSize: "var(--text-2xs)",
+              color: "var(--fg-subtle)",
               textTransform: "uppercase",
-              letterSpacing: "0.08em",
+              letterSpacing: "var(--tracking-wider)",
             }}
           >
-            <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
+            <span style={{ flex: 1, height: 1, background: "var(--border-hair)" }} />
             or
-            <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
+            <span style={{ flex: 1, height: 1, background: "var(--border-hair)" }} />
           </div>
         )}
 
         {passwordEnabled && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Input
             type="text"
             name="username"
@@ -231,7 +263,7 @@ export function SignIn() {
               style={{
                 marginTop: 2,
                 fontSize: "var(--text-xs)",
-                color: "var(--warning)",
+                color: "var(--status-attention-700)",
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
@@ -250,7 +282,7 @@ export function SignIn() {
             style={{
               marginTop: -8,
               fontSize: "var(--text-xs)",
-              color: "var(--danger)",
+              color: "var(--status-danger-700)",
               textAlign: "left",
             }}
           >
@@ -262,23 +294,42 @@ export function SignIn() {
           <button
             type="submit"
             disabled={submitDisabled}
+            className="signin-submit"
+            data-disabled={submitDisabled || undefined}
             style={{
               width: "100%",
-              padding: "12px",
+              padding: "13px",
               fontFamily: "var(--font-sans)",
-              fontSize: "var(--text-sm)",
-              fontWeight: 500,
-              color: "var(--paper)",
-              background: submitDisabled ? "rgba(15, 23, 42,.35)" : "var(--ink)",
-              border: "none",
-              borderRadius: 12,
+              fontSize: "var(--text-md)",
+              fontWeight: 600,
+              letterSpacing: "var(--tracking-tight)",
+              color: submitDisabled ? "var(--fg-disabled)" : "var(--accent-fg)",
+              background: submitDisabled ? "var(--bg-sunken)" : "var(--accent)",
+              border: "1px solid transparent",
+              borderRadius: "var(--radius-sm)",
               cursor: submitDisabled ? "default" : "pointer",
-              transition: "background 200ms var(--ease), transform 200ms",
+              boxShadow: submitDisabled
+                ? "none"
+                : "0 6px 20px rgba(242, 163, 36, 0.35), var(--edge-hi)",
+              transition:
+                "background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out)",
             }}
             onMouseOver={(e) => {
-              if (!submitDisabled) e.currentTarget.style.transform = "translateY(-1px)";
+              if (submitDisabled) return;
+              e.currentTarget.style.transform = "translateY(-1px)";
+              e.currentTarget.style.background = "var(--accent-hover)";
+              e.currentTarget.style.boxShadow =
+                "0 8px 26px rgba(242, 163, 36, 0.45), var(--edge-hi)";
             }}
-            onMouseOut={(e) => (e.currentTarget.style.transform = "")}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = "";
+              e.currentTarget.style.background = submitDisabled
+                ? "var(--bg-sunken)"
+                : "var(--accent)";
+              e.currentTarget.style.boxShadow = submitDisabled
+                ? "none"
+                : "0 6px 20px rgba(242, 163, 36, 0.35), var(--edge-hi)";
+            }}
           >
             {busy ? "Signing in…" : "Sign in"}
           </button>
@@ -289,11 +340,11 @@ export function SignIn() {
             role="alert"
             style={{
               padding: "11px 13px",
-              background: "var(--warning-muted, rgba(200,164,92,.12))",
-              border: "1px solid rgba(200, 164, 92, 0.32)",
-              borderRadius: 12,
+              background: "var(--amber-glow-2)",
+              border: "1px solid var(--amber-glow-1)",
+              borderRadius: "var(--radius-lg)",
               fontSize: "var(--text-xs)",
-              color: "var(--ink-soft)",
+              color: "var(--fg-default)",
             }}
           >
             Sign-in is disabled. Ask the operator to set
@@ -301,17 +352,105 @@ export function SignIn() {
             or configure an OIDC provider.
           </div>
         )}
+
+        {/* Ambient trust footer — specific claim + mono, the peak-anxiety cue. */}
+        <div
+          aria-hidden="true"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 7,
+            marginTop: 2,
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--mono-xs)",
+            color: "var(--fg-subtle)",
+            letterSpacing: "0.01em",
+          }}
+        >
+          <span
+            style={{
+              width: 5,
+              height: 5,
+              borderRadius: "50%",
+              background: "var(--status-verified)",
+              boxShadow: "0 0 8px var(--status-verified)",
+              flexShrink: 0,
+            }}
+          />
+          AES-256 · tamper-evident · hash-chained
+        </div>
       </form>
 
       <style>
         {`
+          :root { --signin-vignette: rgba(22, 22, 26, 0.05); }
+          :root[data-theme="dark"], .dark { --signin-vignette: rgba(0, 0, 0, 0.55); }
+          @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]), :root[data-theme="system"] {
+              --signin-vignette: rgba(0, 0, 0, 0.55);
+            }
+          }
+
+          /* The glass sign-in card — real depth: rim-light + deep float
+             shadow over the blurred Aura. */
+          .signin-card {
+            background: var(--mat-thick);
+            backdrop-filter: blur(var(--blur-overlay)) saturate(var(--saturate));
+            -webkit-backdrop-filter: blur(var(--blur-overlay)) saturate(var(--saturate));
+            border: var(--hairline-glass);
+            box-shadow: var(--edge-hi), var(--shadow-overlay);
+          }
+          @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+            .signin-card { background: var(--glass-solid); }
+          }
+          @media (prefers-reduced-transparency: reduce) {
+            .signin-card {
+              background: var(--glass-solid);
+              backdrop-filter: none;
+              -webkit-backdrop-filter: none;
+            }
+          }
+
+          /* The amber focal bloom behind the card. */
+          .signin-bloom {
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            width: 640px;
+            height: 640px;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 0;
+            background: radial-gradient(
+              circle at center,
+              var(--amber-glow-1) 0%,
+              var(--amber-glow-2) 30%,
+              transparent 66%
+            );
+            filter: blur(28px);
+            opacity: 0.9;
+            animation: cd-bloom-breathe 7s var(--ease-inout) infinite alternate;
+          }
+
+          .signin-mark svg {
+            filter: drop-shadow(0 4px 14px var(--amber-glow-2));
+          }
+
+          @keyframes cd-bloom-breathe {
+            from { opacity: 0.72; transform: translate(-50%, -50%) scale(0.98); }
+            to   { opacity: 1;    transform: translate(-50%, -50%) scale(1.04); }
+          }
+
           @keyframes cd-shake {
             0%,100% { transform: translateX(0); }
             25%     { transform: translateX(-6px); }
             75%     { transform: translateX(6px); }
           }
           @media (prefers-reduced-motion: reduce) {
-            form { animation: none !important; }
+            .signin-card { animation: none !important; }
+            .signin-bloom { animation: none; }
           }
         `}
       </style>
@@ -322,12 +461,12 @@ export function SignIn() {
 function kbdStyle(): React.CSSProperties {
   return {
     fontFamily: "var(--font-mono, ui-monospace, monospace)",
-    background: "var(--card)",
-    border: "1px solid var(--line)",
-    borderRadius: 5,
+    background: "var(--bg-sunken)",
+    border: "1px solid var(--border-hair)",
+    borderRadius: "var(--radius-xs)",
     padding: "1px 6px",
     fontSize: 11,
-    color: "var(--ink)",
+    color: "var(--fg-default)",
   };
 }
 
@@ -374,20 +513,23 @@ function Input({
         width: "100%",
         padding: "12px 14px",
         fontFamily: "var(--font-sans)",
-        fontSize: "var(--text-base)",
-        color: "var(--ink)",
-        background: "var(--paper)",
-        border: `1px solid ${invalid ? "var(--danger)" : "var(--line)"}`,
-        borderRadius: 12,
+        fontSize: "var(--text-md)",
+        color: "var(--fg-default)",
+        background: "var(--bg-sunken)",
+        border: `1px solid ${invalid ? "var(--status-danger)" : "var(--border-hair)"}`,
+        borderRadius: "var(--radius-sm)",
         outline: "none",
-        transition: "border-color 150ms, box-shadow 150ms",
+        transition: "border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out)",
       }}
       onFocus={(e) => {
-        e.currentTarget.style.borderColor = invalid ? "var(--danger)" : "var(--line-strong)";
-        e.currentTarget.style.boxShadow = "0 0 0 4px rgba(15, 23, 42,.04)";
+        // Retuned amber focus ring (§2.2): 2px surface gap + amber glow.
+        e.currentTarget.style.borderColor = invalid ? "var(--status-danger)" : "var(--accent)";
+        e.currentTarget.style.boxShadow = invalid
+          ? "0 0 0 2px var(--bg-surface), 0 0 0 4px var(--status-danger)"
+          : "0 0 0 2px var(--bg-surface), 0 0 0 4px var(--amber-glow-1)";
       }}
       onBlur={(e) => {
-        e.currentTarget.style.borderColor = invalid ? "var(--danger)" : "var(--line)";
+        e.currentTarget.style.borderColor = invalid ? "var(--status-danger)" : "var(--border-hair)";
         e.currentTarget.style.boxShadow = "";
         onCapsLockChange?.(false);
       }}

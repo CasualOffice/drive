@@ -241,13 +241,45 @@ export function CommandPalette({
     <div
       role="dialog"
       aria-label="Command palette"
+      className="cd-scrim"
       onClick={(e) => {
         if (e.target === e.currentTarget) close();
       }}
       style={overlayStyle()}
     >
-      <div className="glass--overlay" style={panelStyle()}>
+      <div className="cd-spotlight" style={panelStyle()}>
         <style>{`
+          /* ── Spotlight material — real dark glass over the Aura ─────────
+             Self-contained so the surface is guaranteed dark-translucent in
+             the Registry theme (frosted-paper in Reading Room) rather than
+             inheriting a flat pane. Blur 22px + saturate 180% + the bright
+             1px edge (the "liquid tell"), overlay shadow, and a faint amber
+             ambient ring tying it to the ground. AA is always measured on
+             the opaque fallback below, never the translucent value. */
+          .cd-spotlight {
+            background: var(--mat-thick);
+            -webkit-backdrop-filter: blur(22px) saturate(var(--saturate));
+            backdrop-filter: blur(22px) saturate(var(--saturate));
+            border: var(--hairline-glass);
+            border-radius: var(--radius-xl);
+            box-shadow:
+              var(--edge-hi),
+              var(--shadow-overlay),
+              0 0 0 1px var(--amber-glow-3);
+          }
+          /* No backdrop-filter support → opaque solid (AA measured here). */
+          @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+            .cd-spotlight { background: var(--glass-solid); }
+          }
+          /* User asks for reduced transparency → solid, no blur. */
+          @media (prefers-reduced-transparency: reduce) {
+            .cd-spotlight {
+              background: var(--glass-solid);
+              -webkit-backdrop-filter: none;
+              backdrop-filter: none;
+            }
+          }
+
           [cmdk-group-heading] {
             font-size: var(--text-2xs);
             line-height: 1;
@@ -257,20 +289,35 @@ export function CommandPalette({
             color: var(--fg-subtle);
             padding: 6px 10px 4px;
           }
+
+          /* Active row — amber wash + a 2px amber left rule (verification as
+             spatial identity, not a loud highlight). */
           [cmdk-item][data-selected="true"] {
             background: var(--bg-selected);
             color: var(--fg-default);
+            box-shadow: inset 2px 0 0 0 var(--accent);
           }
-          /* Amber glow on the leading icon of the active row. */
+          /* Leading icon chip — default well, then lights amber + glows on
+             the active row (color/background live here, not inline, so the
+             selection state can override them). */
+          .cd-spotlight [cmdk-item] > span:first-child {
+            background: var(--bg-sunken);
+            color: var(--fg-muted);
+          }
           [cmdk-item][data-selected="true"] > span:first-child {
-            box-shadow: var(--accent-glow);
             color: var(--accent);
+            background: var(--amber-glow-2);
+            box-shadow: var(--accent-glow);
           }
           [cmdk-item]:hover { background: var(--bg-hover); }
+
           @keyframes cd-cmd-overlay { from { opacity: 0; } to { opacity: 1; } }
           @keyframes cd-cmd-pop {
             from { opacity: 0; transform: translateY(-8px) scale(0.98); }
             to   { opacity: 1; transform: translateY(0) scale(1); }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .cd-scrim, .cd-spotlight { animation: none !important; }
           }
         `}</style>
         <Command label="Command palette" loop shouldFilter={false} filter={itemFilter}>
@@ -535,29 +582,33 @@ function formatBytes(b: number): string {
 
 // ── styles ───────────────────────────────────────────────────────────
 
+/** Scrim — dims + blurs the app behind the Spotlight so the glass has a
+ * ground to refract, with a faint amber bloom behind the panel tying it to
+ * the Aura. Quick fade so the palette still feels instant. */
 function overlayStyle(): React.CSSProperties {
   return {
     position: "fixed",
     inset: 0,
-    background: "var(--bg-overlay)",
-    backdropFilter: "blur(2px)",
-    WebkitBackdropFilter: "blur(2px)",
+    background:
+      "radial-gradient(60% 42% at 50% 22%, var(--amber-glow-3), transparent 70%), var(--bg-overlay)",
+    backdropFilter: "blur(4px) saturate(115%)",
+    WebkitBackdropFilter: "blur(4px) saturate(115%)",
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "center",
     paddingTop: "12vh",
     zIndex: 80,
-    animation: "cd-cmd-overlay 160ms var(--ease)",
+    animation: "cd-cmd-overlay 160ms var(--ease-out)",
   };
 }
 
-/** Spotlight panel — glass--overlay class supplies material, blur, border,
- * radius, and the overlay shadow (with solid fallbacks). Inline only carries
- * geometry + the spring entrance. */
+/** Spotlight panel — the `.cd-spotlight` class supplies the dark-glass
+ * material, blur, bright edge, radius, and overlay shadow (with solid
+ * fallbacks). Inline only carries geometry + the spring entrance. */
 function panelStyle(): React.CSSProperties {
   return {
     width: "100%",
-    maxWidth: 560,
+    maxWidth: 600,
     overflow: "hidden",
     fontFamily: "var(--font-sans)",
     color: "var(--fg-default)",
@@ -626,17 +677,18 @@ function itemStyle(): React.CSSProperties {
   };
 }
 
+// Geometry only — `background`/`color` are set in the injected <style> so
+// the selected-row amber wash + glow can override them (inline would win).
 function iconBoxStyle(): React.CSSProperties {
   return {
     width: 22,
     height: 22,
     borderRadius: "var(--radius-xs)",
-    background: "var(--bg-sunken)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "var(--fg-muted)",
     flexShrink: 0,
+    transition: "color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out)",
   };
 }
 

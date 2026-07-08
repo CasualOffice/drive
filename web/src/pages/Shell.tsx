@@ -241,7 +241,9 @@ function CenteredPane({ children }: { children: React.ReactNode }) {
       style={{
         flex: 1,
         overflow: "auto",
-        background: "var(--bg-canvas)",
+        // Translucent pane so the Aura mesh glows through instead of being
+        // painted over by opaque canvas (ui-vision-2026 §2.4).
+        background: "color-mix(in oklab, var(--bg-surface) 82%, transparent)",
         padding: "var(--space-6) var(--space-6) 40px",
         display: "flex",
         alignItems: "center",

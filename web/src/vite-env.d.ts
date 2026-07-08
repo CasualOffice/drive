@@ -2,5 +2,6 @@
 
 declare module "*.css";
 declare module "@fontsource-variable/inter";
+declare module "@fontsource-variable/newsreader";
 declare module "@fontsource/jetbrains-mono/400.css";
 declare module "@fontsource/jetbrains-mono/500.css";
