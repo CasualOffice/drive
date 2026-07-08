@@ -1,0 +1,145 @@
+# Canonical full-stack compose — the one-command dev/demo stack.
+#
+#   docker compose up -d --build
+#
+# Brings up the WHOLE stack on one network:
+#   - dochub   — Drive (SPA + JSON API + WOPI host), Rust, host :8080
+#   - collab   — casualoffice/docs bundled image in collab-gateway mode
+#                (Hocuspocus/Yjs). Format-agnostic: ONE service brokers
+#                BOTH .docx and .xlsx rooms. Host :8082.
+#   - minio    — S3-compatible object storage (bucket `drive-dev`), :9000/:9001
+#   - minio-init — one-shot bucket creation
+#
+# This supersedes the docker-compose.dev.yml + docker-compose.coedit.yml
+# overlay dance (those files are kept for reference / narrow use). Here the
+# collab gateway is the PUBLISHED image `casualoffice/docs:v0.0.5` — no
+# ad-hoc local build from ../document.
+#
+# ── The dual collab-URL detail (the usual footgun) ───────────────────────────
+# There are TWO collab URLs and they point at the SAME host-published gateway
+# (:8082), because BOTH are consumed in the *browser*, never server-side:
+#
+#   1. DOCHUB_COLLAB_URL (backend env, below) is NOT a URL dochub dials. The
+#      backend only uses it to synthesize the room `ws_url` it hands back to
+#      the browser (see crates/dochub-http/src/collab.rs `collab_ws_url` →
+#      http→ws, path `/yjs`). So it MUST be reachable from the *browser*, i.e.
+#      the host-published gateway, NOT the compose-internal `http://collab:8080`.
+#      In `inline` gateway mode there is no seed/snapshot callback, so there is
+#      no compose-internal collab URL to wire at all.
+#
+#   2. VITE_DRIVE_COLLAB_BACKEND_URL (SPA build-arg, below) is baked into the
+#      bundle for the SDK direct-mount collab path (wired in a later phase).
+#      Also browser-facing ⇒ also the host-published ws URL.
+#
+# Both therefore resolve to the same gateway on :8082 — one as http (backend
+# turns it into ws), one already as ws.
+#
+# ── Shared secret ────────────────────────────────────────────────────────────
+# The collab gateway validates the per-file HS256 editor tokens dochub mints
+# (crates/dochub-http/src/collab.rs "Token contract"). For that its
+# CASUAL_JWT_SECRET must EQUAL dochub's DOCHUB_WOPI_HMAC_SECRET. Both reference
+# the single `${DOCHUB_WOPI_HMAC_SECRET}` interpolation, so they can never
+# drift. Set it once in .env (copy from .env.example); the dev default below
+# keeps `docker compose up` a true one-command stack.
+
+services:
+  collab:
+    # Published bundled image — Hocuspocus/Yjs collab server. Format-agnostic,
+    # so this single service brokers both .docx and .xlsx rooms.
+    image: casualoffice/docs:v0.0.5
+    container_name: casual-dochub-collab
+    restart: unless-stopped
+    environment:
+      # inline host = in-memory share-link mode (no persistence beyond room
+      # lifetime); dochub owns the snapshot the peers fetched at mount.
+      GATEWAY_HOST: "inline"
+      # MUST equal dochub's DOCHUB_WOPI_HMAC_SECRET so the gateway can validate
+      # the editor access tokens dochub mints (same HS256 signing key).
+      CASUAL_JWT_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
+      LOG_FORMAT: "json"
+      ACCESS_LOG: "true"
+    # Host-published so the BROWSER can open the Yjs WebSocket directly
+    # (:8082 host → :8080 container). Keeps :8080 free for dochub.
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  dochub:
+    build:
+      context: .
+      args:
+        # Baked into the SPA bundle for the SDK direct-mount collab path
+        # (browser-facing ⇒ host-published ws URL).
+        VITE_DRIVE_COLLAB_BACKEND_URL: "${VITE_DRIVE_COLLAB_BACKEND_URL:-ws://localhost:8082}"
+    image: casual-dochub:dev
+    environment:
+      DOCHUB_APP_ORIGIN: "http://127.0.0.1:8080"
+      DOCHUB_USERCONTENT_ORIGIN: "http://127.0.0.1:8081"
+      DOCHUB_BIND: "0.0.0.0:8080"
+      DOCHUB_BACKEND: "minio"
+      DOCHUB_S3_BUCKET: "drive-dev"
+      DOCHUB_S3_ENDPOINT: "http://minio:9000"
+      DOCHUB_S3_REGION: "auto"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin"
+      DOCHUB_DB_URL: "sqlite:///data/drive.db"
+      # Browser-reachable collab URL. dochub only reflects this into the room
+      # `ws_url` it returns to the browser (→ ws://localhost:8082/yjs); it does
+      # NOT dial the gateway itself. Host-published value, never compose DNS.
+      DOCHUB_COLLAB_URL: "${DOCHUB_COLLAB_URL:-http://localhost:8082}"
+      # Dev-only secrets — DO NOT use these in prod. Override via .env.
+      # DOCHUB_WOPI_HMAC_SECRET is ALSO the collab gateway's CASUAL_JWT_SECRET.
+      DOCHUB_SESSION_SECRET: "${DOCHUB_SESSION_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-aa}"
+      DOCHUB_WOPI_HMAC_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
+      DOCHUB_SIGNED_URL_HMAC_SECRET: "${DOCHUB_SIGNED_URL_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-cc}"
+      DOCHUB_ADMIN_USER: "admin"
+      # argon2id of "admin" — generated with `argon2 -t 2 -m 14 -p 1 -e`
+      DOCHUB_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=19456,t=2,p=1$$ZGV2c2FsdGRldnNhbHQ$$REPLACE_BEFORE_PROD"
+      RUST_LOG: "info,dochub=debug"
+    ports:
+      - "8080:8080"
+    volumes:
+      - dochub_data:/data
+    depends_on:
+      minio:
+        condition: service_healthy
+      collab:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # One-shot bucket creation.
+  minio-init:
+    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >-
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      (mc mb local/drive-dev || true) &&
+      echo bucket-ready"
+
+volumes:
+  dochub_data:
+  minio_data:

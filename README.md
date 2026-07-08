@@ -52,6 +52,48 @@ docker run -d --name hub \
 
 Visit `https://hub.your-server`, complete the one-time admin setup, create a project, upload a document, edit it, and watch the version chain grow. Full env-var matrix at <https://dochub.casualoffice.org/docs/configuration>.
 
+## Full stack in one command
+
+The canonical `docker-compose.yml` brings up the **whole** stack — Drive + the
+collab gateway + object storage — so both `.docx` and `.xlsx` get real
+co-editing:
+
+```bash
+cp .env.example .env      # optional: override the shared secret + collab URLs
+docker compose up -d --build
+```
+
+Services:
+
+| Service | What | Host port |
+|---|---|---|
+| `dochub` | Drive: SPA + JSON API + WOPI host (Rust) | `8080` |
+| `collab` | `casualoffice/docs:v0.0.5` in gateway mode (Hocuspocus/Yjs). Format-agnostic — one service brokers **both** `.docx` and `.xlsx` rooms. | `8082` |
+| `minio` | S3-compatible object storage (bucket `drive-dev`) | `9000` / `9001` |
+| `minio-init` | one-shot bucket creation | — |
+
+Open <http://localhost:8080>, sign in, and edit a document. The collab gateway
+validates Drive's per-file editor token because its `CASUAL_JWT_SECRET` is wired
+to the same value as Drive's `DOCHUB_WOPI_HMAC_SECRET` (single `.env` var).
+
+**Two collab URLs, one gateway.** Both `DOCHUB_COLLAB_URL` and the SPA build-arg
+`VITE_DRIVE_COLLAB_BACKEND_URL` point at the host-published gateway on `:8082`.
+This is deliberate: `DOCHUB_COLLAB_URL` is not a URL the backend dials — Drive
+only reflects it into the room `ws_url` it returns to the *browser*
+(`collab_ws_url` in `crates/dochub-http/src/collab.rs`), so it must be
+browser-reachable, never compose-internal DNS. In `inline` gateway mode there is
+no seed/snapshot callback, so no compose-internal collab URL is needed at all.
+
+This canonical file supersedes the older `docker-compose.dev.yml` +
+`docker-compose.coedit.yml` overlay dance (kept for reference). It pins the
+**published** `casualoffice/docs` image rather than building an ad-hoc gateway
+from a sibling repo.
+
+> Co-editing is fully verified end-to-end once the web app wires the SDK's
+> collab prop on its `.docx` / `.xlsx` direct mounts (a later phase). Until
+> then the gateway is live and brokers rooms; the plain-text editor already
+> binds to it, and the SDK editors consume the room for presence.
+
 ## What it does
 
 | Surface | Feature |
