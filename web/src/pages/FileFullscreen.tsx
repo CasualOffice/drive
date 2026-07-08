@@ -658,7 +658,7 @@ function FullscreenBody({
   if (kind === "sheet") {
     return (
       <Suspense fallback={<LoadingFallback />}>
-        <CasualSheetWorkspace file={file} mode="editor" onSaveStatus={onSaveStatus} />
+        <CasualSheetWorkspace file={file} mode="editor" onSaveStatus={onSaveStatus} user={user} />
       </Suspense>
     );
   }

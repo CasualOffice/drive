@@ -30,10 +30,9 @@
  * `save()` in `withSaveStatus` so every round-trip drives the "Saving… /
  * Saved / Failed" pill in `<FileFullscreen>`.
  *
- * NOTE: `scripts/copy-embed.mjs` still copies `@casualoffice/docs/embed/*`
- * into `public/embed/docs/` for the retired iframe path. The docs branch of
- * copy-embed is now dead (only the sheet iframe still needs it) and can be
- * retired once Sheets also moves to a native mount in a later phase.
+ * NOTE: with P2 mounting Sheets natively too, both editors are now iframe-free.
+ * `scripts/copy-embed.mjs`, the `public/embed/` tree, and the prebuild step that
+ * populated it were all retired — nothing serves an embed runtime anymore.
  */
 
 import { useMemo, useRef } from "react";

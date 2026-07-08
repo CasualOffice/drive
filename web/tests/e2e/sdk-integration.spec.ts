@@ -26,7 +26,7 @@ test.beforeEach(async ({ page }) => {
   await signInDemo(page);
 });
 
-test("double-click .xlsx card routes to /file/<id> with the editor iframe", async ({ page }) => {
+test("double-click .xlsx card routes to /file/<id> with the native editor", async ({ page }) => {
   // Click model (2026-06-16 directive):
   //   - single click → PreviewModal (metadata + preview) for ALL types
   //   - double click → /file/<id> editor view for ALL types
@@ -39,10 +39,10 @@ test("double-click .xlsx card routes to /file/<id> with the editor iframe", asyn
   await expect(page.getByTestId("file-fullscreen")).toBeVisible();
   await expect(page.getByTestId("file-fullscreen-title")).toHaveText("Q2 planning.xlsx");
 
-  // FileFullscreen mounted a CasualSheetWorkspace. Accept any of the
-  // three resolved states (ready / loading / error) — the demo's
-  // seeded empty Blob can't parse, so 'error' is the expected
-  // terminal state; the parser worker hops through 'loading' first.
+  // FileFullscreen mounted a CasualSheetWorkspace (native <CasualSheets>).
+  // Accept any of the three resolved states (ready / loading / error) — the
+  // demo's seeded empty Blob can't parse, so 'error' is the expected terminal
+  // state; the fetch+import hops through 'loading' (overlay) first.
   const fullscreenStage = page
     .getByTestId("casual-sheet-workspace")
     .or(page.getByTestId("casual-sheet-workspace-loading"))

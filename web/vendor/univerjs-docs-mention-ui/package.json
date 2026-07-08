@@ -1,0 +1,27 @@
+{
+  "name": "@univerjs/docs-mention-ui",
+  "version": "0.25.0",
+  "description": "Vendored build of @univerjs/docs-mention-ui@0.25.0 (Apache-2.0, from the univer-revamp fork). Not published to the public npm registry, but the @casualoffice/sheets SDK lazy-imports it for the comment @-mention plugin. Vendored here so <CasualSheets> mounts with its full plugin set. Imports @univerjs/core/design/docs/docs-ui/ui as externals — they resolve to doc-hub's installed 0.25.0, so DI singletons stay shared.",
+  "type": "module",
+  "main": "./lib/es/index.js",
+  "module": "./lib/es/index.js",
+  "types": "./lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/es/index.js",
+      "require": "./lib/cjs/index.js",
+      "types": "./lib/types/index.d.ts"
+    },
+    "./lib/*": "./lib/*"
+  },
+  "license": "Apache-2.0",
+  "peerDependencies": {
+    "@univerjs/core": "0.25.0",
+    "@univerjs/design": "0.25.0",
+    "@univerjs/docs": "0.25.0",
+    "@univerjs/docs-ui": "0.25.0",
+    "@univerjs/ui": "0.25.0",
+    "react": "^18.0.0 || ^19.0.0",
+    "rxjs": ">=7.0.0"
+  }
+}
