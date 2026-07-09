@@ -55,6 +55,11 @@ RUN apt-get update \
 
 COPY --from=builder /app/target/release/dochub /usr/local/bin/dochub
 
+# Create the data dir owned by the runtime user. A named volume mounted at
+# /data inherits this ownership on first mount, so the non-root `dochub` user
+# can write the SQLite DB (else boot fails: "unable to open database file").
+RUN mkdir -p /data && chown dochub:dochub /data
+
 USER dochub
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/dochub"]
