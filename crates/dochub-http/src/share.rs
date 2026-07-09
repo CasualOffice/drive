@@ -120,7 +120,7 @@ async fn create_share(
 
     let expires_at = body
         .expires_in_seconds
-        .and_then(|secs| if secs > 0 { Some(secs) } else { None })
+        .filter(|&secs| secs > 0)
         .map(|secs| time::OffsetDateTime::now_utc() + time::Duration::seconds(secs));
 
     let token = mint_token();
@@ -297,7 +297,7 @@ async fn create_folder_share(
 
     let expires_at = body
         .expires_in_seconds
-        .and_then(|secs| if secs > 0 { Some(secs) } else { None })
+        .filter(|&secs| secs > 0)
         .map(|secs| time::OffsetDateTime::now_utc() + time::Duration::seconds(secs));
 
     let token = mint_token();
