@@ -217,16 +217,12 @@ export function CasualDocEditor({
           isEditor ? (buffer) => void fileSource.save(file.id, buffer) : undefined
         }
         docxEditorProps={{
-          // Bare canvas for the read-only preview; the full shell for the
-          // editing surface (individual controls tuned via `features`).
-          chrome: isEditor ? "full" : "none",
-          // Drive owns file open — neutralize the editor's Cmd+O browser picker
-          // so it never opens its own file dialog (doc 39).
-          onRequestOpen: () => {},
-          // Drive frames the editor; suppress the editor's brand doc-icon in the
-          // title row (doc 39). The full TitleBar/MenuBar hide is the SDK
-          // embedded-mode change (Phase 1).
-          renderLogo: () => null,
+          // Native-feel (doc 39, Phase 4): chrome:"embedded" renders the
+          // formatting toolbar ONLY — no TitleBar/MenuBar/logo/About, and Cmd+O/N
+          // are suppressed — so the editor is a bare editing surface inside
+          // Drive's own shell (one shell, not two). Supersedes the Phase-0
+          // renderLogo/onRequestOpen host workarounds. Preview stays chromeless.
+          chrome: isEditor ? "embedded" : "none",
           // Fill the flex parent so the editor owns the available viewport.
           style: { flex: 1, minHeight: 0 },
         }}
