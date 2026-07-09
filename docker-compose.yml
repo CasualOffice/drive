@@ -105,8 +105,8 @@ services:
       DOCHUB_WOPI_HMAC_SECRET: "${DOCHUB_WOPI_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-bb}"
       DOCHUB_SIGNED_URL_HMAC_SECRET: "${DOCHUB_SIGNED_URL_HMAC_SECRET:-dev-only-32-byte-secret-DO-NOT-USE-cc}"
       DOCHUB_ADMIN_USER: "admin"
-      # argon2id of "admin" — generated with `argon2 -t 2 -m 14 -p 1 -e`
-      DOCHUB_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=19456,t=2,p=1$$ZGV2c2FsdGRldnNhbHQ$$REPLACE_BEFORE_PROD"
+      # Dev default: argon2id hash of "admin" (login admin/admin). CHANGE for prod.
+      DOCHUB_ADMIN_PASSWORD_HASH: "$$argon2id$$v=19$$m=16384,t=2,p=1$$ZGV2c2FsdGRldnNhbHQ$$TqLbug+UlB8LGJunfbBqBrIQAPKjarhRXkmBothz+AM"
       RUST_LOG: "info,dochub=debug"
     ports:
       - "8080:8080"
