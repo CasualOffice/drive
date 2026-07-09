@@ -1,0 +1,22 @@
+# Doc-Hub
+
+> Encrypted, tamper-evident, self-hostable document registry and hub — documents-only, with immutable hash-chained version history, embedded native editors, and full content search.
+
+Doc-Hub is part of the Casual Office suite. It ingests documents (docx, xlsx, pptx, pdf, md, txt, csv, json, yaml — no video or media), encrypts them at rest, and keeps a permanent, append-only, hash-chained history you can verify, diff, and restore from. A single Rust binary self-hosts the whole thing.
+
+## Docs
+
+- [Install](https://drive.casualoffice.org/docs/install): self-host Doc-Hub — the single binary, requirements, and first-run setup.
+- [Configuration](https://drive.casualoffice.org/docs/configuration): environment, storage backends, encryption keys, and the two-origin model.
+- [Architecture](https://drive.casualoffice.org/docs/architecture): storage facade, encryption layer, version/hash-chain engine, and token model.
+- [Contributing](https://drive.casualoffice.org/docs/contributing): how to build, test, and contribute.
+
+## Site
+
+- [Vision](https://drive.casualoffice.org/vision): what Doc-Hub is and why documents-only, immutable history is the product.
+- [Roadmap](https://drive.casualoffice.org/roadmap): phased delivery plan.
+- [Screenshots](https://drive.casualoffice.org/screenshots): product surfaces and the polished UI.
+
+## Source
+
+- [GitHub repository](https://github.com/CasualOffice/drive): source code, issues, and releases.

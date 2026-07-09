@@ -51,6 +51,26 @@ const ogUrl = ogImage.startsWith("http") ? ogImage : `${siteUrl}${ogImage}`;
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="generator" content={Astro.generator} />
+
+    {/* Google tag (gtag.js) — production only so local dev/preview stays quiet. */}
+    {
+      import.meta.env.PROD && (
+        <Fragment>
+          <script
+            is:inline
+            async
+            src="https://www.googletagmanager.com/gtag/js?id=G-2JHHR7MKW6"
+          />
+          <script is:inline>
+            {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-2JHHR7MKW6');`}
+          </script>
+        </Fragment>
+      )
+    }
+
     <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#14121a" media="(prefers-color-scheme: dark)" />
 
