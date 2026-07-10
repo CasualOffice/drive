@@ -243,6 +243,29 @@ export function MarkdownEditor({
         }
         return false;
       },
+      // Paste raw markdown reliably. `tiptap-markdown`'s `transformPastedText`
+      // only hooks the `text/plain` path; when the clipboard ALSO carries a
+      // `text/html` flavour (common when copying rendered markdown, or from
+      // another editor), ProseMirror takes the HTML path and the markdown
+      // transform is skipped — so `**bold**` lands as literal text and only
+      // formats after a reload re-parses the stored source. Here we detect
+      // that case (html flavour present AND the plain text looks like
+      // markdown) and route the plain text through tiptap-markdown's parser
+      // ourselves. Plain-text-only pastes fall through to `transformPastedText`
+      // untouched; non-markdown text falls through to the default handler.
+      handlePaste(_view, event) {
+        const ed = editorRef.current;
+        const cd = event.clipboardData;
+        if (!ed || !cd) return false;
+        const text = cd.getData("text/plain");
+        const html = cd.getData("text/html");
+        if (!text || !html || !looksLikeMarkdown(text)) return false;
+        const parsed = parseMarkdownToHtml(ed, text);
+        if (parsed == null) return false;
+        event.preventDefault();
+        ed.chain().focus().insertContent(parsed).run();
+        return true;
+      },
       // Copy-as-markdown. Without this, ProseMirror puts plain text on the
       // clipboard for the `text/plain` flavour — pasting a selection into
       // another editor loses all formatting. We serialize the copied slice
@@ -367,6 +390,33 @@ function getMarkdown(editor: import("@tiptap/react").Editor): string {
   const storage = editor.storage as unknown as Record<string, unknown>;
   const md = storage.markdown as { getMarkdown?: () => string } | undefined;
   return md?.getMarkdown?.() ?? "";
+}
+
+/** Heuristic: does this text contain markdown block/inline syntax worth
+ * parsing? Kept deliberately conservative so ordinary prose (which the HTML
+ * paste path handles fine) is never hijacked. Matches ATX headings, list /
+ * blockquote / fenced-code block starts, and inline bold/italic/strike/code/
+ * link markers. */
+function looksLikeMarkdown(text: string): boolean {
+  const block = /(^|\n)[ \t]{0,3}(#{1,6}[ \t]|[-*+][ \t]|\d+\.[ \t]|>[ \t]|```|~~~)/;
+  const inline = /(\*\*|__|~~|`[^`\n]+`|\[[^\]\n]+\]\([^)\n]+\))/;
+  return block.test(text) || inline.test(text);
+}
+
+/** Parse markdown source to an HTML string via tiptap-markdown's parser (the
+ * inverse of the serializer used for copy). Returns null if the parser bag
+ * isn't available or doesn't yield a string, so the caller can fall through to
+ * the default paste handler. */
+function parseMarkdownToHtml(
+  editor: import("@tiptap/react").Editor,
+  markdown: string,
+): string | null {
+  const storage = editor.storage as unknown as Record<string, unknown>;
+  const md = storage.markdown as
+    | { parser?: { parse: (content: string, options?: { inline?: boolean }) => unknown } }
+    | undefined;
+  const parsed = md?.parser?.parse(markdown, { inline: false });
+  return typeof parsed === "string" ? parsed : null;
 }
 
 /** Copy-as-markdown. Serialize a copied ProseMirror slice to markdown via
