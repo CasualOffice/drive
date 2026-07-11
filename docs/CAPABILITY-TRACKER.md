@@ -12,7 +12,7 @@
 
 ## 1. TL;DR
 
-The **inherited Drive spine is shipped and solid** (storage facade, portable migrations, append-only audit log, projects/roles/invites, Argon2id+OIDC auth, share links, two-origin model, AES-GCM secret-envelope) and **RBAC/ACLs landed recently** (`dochub-authz`, PR #85). The **registry foundations are mid-flight** (Phase 0: rename, documents-only allowlist, `dochub-crypto` document-byte envelope, hash-chain version engine). The big surprise: **full-text content search is further along than `PIPELINE.md` says** — `dochub-index` (Tantivy 0.26) and `GET /api/search/content` are built **and tested**, just **not wired into the SPA** and only extracting text formats. Everything the founder asked to "build properly" — **search-by-tag, RAG, MCP, an agentic pipeline, a durable job runner, a real frontend state layer (Redux), and shared UI primitives** — is **not-started or design-only** (there are no `dochub-ai`, `dochub-mcp`, or worker crates). **Recommended start:** finish Phase 0's hash-chain/crypto gate, then land the **indexing → FTS backbone** (extraction + background worker + SPA wiring), because RAG, MCP, and search-by-tag all depend on it.
+The **inherited Drive spine is shipped and solid** (storage facade, portable migrations, append-only audit log, projects/roles/invites, Argon2id+OIDC auth, share links, two-origin model, AES-GCM secret-envelope) and **RBAC/ACLs landed recently** (`dochub-authz`, PR #85). The **registry foundations are mid-flight** (Phase 0: rename, documents-only allowlist, `dochub-crypto` document-byte envelope, hash-chain version engine). The big surprise: **full-text content search is further along than `PIPELINE.md` says** — `dochub-index` (Tantivy 0.26) and `GET /api/search/content` are built **and tested**, and are already **wired into the SPA** (Command Palette + Files search run content search in parallel with metadata search, rendering highlighted `SearchSnippet`s). The real remaining search gap is **Office/PDF text extraction** — today only text formats (md/txt/csv/json/yaml) are extracted; `.docx/.xlsx/.pdf` index title+extension only. Everything the founder asked to "build properly" — **search-by-tag, RAG, MCP, an agentic pipeline, a durable job runner, a real frontend state layer (Redux), and shared UI primitives** — is **not-started or design-only** (there are no `dochub-ai`, `dochub-mcp`, or worker crates). **Recommended start:** finish Phase 0's hash-chain/crypto gate, then land the **extraction + background worker** half of the indexing backbone (search is already end-to-end for text formats), because RAG, MCP, and search-by-tag all build on it.
 
 ---
 
@@ -28,7 +28,7 @@ The **inherited Drive spine is shipped and solid** (storage facade, portable mig
 | Provenance / hash-chain (“prove things”) | **In progress** | version engine + `dochub-crypto` scaffolding | `content_hash`/`prev_hash`, write-once blobs, `verify_chain`, restore-as-new, chained audit (P0-4) | L |
 | Documents-only ingest | **In progress** | allowlist scaffolding | Extension **+ magic-byte sniff** on every path; reject test (P0-2) | S |
 | Indexing + extraction (Rust) | **Partial** | `dochub-index` (Tantivy 0.26, tests); `index_state`/`indexed_hash`; lazy reindex-on-query | **Office/PDF extraction** (only md/txt/csv/json/yaml today); a true **background worker**; extraction via `core` | L |
-| Full-text / global search | **Partial** | `GET /api/search` (metadata, shipped + UI-wired, 20+ tests); `GET /api/search/content` (BM25 + `<b>` snippets, **7 unit + 6 integ tests**, incl. `finds_by_content_not_name`) | **SPA wiring for content search** (bundle references `/api/search` only); Office/PDF coverage; filters on content results | M |
+| Full-text / global search | **Partial** | `GET /api/search` (metadata, shipped + UI-wired, 20+ tests); `GET /api/search/content` (BM25 + `<b>` snippets, **7 unit + 6 integ tests**); **SPA-wired** — `searchContent` in `CommandPalette.tsx` + `Files.tsx` with `SearchSnippet` | Office/PDF content coverage (extraction gap); filters/facets on content results | S–M |
 | Search by tag | **Not-started** | — (no tag tables/routes found) | Tag model + `document_tags` migration, tag CRUD endpoints, tag filter in search, tag UI | M |
 | Vaults | **Partial** | projects/workspaces (SP4) as the container | Explicit **Vault** UX + per-vault DEK boundary story, vault switcher/grid in SPA | M |
 | RAG / AI layer | **Design-only** | design in `docs/design/foundation-access-rag-mcp.md`; Phase 5 in `PIPELINE.md` | `dochub-ai` crate: embeddings, vector store, semantic rerank, summaries, PII, cross-doc Q&A, Claude provider | XL |
@@ -54,10 +54,10 @@ The **inherited Drive spine is shipped and solid** (storage facade, portable mig
 
 ### Search / full-text + global — Partial
 **Goal:** a single search surface answering "which document mentions X" with snippets, highlights, and type/project/date filters, reachable from the SPA.
-- [ ] **Wire `/api/search/content` into the SPA** (the built bundle references `/api/search` only; add content mode + snippet rendering).
-- [ ] Merge metadata + content results (or a tabbed UI); carry the existing filter set onto content results.
-- [ ] Highlight rendering (`<b>` snippets already returned server-side).
-- **Acceptance:** UI e2e: type a phrase, get a highlighted content snippet linking to the doc; filters narrow content hits.
+- [x] Content search **wired into the SPA** — `searchContent` runs in parallel with metadata search in `Files.tsx` and `CommandPalette.tsx`; `<b>` snippets rendered via `SearchSnippet`.
+- [ ] Carry the existing filter set (type/project/date) onto content results / add content-result facets.
+- [ ] Office/PDF content coverage (blocked on extraction — see Indexing).
+- **Acceptance:** UI e2e: type a phrase inside a `.docx`, get a highlighted content snippet linking to the doc; filters narrow content hits.
 - **Depends on:** Indexing (Office/PDF extraction for full coverage).
 
 ### Search by tag — Not-started
