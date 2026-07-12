@@ -33,6 +33,7 @@ mod search;
 mod share;
 mod spa;
 mod state;
+mod tags_http;
 mod versions;
 mod wopi_docs;
 mod workspace_storage;
@@ -138,6 +139,7 @@ fn app_origin_router(state: HttpState) -> Router {
     let grants_router: Router = grants::router(state.clone());
     let members_router: Router = members::router(state.clone());
     let projects_router: Router = projects_http::router(state.clone());
+    let tags_router: Router = tags_http::router(state.clone());
 
     Router::new()
         .route("/healthz", get(healthz))
@@ -167,6 +169,7 @@ fn app_origin_router(state: HttpState) -> Router {
         .merge(grants_router)
         .merge(members_router)
         .merge(projects_router)
+        .merge(tags_router)
         // SPA fallback — `/`, `/sign-in`, `/files/...`, hashed asset paths
         // — anything not matched above is served from the embedded `web/dist/`.
         .fallback(spa::serve)
