@@ -49,10 +49,10 @@ impl<'a> UserRepo<'a> {
         let created_at_str = ts(created_at);
         let is_admin_i = i64::from(new.is_admin);
 
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO users (id, username, password_hash, is_admin, created_at) \
              VALUES (?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.username)
         .bind(&new.password_hash)
@@ -85,12 +85,12 @@ impl<'a> UserRepo<'a> {
     /// Phase 3 §12 — look up by `(provider_id, subject)`. Returns
     /// `NotFound` if no row.
     pub async fn find_by_oidc(&self, provider_id: &str, subject: &str) -> Result<User, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, username, password_hash, is_admin, created_at, quota_bytes, \
                     oidc_provider_id, oidc_subject, oidc_email_verified \
              FROM users \
              WHERE oidc_provider_id = ? AND oidc_subject = ?",
-        )
+        ))
         .bind(provider_id)
         .bind(subject)
         .fetch_one(self.db.pool())
@@ -117,12 +117,12 @@ impl<'a> UserRepo<'a> {
         let email_verified_i = i64::from(email_verified);
         let sentinel = "oidc:no-password";
 
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO users \
              (id, username, password_hash, is_admin, created_at, \
               oidc_provider_id, oidc_subject, oidc_email_verified) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(username)
         .bind(sentinel)
@@ -161,10 +161,10 @@ impl<'a> UserRepo<'a> {
         subject: &str,
         email_verified: bool,
     ) -> Result<(), DbError> {
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE users SET oidc_provider_id = ?, oidc_subject = ?, \
                               oidc_email_verified = ? WHERE id = ?",
-        )
+        ))
         .bind(provider_id)
         .bind(subject)
         .bind(i64::from(email_verified))
@@ -177,7 +177,7 @@ impl<'a> UserRepo<'a> {
     /// Toggle admin. Used by the admin elevation path when the OIDC
     /// `admin_group` claim flips.
     pub async fn set_admin(&self, id: &str, is_admin: bool) -> Result<(), DbError> {
-        sqlx::query("UPDATE users SET is_admin = ? WHERE id = ?")
+        sqlx::query(&self.db.sql("UPDATE users SET is_admin = ? WHERE id = ?"))
             .bind(i64::from(is_admin))
             .bind(id)
             .execute(self.db.pool())
@@ -187,11 +187,11 @@ impl<'a> UserRepo<'a> {
 
     /// Look up a user by username. Returns `NotFound` if no row.
     pub async fn find_by_username(&self, username: &str) -> Result<User, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, username, password_hash, is_admin, created_at, quota_bytes, \
                     oidc_provider_id, oidc_subject, oidc_email_verified \
              FROM users WHERE username = ?",
-        )
+        ))
         .bind(username)
         .fetch_one(self.db.pool())
         .await
@@ -201,11 +201,11 @@ impl<'a> UserRepo<'a> {
 
     /// Look up a user by id. Returns `NotFound` if no row.
     pub async fn find_by_id(&self, id: &str) -> Result<User, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, username, password_hash, is_admin, created_at, quota_bytes, \
                     oidc_provider_id, oidc_subject, oidc_email_verified \
              FROM users WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_one(self.db.pool())
         .await
@@ -216,11 +216,11 @@ impl<'a> UserRepo<'a> {
     /// All users in the table, newest first. Backs the Admin → Users
     /// card.
     pub async fn list_all(&self) -> Result<Vec<User>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, username, password_hash, is_admin, created_at, quota_bytes, \
                     oidc_provider_id, oidc_subject, oidc_email_verified \
              FROM users ORDER BY created_at DESC",
-        )
+        ))
         .fetch_all(self.db.pool())
         .await?;
         rows.iter().map(row_to_user).collect()
@@ -230,10 +230,10 @@ impl<'a> UserRepo<'a> {
     /// quota check on upload (pipeline §6.4) and the Settings →
     /// Storage card. Returns 0 when the user owns no files.
     pub async fn used_bytes(&self, user_id: &str) -> Result<u64, DbError> {
-        let n: Option<i64> = sqlx::query_scalar(
+        let n: Option<i64> = sqlx::query_scalar(&self.db.sql(
             "SELECT COALESCE(SUM(size), 0) FROM files \
              WHERE owner_id = ? AND trashed_at IS NULL",
-        )
+        ))
         .bind(user_id)
         .fetch_one(self.db.pool())
         .await?;
@@ -243,7 +243,7 @@ impl<'a> UserRepo<'a> {
     /// Set or clear the per-user storage quota.
     pub async fn set_quota(&self, id: &str, quota_bytes: Option<u64>) -> Result<(), DbError> {
         let n = quota_bytes.and_then(|q| i64::try_from(q).ok());
-        sqlx::query("UPDATE users SET quota_bytes = ? WHERE id = ?")
+        sqlx::query(&self.db.sql("UPDATE users SET quota_bytes = ? WHERE id = ?"))
             .bind(n)
             .bind(id)
             .execute(self.db.pool())
@@ -254,7 +254,7 @@ impl<'a> UserRepo<'a> {
     /// Count rows in `users`. Backs the first-run admin-setup gate —
     /// the wizard runs only when this is zero.
     pub async fn count(&self) -> Result<i64, DbError> {
-        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        let n: i64 = sqlx::query_scalar(&self.db.sql("SELECT COUNT(*) FROM users"))
             .fetch_one(self.db.pool())
             .await?;
         Ok(n)
@@ -263,11 +263,15 @@ impl<'a> UserRepo<'a> {
     /// Replace the stored password hash for an existing user. Returns
     /// `NotFound` if the user does not exist.
     pub async fn update_password(&self, id: &str, new_hash: &str) -> Result<(), DbError> {
-        let res = sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
-            .bind(new_hash)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        let res = sqlx::query(
+            &self
+                .db
+                .sql("UPDATE users SET password_hash = ? WHERE id = ?"),
+        )
+        .bind(new_hash)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         if res.rows_affected() == 0 {
             return Err(DbError::NotFound);
         }

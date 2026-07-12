@@ -63,11 +63,11 @@ impl<'a> RetentionRepo<'a> {
         let id = ulid::Ulid::new().to_string();
         let created_at = time::OffsetDateTime::now_utc();
         let created_s = ts(created_at);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO retention_policies \
              (id, workspace_id, scope, min_versions, min_age_days, mode, created_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.workspace_id)
         .bind(&new.scope)
@@ -93,10 +93,10 @@ impl<'a> RetentionRepo<'a> {
         &self,
         workspace_id: &str,
     ) -> Result<Vec<RetentionPolicy>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, scope, min_versions, min_age_days, mode, created_at \
              FROM retention_policies WHERE workspace_id = ? ORDER BY created_at DESC, id DESC",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -109,11 +109,11 @@ impl<'a> RetentionRepo<'a> {
         &self,
         workspace_id: &str,
     ) -> Result<Option<RetentionPolicy>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, scope, min_versions, min_age_days, mode, created_at \
              FROM retention_policies WHERE workspace_id = ? \
              ORDER BY created_at DESC, id DESC LIMIT 1",
-        )
+        ))
         .bind(workspace_id)
         .fetch_optional(self.db.pool())
         .await?;

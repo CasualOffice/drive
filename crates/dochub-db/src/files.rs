@@ -130,10 +130,10 @@ impl<'a> FileRepo<'a> {
         let expected_i = new
             .expected_size
             .map(|e| i64::try_from(e).unwrap_or(i64::MAX));
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO files (id, parent_id, name, size, content_type, etag, owner_id, created_at, modified_at, workspace_id, project_id, storage_id, status, expected_size) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&new.id)
         .bind(&new.parent_id)
         .bind(&new.name)
@@ -172,11 +172,11 @@ impl<'a> FileRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<File, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
                     workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
              FROM files WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_one(self.db.pool())
         .await
@@ -189,24 +189,23 @@ impl<'a> FileRepo<'a> {
         parent_id: Option<&str>,
         owner_id: &str,
     ) -> Result<Vec<File>, DbError> {
+        let sql_some = self.db.sql(
+            "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
+                    workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
+             FROM files \
+             WHERE parent_id = ? AND owner_id = ? AND trashed_at IS NULL \
+             ORDER BY name ASC",
+        );
+        let sql_none = self.db.sql(
+            "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
+                    workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
+             FROM files \
+             WHERE parent_id IS NULL AND owner_id = ? AND trashed_at IS NULL \
+             ORDER BY name ASC",
+        );
         let rows = match parent_id {
-            Some(pid) => sqlx::query(
-                "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
-                        workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
-                 FROM files \
-                 WHERE parent_id = ? AND owner_id = ? AND trashed_at IS NULL \
-                 ORDER BY name ASC",
-            )
-            .bind(pid)
-            .bind(owner_id),
-            None => sqlx::query(
-                "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
-                        workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
-                 FROM files \
-                 WHERE parent_id IS NULL AND owner_id = ? AND trashed_at IS NULL \
-                 ORDER BY name ASC",
-            )
-            .bind(owner_id),
+            Some(pid) => sqlx::query(&sql_some).bind(pid).bind(owner_id),
+            None => sqlx::query(&sql_none).bind(owner_id),
         }
         .fetch_all(self.db.pool())
         .await?;
@@ -221,24 +220,23 @@ impl<'a> FileRepo<'a> {
         parent_id: Option<&str>,
         workspace_id: &str,
     ) -> Result<Vec<File>, DbError> {
+        let sql_some = self.db.sql(
+            "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
+                    workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
+             FROM files \
+             WHERE parent_id = ? AND workspace_id = ? AND trashed_at IS NULL \
+             ORDER BY name ASC",
+        );
+        let sql_none = self.db.sql(
+            "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
+                    workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
+             FROM files \
+             WHERE parent_id IS NULL AND workspace_id = ? AND trashed_at IS NULL \
+             ORDER BY name ASC",
+        );
         let rows = match parent_id {
-            Some(pid) => sqlx::query(
-                "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
-                        workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
-                 FROM files \
-                 WHERE parent_id = ? AND workspace_id = ? AND trashed_at IS NULL \
-                 ORDER BY name ASC",
-            )
-            .bind(pid)
-            .bind(workspace_id),
-            None => sqlx::query(
-                "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
-                        workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
-                 FROM files \
-                 WHERE parent_id IS NULL AND workspace_id = ? AND trashed_at IS NULL \
-                 ORDER BY name ASC",
-            )
-            .bind(workspace_id),
+            Some(pid) => sqlx::query(&sql_some).bind(pid).bind(workspace_id),
+            None => sqlx::query(&sql_none).bind(workspace_id),
         }
         .fetch_all(self.db.pool())
         .await?;
@@ -253,7 +251,7 @@ impl<'a> FileRepo<'a> {
     /// pair of parallel presigns could both squeeze under the cap and
     /// then together exceed it — the spec calls this out explicitly.
     pub async fn workspace_used_bytes(&self, workspace_id: &str) -> Result<u64, DbError> {
-        let n: Option<i64> = sqlx::query_scalar(
+        let n: Option<i64> = sqlx::query_scalar(&self.db.sql(
             "SELECT COALESCE(SUM( \
                   CASE WHEN status = 'uploading' \
                        THEN COALESCE(expected_size, 0) \
@@ -261,7 +259,7 @@ impl<'a> FileRepo<'a> {
                 ), 0) \
              FROM files \
              WHERE workspace_id = ? AND trashed_at IS NULL",
-        )
+        ))
         .bind(workspace_id)
         .fetch_one(self.db.pool())
         .await?;
@@ -283,14 +281,14 @@ impl<'a> FileRepo<'a> {
     ) -> Result<File, DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
         let size_i = i64::try_from(size).unwrap_or(i64::MAX);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE files \
              SET size = ?, etag = ?, \
                  content_type = COALESCE(?, content_type), \
                  status = 'ready', expected_size = NULL, \
                  modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(size_i)
         .bind(etag)
         .bind(content_type)
@@ -304,7 +302,7 @@ impl<'a> FileRepo<'a> {
     /// Direct upload abort / janitor sweep. Hard-deletes the row.
     /// Caller is expected to best-effort delete the storage object too.
     pub async fn delete_by_id(&self, id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM files WHERE id = ?")
+        sqlx::query(&self.db.sql("DELETE FROM files WHERE id = ?"))
             .bind(id)
             .execute(self.db.pool())
             .await?;
@@ -321,13 +319,13 @@ impl<'a> FileRepo<'a> {
         limit: i64,
     ) -> Result<Vec<File>, DbError> {
         let pattern = format!("%{}%", query.to_lowercase());
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, parent_id, name, size, content_type, etag, version, owner_id, \
                     workspace_id, project_id, storage_id, trashed_at, original_parent_id, created_at, modified_at, status, expected_size \
              FROM files \
              WHERE workspace_id = ? AND trashed_at IS NULL AND LOWER(name) LIKE ? \
              ORDER BY name ASC LIMIT ?",
-        )
+        ))
         .bind(workspace_id)
         .bind(pattern)
         .bind(limit.clamp(1, 200))
@@ -520,6 +518,7 @@ impl<'a> FileRepo<'a> {
         let fetch_limit = paging.limit.clamp(1, 200) + 1;
         binds.push(BindValue::I64(fetch_limit));
 
+        let sql = self.db.sql(&sql);
         let mut q = sqlx::query(&sql);
         for b in &binds {
             q = match b {
@@ -533,12 +532,16 @@ impl<'a> FileRepo<'a> {
 
     pub async fn rename(&self, id: &str, new_name: &str) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("UPDATE files SET name = ?, modified_at = ? WHERE id = ?")
-            .bind(new_name)
-            .bind(&now_s)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE files SET name = ?, modified_at = ? WHERE id = ?"),
+        )
+        .bind(new_name)
+        .bind(&now_s)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
@@ -549,11 +552,11 @@ impl<'a> FileRepo<'a> {
     pub async fn set_size_and_touch(&self, id: &str, new_size: u64) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
         let size_i64 = i64::try_from(new_size).unwrap_or(i64::MAX);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE files \
              SET size = ?, version = version + 1, modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(size_i64)
         .bind(&now_s)
         .bind(id)
@@ -564,23 +567,27 @@ impl<'a> FileRepo<'a> {
 
     pub async fn move_to(&self, id: &str, new_parent_id: Option<&str>) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("UPDATE files SET parent_id = ?, modified_at = ? WHERE id = ?")
-            .bind(new_parent_id)
-            .bind(&now_s)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE files SET parent_id = ?, modified_at = ? WHERE id = ?"),
+        )
+        .bind(new_parent_id)
+        .bind(&now_s)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
     pub async fn trash(&self, id: &str) -> Result<(), DbError> {
         let now = time::OffsetDateTime::now_utc();
         let now_s = ts(now);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE files \
              SET trashed_at = ?, original_parent_id = parent_id, parent_id = NULL, modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(&now_s)
         .bind(&now_s)
         .bind(id)
@@ -591,11 +598,11 @@ impl<'a> FileRepo<'a> {
 
     pub async fn restore(&self, id: &str) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE files \
              SET parent_id = original_parent_id, trashed_at = NULL, original_parent_id = NULL, modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(&now_s)
         .bind(id)
         .execute(self.db.pool())
@@ -610,13 +617,17 @@ impl<'a> FileRepo<'a> {
     /// appended. `seq` is monotone, so this only ever moves the head forward.
     pub async fn set_version_head(&self, id: &str, seq: i64, size: i64) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("UPDATE files SET version = ?, size = ?, modified_at = ? WHERE id = ?")
-            .bind(seq)
-            .bind(size)
-            .bind(&now_s)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE files SET version = ?, size = ?, modified_at = ? WHERE id = ?"),
+        )
+        .bind(seq)
+        .bind(size)
+        .bind(&now_s)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
@@ -635,7 +646,7 @@ impl<'a> FileRepo<'a> {
         workspace_id: &str,
         limit: i64,
     ) -> Result<Vec<File>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT f.id, f.parent_id, f.name, f.size, f.content_type, f.etag, f.version, \
                     f.owner_id, f.workspace_id, f.project_id, f.storage_id, f.trashed_at, f.original_parent_id, \
                     f.created_at, f.modified_at, f.status, f.expected_size \
@@ -647,7 +658,7 @@ impl<'a> FileRepo<'a> {
                      OR f.indexed_hash <> COALESCE(v.content_hash, '') ) \
              ORDER BY f.modified_at ASC \
              LIMIT ?",
-        )
+        ))
         .bind(workspace_id)
         .bind(limit.clamp(1, 500))
         .fetch_all(self.db.pool())
@@ -660,10 +671,10 @@ impl<'a> FileRepo<'a> {
     /// The indexer removes these from Tantivy, then calls
     /// [`FileRepo::set_index_state`] with `'trashed'`.
     pub async fn list_trashed_indexed(&self, workspace_id: &str) -> Result<Vec<String>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id FROM files \
              WHERE workspace_id = ? AND trashed_at IS NOT NULL AND index_state <> 'trashed'",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -680,12 +691,16 @@ impl<'a> FileRepo<'a> {
         state: &str,
         indexed_hash: Option<&str>,
     ) -> Result<(), DbError> {
-        sqlx::query("UPDATE files SET index_state = ?, indexed_hash = ? WHERE id = ?")
-            .bind(state)
-            .bind(indexed_hash)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE files SET index_state = ?, indexed_hash = ? WHERE id = ?"),
+        )
+        .bind(state)
+        .bind(indexed_hash)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
@@ -698,10 +713,10 @@ impl<'a> FileRepo<'a> {
     ) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
         let size_i = i64::try_from(size).unwrap_or(i64::MAX);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE files SET size = ?, etag = ?, version = version + 1, modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(size_i)
         .bind(etag)
         .bind(&now_s)

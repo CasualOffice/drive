@@ -70,6 +70,39 @@ impl Db {
     pub(crate) fn pool(&self) -> &AnyPool {
         &self.pool
     }
+
+    /// Rewrite a query's placeholders for the active backend.
+    ///
+    /// The repos are written with SQLite-style positional `?` placeholders.
+    /// sqlx's `Any` driver does **not** translate them, and Postgres requires
+    /// `$1, $2, …`. So on Postgres we rewrite the Nth `?` to `$N`; on SQLite the
+    /// string is returned untouched (zero-cost borrow). Every repo query passes
+    /// its SQL through here — `sqlx::query(&self.db.sql("… WHERE id = ?"))` — so
+    /// the exact same query source runs on both engines.
+    ///
+    /// Only `?` outside string literals is a placeholder; our queries never
+    /// contain `?` inside string literals, so a plain scan is correct. `?` is
+    /// not used as a Postgres operator anywhere in this crate.
+    #[must_use]
+    pub(crate) fn sql<'a>(&self, query: &'a str) -> std::borrow::Cow<'a, str> {
+        match self.backend {
+            DbBackend::Sqlite => std::borrow::Cow::Borrowed(query),
+            DbBackend::Postgres => {
+                let mut out = String::with_capacity(query.len() + 8);
+                let mut n = 0u32;
+                for ch in query.chars() {
+                    if ch == '?' {
+                        n += 1;
+                        out.push('$');
+                        out.push_str(&n.to_string());
+                    } else {
+                        out.push(ch);
+                    }
+                }
+                std::borrow::Cow::Owned(out)
+            }
+        }
+    }
 }
 
 fn url_backend(url: &str) -> Result<DbBackend, DbError> {

@@ -46,10 +46,10 @@ impl<'a> SessionRepo<'a> {
     pub async fn insert(&self, id: &str, new: &NewSession) -> Result<Session, DbError> {
         let now = time::OffsetDateTime::now_utc();
         let exp = now + new.ttl;
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO sessions (id, user_id, csrf_token, expires_at, created_at) \
              VALUES (?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(id)
         .bind(&new.user_id)
         .bind(&new.csrf_token)
@@ -67,10 +67,10 @@ impl<'a> SessionRepo<'a> {
     }
 
     pub async fn get(&self, id: &str) -> Result<Session, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, user_id, csrf_token, expires_at, created_at \
              FROM sessions WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_one(self.db.pool())
         .await
@@ -85,7 +85,7 @@ impl<'a> SessionRepo<'a> {
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM sessions WHERE id = ?")
+        sqlx::query(&self.db.sql("DELETE FROM sessions WHERE id = ?"))
             .bind(id)
             .execute(self.db.pool())
             .await?;
@@ -93,7 +93,7 @@ impl<'a> SessionRepo<'a> {
     }
 
     pub async fn delete_expired(&self) -> Result<u64, DbError> {
-        let res = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
+        let res = sqlx::query(&self.db.sql("DELETE FROM sessions WHERE expires_at < ?"))
             .bind(ts(time::OffsetDateTime::now_utc()))
             .execute(self.db.pool())
             .await?;
@@ -102,10 +102,14 @@ impl<'a> SessionRepo<'a> {
 
     /// Count non-expired sessions. Drives the Admin → Sessions card.
     pub async fn count_active(&self) -> Result<i64, DbError> {
-        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE expires_at >= ?")
-            .bind(ts(time::OffsetDateTime::now_utc()))
-            .fetch_one(self.db.pool())
-            .await?;
+        let n: i64 = sqlx::query_scalar(
+            &self
+                .db
+                .sql("SELECT COUNT(*) FROM sessions WHERE expires_at >= ?"),
+        )
+        .bind(ts(time::OffsetDateTime::now_utc()))
+        .fetch_one(self.db.pool())
+        .await?;
         Ok(n)
     }
 
@@ -116,11 +120,15 @@ impl<'a> SessionRepo<'a> {
         user_id: &str,
         keep_session_id: &str,
     ) -> Result<u64, DbError> {
-        let res = sqlx::query("DELETE FROM sessions WHERE user_id = ? AND id <> ?")
-            .bind(user_id)
-            .bind(keep_session_id)
-            .execute(self.db.pool())
-            .await?;
+        let res = sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM sessions WHERE user_id = ? AND id <> ?"),
+        )
+        .bind(user_id)
+        .bind(keep_session_id)
+        .execute(self.db.pool())
+        .await?;
         Ok(res.rows_affected())
     }
 }

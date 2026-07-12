@@ -39,7 +39,9 @@ impl<'a> WorkspaceKeysRepo<'a> {
     /// Fetch the wrapped DEK for a workspace, if one has been created.
     pub async fn get(&self, workspace_id: &str) -> Result<Option<WrappedDek>, DbError> {
         let row = sqlx::query(
-            "SELECT wrapped_dek, key_version FROM workspace_keys WHERE workspace_id = ?",
+            &self
+                .db
+                .sql("SELECT wrapped_dek, key_version FROM workspace_keys WHERE workspace_id = ?"),
         )
         .bind(workspace_id)
         .fetch_optional(self.db.pool())
@@ -65,10 +67,10 @@ impl<'a> WorkspaceKeysRepo<'a> {
     pub async fn insert(&self, workspace_id: &str, wrapped: &WrappedDek) -> Result<(), DbError> {
         let b64 = STANDARD.encode(&wrapped.ct);
         let now = ts(time::OffsetDateTime::now_utc());
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO workspace_keys (workspace_id, wrapped_dek, key_version, created_at) \
              VALUES (?, ?, ?, ?)",
-        )
+        ))
         .bind(workspace_id)
         .bind(&b64)
         .bind(i64::from(wrapped.key_version))
@@ -89,9 +91,9 @@ impl<'a> WorkspaceKeysRepo<'a> {
         wrapped: &WrappedDek,
     ) -> Result<(), DbError> {
         let b64 = STANDARD.encode(&wrapped.ct);
-        let affected = sqlx::query(
+        let affected = sqlx::query(&self.db.sql(
             "UPDATE workspace_keys SET wrapped_dek = ?, key_version = ? WHERE workspace_id = ?",
-        )
+        ))
         .bind(&b64)
         .bind(i64::from(wrapped.key_version))
         .bind(workspace_id)
@@ -108,7 +110,7 @@ impl<'a> WorkspaceKeysRepo<'a> {
     /// `rewrap_all` walks this list. Order is unspecified; each row is rotated
     /// independently.
     pub async fn list_workspace_ids(&self) -> Result<Vec<String>, DbError> {
-        let rows = sqlx::query("SELECT workspace_id FROM workspace_keys")
+        let rows = sqlx::query(&self.db.sql("SELECT workspace_id FROM workspace_keys"))
             .fetch_all(self.db.pool())
             .await?;
         Ok(rows.into_iter().map(|r| r.get("workspace_id")).collect())

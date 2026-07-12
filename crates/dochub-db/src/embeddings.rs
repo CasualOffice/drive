@@ -76,19 +76,19 @@ impl<'a> EmbeddingRepo<'a> {
         let now_s = ts(time::OffsetDateTime::now_utc());
 
         let mut tx = self.db.pool().begin().await?;
-        sqlx::query("DELETE FROM embeddings WHERE file_id = ?")
+        sqlx::query(&self.db.sql("DELETE FROM embeddings WHERE file_id = ?"))
             .bind(file_id)
             .execute(&mut *tx)
             .await?;
         for c in chunks {
             let id = ulid::Ulid::new().to_string();
             let encoded = encode_vector(&c.vector);
-            sqlx::query(
+            sqlx::query(&self.db.sql(
                 "INSERT INTO embeddings \
                  (id, file_id, workspace_id, chunk_index, content_hash, dims, \
                   vector, chunk_text, char_start, char_end, created_at) \
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
+            ))
             .bind(&id)
             .bind(file_id)
             .bind(workspace_id)
@@ -110,7 +110,7 @@ impl<'a> EmbeddingRepo<'a> {
     /// Remove every embedding for a file (trash / delete). Returns the number of
     /// rows removed.
     pub async fn delete_for_file(&self, file_id: &str) -> Result<u64, DbError> {
-        let res = sqlx::query("DELETE FROM embeddings WHERE file_id = ?")
+        let res = sqlx::query(&self.db.sql("DELETE FROM embeddings WHERE file_id = ?"))
             .bind(file_id)
             .execute(self.db.pool())
             .await?;
@@ -123,12 +123,12 @@ impl<'a> EmbeddingRepo<'a> {
         &self,
         workspace_id: &str,
     ) -> Result<Vec<StoredEmbedding>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, file_id, workspace_id, chunk_index, content_hash, dims, \
              vector, chunk_text, char_start, char_end \
              FROM embeddings WHERE workspace_id = ? \
              ORDER BY created_at ASC, id ASC",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -139,19 +139,27 @@ impl<'a> EmbeddingRepo<'a> {
     /// the embed job skip a file whose head is already embedded at the current
     /// hash. Returns `None` when the file has no embeddings yet.
     pub async fn content_hash_for_file(&self, file_id: &str) -> Result<Option<String>, DbError> {
-        let row = sqlx::query("SELECT content_hash FROM embeddings WHERE file_id = ? LIMIT 1")
-            .bind(file_id)
-            .fetch_optional(self.db.pool())
-            .await?;
+        let row = sqlx::query(
+            &self
+                .db
+                .sql("SELECT content_hash FROM embeddings WHERE file_id = ? LIMIT 1"),
+        )
+        .bind(file_id)
+        .fetch_optional(self.db.pool())
+        .await?;
         Ok(row.map(|r| r.get::<String, _>("content_hash")))
     }
 
     /// Count of chunk embeddings stored for a file — observability / tests.
     pub async fn count_for_file(&self, file_id: &str) -> Result<i64, DbError> {
-        let row = sqlx::query("SELECT COUNT(*) AS n FROM embeddings WHERE file_id = ?")
-            .bind(file_id)
-            .fetch_one(self.db.pool())
-            .await?;
+        let row = sqlx::query(
+            &self
+                .db
+                .sql("SELECT COUNT(*) AS n FROM embeddings WHERE file_id = ?"),
+        )
+        .bind(file_id)
+        .fetch_one(self.db.pool())
+        .await?;
         Ok(row.get::<i64, _>("n"))
     }
 }

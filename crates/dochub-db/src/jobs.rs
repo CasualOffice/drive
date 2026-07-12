@@ -83,11 +83,11 @@ impl<'a> JobsRepo<'a> {
         let max_attempts = new.max_attempts.unwrap_or(5);
         let now_s = ts(now);
         let run_after_s = ts(run_after);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO jobs \
              (id, kind, payload, state, attempts, max_attempts, run_after, last_error, created_at, updated_at) \
              VALUES (?, ?, ?, 'queued', 0, ?, ?, NULL, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.kind)
         .bind(&new.payload)
@@ -124,10 +124,10 @@ impl<'a> JobsRepo<'a> {
                 return Ok(None);
             };
             let updated_s = ts(time::OffsetDateTime::now_utc());
-            let res = sqlx::query(
+            let res = sqlx::query(&self.db.sql(
                 "UPDATE jobs SET state='running', attempts = attempts + 1, updated_at = ? \
                  WHERE id = ? AND state='queued'",
-            )
+            ))
             .bind(&updated_s)
             .bind(&id)
             .execute(self.db.pool())
@@ -141,10 +141,10 @@ impl<'a> JobsRepo<'a> {
     }
 
     async fn next_candidate_id(&self, now_s: &str) -> Result<Option<String>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id FROM jobs WHERE state='queued' AND run_after <= ? \
              ORDER BY run_after ASC, id ASC LIMIT 1",
-        )
+        ))
         .bind(now_s)
         .fetch_optional(self.db.pool())
         .await?;
@@ -153,11 +153,15 @@ impl<'a> JobsRepo<'a> {
 
     /// Mark a claimed job complete.
     pub async fn mark_done(&self, id: &str) -> Result<(), DbError> {
-        sqlx::query("UPDATE jobs SET state='done', updated_at = ? WHERE id = ?")
-            .bind(ts(time::OffsetDateTime::now_utc()))
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE jobs SET state='done', updated_at = ? WHERE id = ?"),
+        )
+        .bind(ts(time::OffsetDateTime::now_utc()))
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
@@ -174,9 +178,9 @@ impl<'a> JobsRepo<'a> {
         let now = time::OffsetDateTime::now_utc();
         let now_s = ts(now);
         if job.attempts >= job.max_attempts {
-            sqlx::query(
+            sqlx::query(&self.db.sql(
                 "UPDATE jobs SET state='failed', last_error = ?, updated_at = ? WHERE id = ?",
-            )
+            ))
             .bind(error)
             .bind(&now_s)
             .bind(id)
@@ -184,10 +188,10 @@ impl<'a> JobsRepo<'a> {
             .await?;
         } else {
             let run_after_s = ts(now + retry_delay);
-            sqlx::query(
+            sqlx::query(&self.db.sql(
                 "UPDATE jobs SET state='queued', run_after = ?, last_error = ?, updated_at = ? \
                  WHERE id = ?",
-            )
+            ))
             .bind(&run_after_s)
             .bind(error)
             .bind(&now_s)
@@ -199,10 +203,10 @@ impl<'a> JobsRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Option<Job>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, kind, payload, state, attempts, max_attempts, run_after, last_error, \
              created_at, updated_at FROM jobs WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_optional(self.db.pool())
         .await?;
@@ -211,10 +215,14 @@ impl<'a> JobsRepo<'a> {
 
     /// Count of jobs in a given state — for observability / tests.
     pub async fn count_in_state(&self, state: &str) -> Result<i64, DbError> {
-        let row = sqlx::query("SELECT COUNT(*) AS n FROM jobs WHERE state = ?")
-            .bind(state)
-            .fetch_one(self.db.pool())
-            .await?;
+        let row = sqlx::query(
+            &self
+                .db
+                .sql("SELECT COUNT(*) AS n FROM jobs WHERE state = ?"),
+        )
+        .bind(state)
+        .fetch_one(self.db.pool())
+        .await?;
         Ok(row.get::<i64, _>("n"))
     }
 }

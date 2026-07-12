@@ -53,10 +53,10 @@ impl<'a> FolderRepo<'a> {
         let id = ulid::Ulid::new().to_string();
         let now = time::OffsetDateTime::now_utc();
         let now_s = ts(now);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO folders (id, parent_id, name, owner_id, created_at, modified_at, workspace_id, project_id) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.parent_id)
         .bind(&new.name)
@@ -82,11 +82,11 @@ impl<'a> FolderRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Folder, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
                     created_at, modified_at \
              FROM folders WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_one(self.db.pool())
         .await
@@ -101,24 +101,23 @@ impl<'a> FolderRepo<'a> {
         parent_id: Option<&str>,
         owner_id: &str,
     ) -> Result<Vec<Folder>, DbError> {
+        let sql_some = self.db.sql(
+            "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
+                    created_at, modified_at \
+             FROM folders \
+             WHERE parent_id = ? AND owner_id = ? AND trashed_at IS NULL \
+             ORDER BY name ASC",
+        );
+        let sql_none = self.db.sql(
+            "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
+                    created_at, modified_at \
+             FROM folders \
+             WHERE parent_id IS NULL AND owner_id = ? AND trashed_at IS NULL \
+             ORDER BY name ASC",
+        );
         let rows = match parent_id {
-            Some(pid) => sqlx::query(
-                "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
-                            created_at, modified_at \
-                     FROM folders \
-                     WHERE parent_id = ? AND owner_id = ? AND trashed_at IS NULL \
-                     ORDER BY name ASC",
-            )
-            .bind(pid)
-            .bind(owner_id),
-            None => sqlx::query(
-                "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
-                        created_at, modified_at \
-                 FROM folders \
-                 WHERE parent_id IS NULL AND owner_id = ? AND trashed_at IS NULL \
-                 ORDER BY name ASC",
-            )
-            .bind(owner_id),
+            Some(pid) => sqlx::query(&sql_some).bind(pid).bind(owner_id),
+            None => sqlx::query(&sql_none).bind(owner_id),
         }
         .fetch_all(self.db.pool())
         .await?;
@@ -132,24 +131,23 @@ impl<'a> FolderRepo<'a> {
         parent_id: Option<&str>,
         workspace_id: &str,
     ) -> Result<Vec<Folder>, DbError> {
+        let sql_some = self.db.sql(
+            "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
+                    created_at, modified_at \
+             FROM folders \
+             WHERE parent_id = ? AND workspace_id = ? AND trashed_at IS NULL \
+             ORDER BY name ASC",
+        );
+        let sql_none = self.db.sql(
+            "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
+                    created_at, modified_at \
+             FROM folders \
+             WHERE parent_id IS NULL AND workspace_id = ? AND trashed_at IS NULL \
+             ORDER BY name ASC",
+        );
         let rows = match parent_id {
-            Some(pid) => sqlx::query(
-                "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
-                        created_at, modified_at \
-                 FROM folders \
-                 WHERE parent_id = ? AND workspace_id = ? AND trashed_at IS NULL \
-                 ORDER BY name ASC",
-            )
-            .bind(pid)
-            .bind(workspace_id),
-            None => sqlx::query(
-                "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
-                        created_at, modified_at \
-                 FROM folders \
-                 WHERE parent_id IS NULL AND workspace_id = ? AND trashed_at IS NULL \
-                 ORDER BY name ASC",
-            )
-            .bind(workspace_id),
+            Some(pid) => sqlx::query(&sql_some).bind(pid).bind(workspace_id),
+            None => sqlx::query(&sql_none).bind(workspace_id),
         }
         .fetch_all(self.db.pool())
         .await?;
@@ -166,13 +164,13 @@ impl<'a> FolderRepo<'a> {
         limit: i64,
     ) -> Result<Vec<Folder>, DbError> {
         let pattern = format!("%{}%", query.to_lowercase());
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, parent_id, name, owner_id, workspace_id, project_id, trashed_at, original_parent_id, \
                     created_at, modified_at \
              FROM folders \
              WHERE workspace_id = ? AND trashed_at IS NULL AND LOWER(name) LIKE ? \
              ORDER BY name ASC LIMIT ?",
-        )
+        ))
         .bind(workspace_id)
         .bind(pattern)
         .bind(limit.clamp(1, 200))
@@ -308,6 +306,7 @@ impl<'a> FolderRepo<'a> {
         let fetch_limit = paging.limit.clamp(1, 200) + 1;
         binds.push(BindValue::I64(fetch_limit));
 
+        let sql = self.db.sql(&sql);
         let mut q = sqlx::query(&sql);
         for b in &binds {
             q = match b {
@@ -321,34 +320,42 @@ impl<'a> FolderRepo<'a> {
 
     pub async fn rename(&self, id: &str, new_name: &str) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("UPDATE folders SET name = ?, modified_at = ? WHERE id = ?")
-            .bind(new_name)
-            .bind(&now_s)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE folders SET name = ?, modified_at = ? WHERE id = ?"),
+        )
+        .bind(new_name)
+        .bind(&now_s)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
     pub async fn move_to(&self, id: &str, new_parent_id: Option<&str>) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("UPDATE folders SET parent_id = ?, modified_at = ? WHERE id = ?")
-            .bind(new_parent_id)
-            .bind(&now_s)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE folders SET parent_id = ?, modified_at = ? WHERE id = ?"),
+        )
+        .bind(new_parent_id)
+        .bind(&now_s)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
     pub async fn trash(&self, id: &str) -> Result<(), DbError> {
         let now = time::OffsetDateTime::now_utc();
         let now_s = ts(now);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE folders \
              SET trashed_at = ?, original_parent_id = parent_id, parent_id = NULL, modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(&now_s)
         .bind(&now_s)
         .bind(id)
@@ -359,11 +366,11 @@ impl<'a> FolderRepo<'a> {
 
     pub async fn restore(&self, id: &str) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE folders \
              SET parent_id = original_parent_id, trashed_at = NULL, original_parent_id = NULL, modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(&now_s)
         .bind(id)
         .execute(self.db.pool())

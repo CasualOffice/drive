@@ -65,12 +65,12 @@ impl<'a> NotesRepo<'a> {
         let id = ulid::Ulid::new().to_string();
         let now = time::OffsetDateTime::now_utc();
         let now_s = ts(now);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO notes \
              (id, workspace_id, parent_id, title, body, owner_id, order_key, \
               trashed_at, created_at, modified_at) \
              VALUES (?, ?, ?, ?, '', ?, ?, NULL, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.workspace_id)
         .bind(&new.parent_id)
@@ -96,11 +96,11 @@ impl<'a> NotesRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Note, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, parent_id, title, body, owner_id, \
                     order_key, trashed_at, created_at, modified_at \
              FROM notes WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_one(self.db.pool())
         .await
@@ -112,11 +112,11 @@ impl<'a> NotesRepo<'a> {
     /// already ordered by (parent_id, order_key). The caller assembles
     /// the tree in O(n) — keeps the SQL boring + portable.
     pub async fn list_tree(&self, workspace_id: &str) -> Result<Vec<NoteNode>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, parent_id, title, order_key FROM notes \
              WHERE workspace_id = ? AND trashed_at IS NULL \
              ORDER BY COALESCE(parent_id, ''), order_key, title",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -134,11 +134,11 @@ impl<'a> NotesRepo<'a> {
 
     /// Trashed siblings of a workspace — feeds the Notes → Trash view.
     pub async fn list_trashed(&self, workspace_id: &str) -> Result<Vec<NoteNode>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, parent_id, title, order_key FROM notes \
              WHERE workspace_id = ? AND trashed_at IS NOT NULL \
              ORDER BY trashed_at DESC, title",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -183,6 +183,7 @@ impl<'a> NotesRepo<'a> {
             sets.push("order_key = ?");
         }
         let sql = format!("UPDATE notes SET {} WHERE id = ?", sets.join(", "));
+        let sql = self.db.sql(&sql);
         let mut q = sqlx::query(&sql).bind(&now_s);
         if let Some(v) = title {
             q = q.bind(v);
@@ -202,27 +203,35 @@ impl<'a> NotesRepo<'a> {
 
     pub async fn trash(&self, id: &str) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("UPDATE notes SET trashed_at = ?, modified_at = ? WHERE id = ?")
-            .bind(&now_s)
-            .bind(&now_s)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE notes SET trashed_at = ?, modified_at = ? WHERE id = ?"),
+        )
+        .bind(&now_s)
+        .bind(&now_s)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
     pub async fn restore(&self, id: &str) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("UPDATE notes SET trashed_at = NULL, modified_at = ? WHERE id = ?")
-            .bind(&now_s)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE notes SET trashed_at = NULL, modified_at = ? WHERE id = ?"),
+        )
+        .bind(&now_s)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM notes WHERE id = ?")
+        sqlx::query(&self.db.sql("DELETE FROM notes WHERE id = ?"))
             .bind(id)
             .execute(self.db.pool())
             .await?;
@@ -238,7 +247,7 @@ impl<'a> NotesRepo<'a> {
         limit: i64,
     ) -> Result<Vec<NoteNode>, DbError> {
         let pattern = format!("%{}%", query.to_lowercase());
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, parent_id, title, order_key FROM notes \
              WHERE workspace_id = ? AND trashed_at IS NULL \
                AND (LOWER(title) LIKE ? OR LOWER(body) LIKE ?) \
@@ -246,7 +255,7 @@ impl<'a> NotesRepo<'a> {
                CASE WHEN LOWER(title) LIKE ? THEN 0 ELSE 1 END, \
                title \
              LIMIT ?",
-        )
+        ))
         .bind(workspace_id)
         .bind(&pattern)
         .bind(&pattern)
@@ -383,6 +392,7 @@ impl<'a> NotesRepo<'a> {
         let fetch_limit = paging.limit.clamp(1, 200) + 1;
         binds.push(BindValue::I64(fetch_limit));
 
+        let sql = self.db.sql(&sql);
         let mut q = sqlx::query(&sql);
         for b in &binds {
             q = match b {
@@ -422,6 +432,7 @@ impl<'a> NotesRepo<'a> {
              WHERE workspace_id = ? AND trashed_at IS NULL \
                AND LOWER(title) IN ({placeholders})"
         );
+        let sql = self.db.sql(&sql);
         let mut q = sqlx::query(&sql).bind(workspace_id);
         for t in titles_lower {
             q = q.bind(t);
@@ -468,7 +479,7 @@ impl<'a> NoteLinksRepo<'a> {
         note_id: &str,
         entries: &[(String, Option<String>)],
     ) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM note_links WHERE note_id = ?")
+        sqlx::query(&self.db.sql("DELETE FROM note_links WHERE note_id = ?"))
             .bind(note_id)
             .execute(self.db.pool())
             .await?;
@@ -480,11 +491,11 @@ impl<'a> NoteLinksRepo<'a> {
         // (most notes have under a dozen wiki-links) and sqlx::Any
         // doesn't expose multi-row VALUES portably.
         for (title, target_id) in entries {
-            sqlx::query(
+            sqlx::query(&self.db.sql(
                 "INSERT INTO note_links \
                  (note_id, target_title, target_id, created_at) \
                  VALUES (?, ?, ?, ?)",
-            )
+            ))
             .bind(note_id)
             .bind(title)
             .bind(target_id)
@@ -504,7 +515,7 @@ impl<'a> NoteLinksRepo<'a> {
         note_title: &str,
     ) -> Result<Vec<NoteBacklink>, DbError> {
         let title_lower = note_title.to_lowercase();
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT DISTINCT n.id AS id, n.title AS title \
              FROM note_links l \
              JOIN notes n ON n.id = l.note_id \
@@ -513,7 +524,7 @@ impl<'a> NoteLinksRepo<'a> {
                AND n.id != ? \
              ORDER BY n.modified_at DESC \
              LIMIT 50",
-        )
+        ))
         .bind(note_id)
         .bind(&title_lower)
         .bind(note_id)
@@ -539,10 +550,10 @@ impl<'a> NoteLinksRepo<'a> {
         _workspace_id: &str,
     ) -> Result<(), DbError> {
         let title_lower = new_title.to_lowercase();
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE note_links SET target_id = ? \
              WHERE target_title = ? AND target_id IS NULL",
-        )
+        ))
         .bind(target_id)
         .bind(&title_lower)
         .execute(self.db.pool())

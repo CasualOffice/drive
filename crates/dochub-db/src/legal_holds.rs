@@ -72,11 +72,11 @@ impl<'a> LegalHoldsRepo<'a> {
         let id = ulid::Ulid::new().to_string();
         let placed_at = time::OffsetDateTime::now_utc();
         let placed_s = ts(placed_at);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO legal_holds \
              (id, workspace_id, target_kind, target_id, reason, placed_by, placed_at, released_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
-        )
+        ))
         .bind(&id)
         .bind(&new.workspace_id)
         .bind(&new.target_kind)
@@ -103,19 +103,23 @@ impl<'a> LegalHoldsRepo<'a> {
     /// already-released hold keeps its original `released_at`.
     pub async fn release(&self, id: &str) -> Result<Option<LegalHold>, DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("UPDATE legal_holds SET released_at = ? WHERE id = ? AND released_at IS NULL")
-            .bind(&now_s)
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE legal_holds SET released_at = ? WHERE id = ? AND released_at IS NULL"),
+        )
+        .bind(&now_s)
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
         self.find_by_id(id).await
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Option<LegalHold>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, target_kind, target_id, reason, placed_by, \
              placed_at, released_at FROM legal_holds WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_optional(self.db.pool())
         .await?;
@@ -138,7 +142,7 @@ impl<'a> LegalHoldsRepo<'a> {
              placed_at, released_at FROM legal_holds \
              WHERE workspace_id = ? ORDER BY placed_at DESC, id DESC"
         };
-        let rows = sqlx::query(sql)
+        let rows = sqlx::query(&self.db.sql(sql))
             .bind(workspace_id)
             .fetch_all(self.db.pool())
             .await?;
@@ -161,7 +165,7 @@ impl<'a> LegalHoldsRepo<'a> {
         };
         // A NULL bind never matches `target_id = ?` in SQL, so passing `None`
         // parent candidates is safe — they simply cover nothing.
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, target_kind, target_id, reason, placed_by, \
              placed_at, released_at FROM legal_holds \
              WHERE released_at IS NULL AND workspace_id = ? AND ( \
@@ -170,7 +174,7 @@ impl<'a> LegalHoldsRepo<'a> {
                  OR (target_kind = 'project' AND (target_id = ? OR target_id = ?)) \
              ) \
              ORDER BY placed_at ASC, id ASC",
-        )
+        ))
         .bind(workspace_id)
         .bind(&file.id)
         .bind(&file.parent_id)

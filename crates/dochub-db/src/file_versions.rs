@@ -62,12 +62,12 @@ impl<'a> FileVersionsRepo<'a> {
     pub async fn append(&self, new: &NewVersion) -> Result<Version, DbError> {
         let created = time::OffsetDateTime::now_utc();
         let created_s = ts(created);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO file_versions \
              (file_id, seq, storage_key, size, content_hash, prev_hash, \
               author_id, reason, created_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&new.file_id)
         .bind(new.seq)
         .bind(&new.storage_key)
@@ -96,11 +96,11 @@ impl<'a> FileVersionsRepo<'a> {
     /// The current head (highest `seq`) for a file, or `None` if it has no
     /// committed versions yet (a pre-existing file with no history).
     pub async fn head(&self, file_id: &str) -> Result<Option<Version>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT file_id, seq, storage_key, size, content_hash, prev_hash, \
              author_id, reason, created_at \
              FROM file_versions WHERE file_id = ? ORDER BY seq DESC LIMIT 1",
-        )
+        ))
         .bind(file_id)
         .fetch_optional(self.db.pool())
         .await?;
@@ -110,11 +110,11 @@ impl<'a> FileVersionsRepo<'a> {
     /// The full chain for a file, ordered by `seq` ascending (seq=1 first) —
     /// the order [`crate::registry::Registry::verify_chain`] walks.
     pub async fn list_chain(&self, file_id: &str) -> Result<Vec<Version>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT file_id, seq, storage_key, size, content_hash, prev_hash, \
              author_id, reason, created_at \
              FROM file_versions WHERE file_id = ? ORDER BY seq ASC",
-        )
+        ))
         .bind(file_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -123,11 +123,11 @@ impl<'a> FileVersionsRepo<'a> {
 
     /// A specific version by `(file_id, seq)`, or `None` if it doesn't exist.
     pub async fn get(&self, file_id: &str, seq: i64) -> Result<Option<Version>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT file_id, seq, storage_key, size, content_hash, prev_hash, \
              author_id, reason, created_at \
              FROM file_versions WHERE file_id = ? AND seq = ?",
-        )
+        ))
         .bind(file_id)
         .bind(seq)
         .fetch_optional(self.db.pool())

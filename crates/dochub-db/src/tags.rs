@@ -58,10 +58,10 @@ impl<'a> TagRepo<'a> {
         let id = ulid::Ulid::new().to_string();
         let created_at = time::OffsetDateTime::now_utc();
         let created_s = ts(created_at);
-        let res = sqlx::query(
+        let res = sqlx::query(&self.db.sql(
             "INSERT INTO tags (id, workspace_id, name, color, created_at, created_by) \
              VALUES (?, ?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.workspace_id)
         .bind(&new.name)
@@ -88,10 +88,10 @@ impl<'a> TagRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Option<Tag>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, name, color, created_at, created_by \
              FROM tags WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_optional(self.db.pool())
         .await?;
@@ -103,10 +103,10 @@ impl<'a> TagRepo<'a> {
         workspace_id: &str,
         name: &str,
     ) -> Result<Option<Tag>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, name, color, created_at, created_by \
              FROM tags WHERE workspace_id = ? AND name = ?",
-        )
+        ))
         .bind(workspace_id)
         .bind(name)
         .fetch_optional(self.db.pool())
@@ -116,10 +116,10 @@ impl<'a> TagRepo<'a> {
 
     /// All tags in a workspace, name-ordered.
     pub async fn list_for_workspace(&self, workspace_id: &str) -> Result<Vec<Tag>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, name, color, created_at, created_by \
              FROM tags WHERE workspace_id = ? ORDER BY name ASC, id ASC",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -128,11 +128,11 @@ impl<'a> TagRepo<'a> {
 
     /// Delete a tag and detach it from every file.
     pub async fn delete(&self, id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM file_tags WHERE tag_id = ?")
+        sqlx::query(&self.db.sql("DELETE FROM file_tags WHERE tag_id = ?"))
             .bind(id)
             .execute(self.db.pool())
             .await?;
-        sqlx::query("DELETE FROM tags WHERE id = ?")
+        sqlx::query(&self.db.sql("DELETE FROM tags WHERE id = ?"))
             .bind(id)
             .execute(self.db.pool())
             .await?;
@@ -145,10 +145,10 @@ impl<'a> TagRepo<'a> {
             return Ok(());
         }
         let created_s = ts(time::OffsetDateTime::now_utc());
-        let res = sqlx::query(
+        let res = sqlx::query(&self.db.sql(
             "INSERT INTO file_tags (file_id, tag_id, created_at, created_by) \
              VALUES (?, ?, ?, ?)",
-        )
+        ))
         .bind(file_id)
         .bind(tag_id)
         .bind(&created_s)
@@ -170,30 +170,38 @@ impl<'a> TagRepo<'a> {
 
     /// Detach `tag_id` from `file_id`. Idempotent.
     pub async fn unassign(&self, file_id: &str, tag_id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM file_tags WHERE file_id = ? AND tag_id = ?")
-            .bind(file_id)
-            .bind(tag_id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM file_tags WHERE file_id = ? AND tag_id = ?"),
+        )
+        .bind(file_id)
+        .bind(tag_id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
     async fn is_assigned(&self, file_id: &str, tag_id: &str) -> Result<bool, DbError> {
-        let row = sqlx::query("SELECT 1 AS one FROM file_tags WHERE file_id = ? AND tag_id = ?")
-            .bind(file_id)
-            .bind(tag_id)
-            .fetch_optional(self.db.pool())
-            .await?;
+        let row = sqlx::query(
+            &self
+                .db
+                .sql("SELECT 1 AS one FROM file_tags WHERE file_id = ? AND tag_id = ?"),
+        )
+        .bind(file_id)
+        .bind(tag_id)
+        .fetch_optional(self.db.pool())
+        .await?;
         Ok(row.is_some())
     }
 
     /// Tags attached to a file, name-ordered.
     pub async fn tags_for_file(&self, file_id: &str) -> Result<Vec<Tag>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT t.id, t.workspace_id, t.name, t.color, t.created_at, t.created_by \
              FROM tags t JOIN file_tags ft ON ft.tag_id = t.id \
              WHERE ft.file_id = ? ORDER BY t.name ASC, t.id ASC",
-        )
+        ))
         .bind(file_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -202,10 +210,14 @@ impl<'a> TagRepo<'a> {
 
     /// File ids carrying `tag_id` — the search-by-tag read side.
     pub async fn file_ids_for_tag(&self, tag_id: &str) -> Result<Vec<String>, DbError> {
-        let rows = sqlx::query("SELECT file_id FROM file_tags WHERE tag_id = ? ORDER BY file_id")
-            .bind(tag_id)
-            .fetch_all(self.db.pool())
-            .await?;
+        let rows = sqlx::query(
+            &self
+                .db
+                .sql("SELECT file_id FROM file_tags WHERE tag_id = ? ORDER BY file_id"),
+        )
+        .bind(tag_id)
+        .fetch_all(self.db.pool())
+        .await?;
         Ok(rows.iter().map(|r| r.get::<String, _>("file_id")).collect())
     }
 }

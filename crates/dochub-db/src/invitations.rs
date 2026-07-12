@@ -83,12 +83,12 @@ impl<'a> WorkspaceInvitationRepo<'a> {
     ) -> Result<WorkspaceInvitation, DbError> {
         let id = ulid::Ulid::new().to_string();
         let created_at = time::OffsetDateTime::now_utc();
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO workspace_invitations \
              (id, workspace_id, token, role, created_by, created_at, expires_at, \
               max_uses, used_count, revoked_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)",
-        )
+        ))
         .bind(&id)
         .bind(&new.workspace_id)
         .bind(&new.token)
@@ -118,11 +118,11 @@ impl<'a> WorkspaceInvitationRepo<'a> {
     /// Equality-only on the indexed column so prefix attacks aren't
     /// a thing.
     pub async fn find_by_token(&self, token: &str) -> Result<WorkspaceInvitation, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, token, role, created_by, created_at, \
              expires_at, max_uses, used_count, revoked_at \
              FROM workspace_invitations WHERE token = ?",
-        )
+        ))
         .bind(token)
         .fetch_optional(self.db.pool())
         .await?;
@@ -136,12 +136,12 @@ impl<'a> WorkspaceInvitationRepo<'a> {
         &self,
         workspace_id: &str,
     ) -> Result<Vec<WorkspaceInvitation>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, token, role, created_by, created_at, \
              expires_at, max_uses, used_count, revoked_at \
              FROM workspace_invitations WHERE workspace_id = ? \
              ORDER BY created_at DESC",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -149,11 +149,11 @@ impl<'a> WorkspaceInvitationRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<WorkspaceInvitation, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, token, role, created_by, created_at, \
              expires_at, max_uses, used_count, revoked_at \
              FROM workspace_invitations WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_optional(self.db.pool())
         .await?;
@@ -166,10 +166,10 @@ impl<'a> WorkspaceInvitationRepo<'a> {
     /// Revoke. Idempotent — setting `revoked_at` on an already-revoked
     /// row is a no-op from the consumer's perspective.
     pub async fn revoke(&self, id: &str) -> Result<(), DbError> {
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE workspace_invitations SET revoked_at = ? \
              WHERE id = ? AND revoked_at IS NULL",
-        )
+        ))
         .bind(ts(time::OffsetDateTime::now_utc()))
         .bind(id)
         .execute(self.db.pool())
@@ -185,14 +185,14 @@ impl<'a> WorkspaceInvitationRepo<'a> {
     /// acceptance is impossible.
     pub async fn try_consume(&self, id: &str) -> Result<u64, DbError> {
         let now = ts(time::OffsetDateTime::now_utc());
-        let res = sqlx::query(
+        let res = sqlx::query(&self.db.sql(
             "UPDATE workspace_invitations \
              SET used_count = used_count + 1 \
              WHERE id = ? \
                AND revoked_at IS NULL \
                AND (expires_at IS NULL OR expires_at > ?) \
                AND used_count < max_uses",
-        )
+        ))
         .bind(id)
         .bind(now)
         .execute(self.db.pool())

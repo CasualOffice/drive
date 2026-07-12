@@ -91,7 +91,9 @@ services:
       DOCHUB_S3_REGION: "auto"
       AWS_ACCESS_KEY_ID: "minioadmin"
       AWS_SECRET_ACCESS_KEY: "minioadmin"
-      DOCHUB_DB_URL: "sqlite:///data/drive.db"
+      # Postgres is the default DB for the stack (portable migrations still run
+      # on sqlite for zero-config local dev). Override via .env if needed.
+      DOCHUB_DB_URL: "${DOCHUB_DB_URL:-postgres://dochub:dochub@postgres:5432/dochub}"
       # Browser-reachable collab URL. dochub only reflects this into the room
       # `ws_url` it returns to the browser (→ ws://localhost:8082/yjs); it does
       # NOT dial the gateway itself. Host-published value, never compose DNS.
@@ -117,6 +119,24 @@ services:
         condition: service_healthy
       collab:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: casual-dochub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-dochub}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-dochub}"
+      POSTGRES_DB: "${POSTGRES_DB:-dochub}"
+    volumes:
+      - dochub_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dochub}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   minio:
     image: minio/minio:RELEASE.2025-01-20T14-49-07Z
@@ -149,4 +169,5 @@ services:
 
 volumes:
   dochub_data:
+  dochub_pg:
   minio_data:

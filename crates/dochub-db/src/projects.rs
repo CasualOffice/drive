@@ -45,10 +45,10 @@ impl<'a> ProjectRepo<'a> {
     pub async fn insert(&self, new: &NewProject) -> Result<Project, DbError> {
         let id = ulid::Ulid::new().to_string();
         let created_at = time::OffsetDateTime::now_utc();
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO projects (id, workspace_id, name, kind, created_at) \
              VALUES (?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.workspace_id)
         .bind(&new.name)
@@ -67,7 +67,9 @@ impl<'a> ProjectRepo<'a> {
 
     pub async fn find_by_id(&self, id: &str) -> Result<Project, DbError> {
         let row = sqlx::query(
-            "SELECT id, workspace_id, name, kind, created_at FROM projects WHERE id = ?",
+            &self
+                .db
+                .sql("SELECT id, workspace_id, name, kind, created_at FROM projects WHERE id = ?"),
         )
         .bind(id)
         .fetch_one(self.db.pool())
@@ -78,10 +80,10 @@ impl<'a> ProjectRepo<'a> {
 
     /// Projects in a workspace, oldest first (ULID ids sort chronologically).
     pub async fn list_for_workspace(&self, workspace_id: &str) -> Result<Vec<Project>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, name, kind, created_at \
              FROM projects WHERE workspace_id = ? ORDER BY id ASC",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -159,15 +161,19 @@ impl<'a> ProjectMemberRepo<'a> {
         let now = ts(time::OffsetDateTime::now_utc());
         // Portable upsert: delete-then-insert avoids dialect-specific
         // ON CONFLICT clauses across SQLite + Postgres.
-        sqlx::query("DELETE FROM project_members WHERE project_id = ? AND user_id = ?")
-            .bind(project_id)
-            .bind(user_id)
-            .execute(self.db.pool())
-            .await?;
         sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM project_members WHERE project_id = ? AND user_id = ?"),
+        )
+        .bind(project_id)
+        .bind(user_id)
+        .execute(self.db.pool())
+        .await?;
+        sqlx::query(&self.db.sql(
             "INSERT INTO project_members (project_id, user_id, role, created_at) \
              VALUES (?, ?, ?, ?)",
-        )
+        ))
         .bind(project_id)
         .bind(user_id)
         .bind(role)
@@ -178,11 +184,15 @@ impl<'a> ProjectMemberRepo<'a> {
     }
 
     pub async fn remove(&self, project_id: &str, user_id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM project_members WHERE project_id = ? AND user_id = ?")
-            .bind(project_id)
-            .bind(user_id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM project_members WHERE project_id = ? AND user_id = ?"),
+        )
+        .bind(project_id)
+        .bind(user_id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
@@ -212,10 +222,10 @@ impl<'a> ProjectMemberRepo<'a> {
     }
 
     pub async fn list(&self, project_id: &str) -> Result<Vec<ProjectMembership>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT project_id, user_id, role, created_at \
              FROM project_members WHERE project_id = ? ORDER BY created_at ASC",
-        )
+        ))
         .bind(project_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -254,7 +264,7 @@ mod backfill_tests {
              WHERE project_id IS NULL AND workspace_id IS NOT NULL",
             "UPDATE workspace_members SET role = 'editor' WHERE role = 'member'",
         ] {
-            sqlx::query(stmt)
+            sqlx::query(&db.sql(stmt))
                 .execute(db.pool())
                 .await
                 .expect("backfill");
@@ -269,10 +279,10 @@ mod backfill_tests {
         let member = ulid::Ulid::new().to_string();
         let now = "2024-01-01T00:00:00Z";
         for uid in [&owner, &member] {
-            sqlx::query(
+            sqlx::query(&db.sql(
                 "INSERT INTO users (id, username, password_hash, is_admin, created_at) \
                  VALUES (?, ?, 'h', 0, ?)",
-            )
+            ))
             .bind(uid)
             .bind(format!("u{uid}"))
             .bind(now)
@@ -280,20 +290,20 @@ mod backfill_tests {
             .await
             .unwrap();
         }
-        sqlx::query(
+        sqlx::query(&db.sql(
             "INSERT INTO workspaces (id, name, kind, owner_id, created_at) \
              VALUES (?, 'Legacy', 'team', ?, ?)",
-        )
+        ))
         .bind(&ws)
         .bind(&owner)
         .bind(now)
         .execute(db.pool())
         .await
         .unwrap();
-        sqlx::query(
+        sqlx::query(&db.sql(
             "INSERT INTO workspace_members (workspace_id, user_id, role, joined_at) \
              VALUES (?, ?, 'owner', ?), (?, ?, 'member', ?)",
-        )
+        ))
         .bind(&ws)
         .bind(&owner)
         .bind(now)
@@ -304,10 +314,10 @@ mod backfill_tests {
         .await
         .unwrap();
         let file = ulid::Ulid::new().to_string();
-        sqlx::query(
+        sqlx::query(&db.sql(
             "INSERT INTO files (id, name, size, owner_id, workspace_id, created_at, modified_at, version, status) \
              VALUES (?, 'legacy.txt', 3, ?, ?, ?, ?, 1, 'ready')",
-        )
+        ))
         .bind(&file)
         .bind(&owner)
         .bind(&ws)
@@ -328,7 +338,7 @@ mod backfill_tests {
 
         // Default project exists, id == workspace id.
         let proj: Option<String> =
-            sqlx::query_scalar("SELECT id FROM projects WHERE workspace_id = ?")
+            sqlx::query_scalar(&db.sql("SELECT id FROM projects WHERE workspace_id = ?"))
                 .bind(&ws)
                 .fetch_optional(db.pool())
                 .await
@@ -337,7 +347,7 @@ mod backfill_tests {
 
         // The legacy file now carries the default project id.
         let file_project: Option<String> =
-            sqlx::query_scalar("SELECT project_id FROM files WHERE workspace_id = ?")
+            sqlx::query_scalar(&db.sql("SELECT project_id FROM files WHERE workspace_id = ?"))
                 .bind(&ws)
                 .fetch_one(db.pool())
                 .await
@@ -346,17 +356,18 @@ mod backfill_tests {
 
         // member -> editor; owner untouched.
         let member_role: String =
-            sqlx::query_scalar("SELECT role FROM workspace_members WHERE user_id = ?")
+            sqlx::query_scalar(&db.sql("SELECT role FROM workspace_members WHERE user_id = ?"))
                 .bind(&member)
                 .fetch_one(db.pool())
                 .await
                 .unwrap();
         assert_eq!(member_role, "editor");
-        let n_members: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM workspace_members WHERE role = 'member'")
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
+        let n_members: i64 = sqlx::query_scalar(
+            &db.sql("SELECT COUNT(*) FROM workspace_members WHERE role = 'member'"),
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
         assert_eq!(n_members, 0);
     }
 
@@ -369,7 +380,7 @@ mod backfill_tests {
         run_backfill(&db).await; // second run must not duplicate anything
 
         let n_projects: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE workspace_id = ?")
+            sqlx::query_scalar(&db.sql("SELECT COUNT(*) FROM projects WHERE workspace_id = ?"))
                 .bind(&ws)
                 .fetch_one(db.pool())
                 .await

@@ -102,10 +102,10 @@ impl<'a> WorkspaceRepo<'a> {
         let id = ulid::Ulid::new().to_string();
         let created_at = time::OffsetDateTime::now_utc();
         let now_s = ts(created_at);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO workspaces (id, name, kind, owner_id, created_at) \
              VALUES (?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(name)
         .bind(kind.as_str())
@@ -113,10 +113,10 @@ impl<'a> WorkspaceRepo<'a> {
         .bind(&now_s)
         .execute(self.db.pool())
         .await?;
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO workspace_members (workspace_id, user_id, role, joined_at) \
              VALUES (?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(owner_id)
         .bind(WorkspaceRole::Owner.as_str())
@@ -133,12 +133,15 @@ impl<'a> WorkspaceRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Workspace, DbError> {
-        let row =
-            sqlx::query("SELECT id, name, kind, owner_id, created_at FROM workspaces WHERE id = ?")
-                .bind(id)
-                .fetch_one(self.db.pool())
-                .await
-                .map_err(DbError::from_sqlx_no_rows)?;
+        let row = sqlx::query(
+            &self
+                .db
+                .sql("SELECT id, name, kind, owner_id, created_at FROM workspaces WHERE id = ?"),
+        )
+        .bind(id)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(DbError::from_sqlx_no_rows)?;
         Ok(Workspace {
             id: row.get("id"),
             name: row.get("name"),
@@ -151,14 +154,14 @@ impl<'a> WorkspaceRepo<'a> {
     /// Every workspace the user is a member of, with their role + a
     /// member count. Newest first.
     pub async fn list_for_user(&self, user_id: &str) -> Result<Vec<WorkspaceWithRole>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT w.id, w.name, w.kind, w.owner_id, w.created_at, m.role, \
                     (SELECT COUNT(*) FROM workspace_members WHERE workspace_id = w.id) AS member_count \
              FROM workspaces w \
              JOIN workspace_members m ON m.workspace_id = w.id \
              WHERE m.user_id = ? \
              ORDER BY w.created_at ASC",
-        )
+        ))
         .bind(user_id)
         .fetch_all(self.db.pool())
         .await?;
@@ -178,7 +181,7 @@ impl<'a> WorkspaceRepo<'a> {
     }
 
     pub async fn rename(&self, id: &str, new_name: &str) -> Result<(), DbError> {
-        sqlx::query("UPDATE workspaces SET name = ? WHERE id = ?")
+        sqlx::query(&self.db.sql("UPDATE workspaces SET name = ? WHERE id = ?"))
             .bind(new_name)
             .bind(id)
             .execute(self.db.pool())
@@ -188,11 +191,15 @@ impl<'a> WorkspaceRepo<'a> {
 
     pub async fn delete(&self, id: &str) -> Result<(), DbError> {
         // Memberships first to respect the FK.
-        sqlx::query("DELETE FROM workspace_members WHERE workspace_id = ?")
-            .bind(id)
-            .execute(self.db.pool())
-            .await?;
-        sqlx::query("DELETE FROM workspaces WHERE id = ?")
+        sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM workspace_members WHERE workspace_id = ?"),
+        )
+        .bind(id)
+        .execute(self.db.pool())
+        .await?;
+        sqlx::query(&self.db.sql("DELETE FROM workspaces WHERE id = ?"))
             .bind(id)
             .execute(self.db.pool())
             .await?;
@@ -209,23 +216,35 @@ impl<'a> WorkspaceRepo<'a> {
         new_owner_id: &str,
     ) -> Result<(), DbError> {
         let mut tx = self.db.pool().begin().await?;
-        sqlx::query("UPDATE workspaces SET owner_id = ? WHERE id = ?")
-            .bind(new_owner_id)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND user_id = ?")
-            .bind(WorkspaceRole::Member.as_str())
-            .bind(id)
-            .bind(old_owner_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND user_id = ?")
-            .bind(WorkspaceRole::Owner.as_str())
-            .bind(id)
-            .bind(new_owner_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("UPDATE workspaces SET owner_id = ? WHERE id = ?"),
+        )
+        .bind(new_owner_id)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            &self.db.sql(
+                "UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND user_id = ?",
+            ),
+        )
+        .bind(WorkspaceRole::Member.as_str())
+        .bind(id)
+        .bind(old_owner_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            &self.db.sql(
+                "UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND user_id = ?",
+            ),
+        )
+        .bind(WorkspaceRole::Owner.as_str())
+        .bind(id)
+        .bind(new_owner_id)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -257,10 +276,10 @@ impl<'a> WorkspaceMemberRepo<'a> {
         role: WorkspaceRole,
     ) -> Result<WorkspaceMembership, DbError> {
         let joined_at = time::OffsetDateTime::now_utc();
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO workspace_members (workspace_id, user_id, role, joined_at) \
              VALUES (?, ?, ?, ?)",
-        )
+        ))
         .bind(workspace_id)
         .bind(user_id)
         .bind(role.as_str())
@@ -276,11 +295,15 @@ impl<'a> WorkspaceMemberRepo<'a> {
     }
 
     pub async fn delete(&self, workspace_id: &str, user_id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?")
-            .bind(workspace_id)
-            .bind(user_id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?"),
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
@@ -290,7 +313,9 @@ impl<'a> WorkspaceMemberRepo<'a> {
         user_id: &str,
     ) -> Result<Option<WorkspaceRole>, DbError> {
         let row = sqlx::query(
-            "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?",
+            &self
+                .db
+                .sql("SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"),
         )
         .bind(workspace_id)
         .bind(user_id)
@@ -323,15 +348,19 @@ impl<'a> WorkspaceMemberRepo<'a> {
     /// callers.
     pub async fn add(&self, workspace_id: &str, user_id: &str, role: &str) -> Result<(), DbError> {
         let joined_at = ts(time::OffsetDateTime::now_utc());
-        sqlx::query("DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?")
-            .bind(workspace_id)
-            .bind(user_id)
-            .execute(self.db.pool())
-            .await?;
         sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?"),
+        )
+        .bind(workspace_id)
+        .bind(user_id)
+        .execute(self.db.pool())
+        .await?;
+        sqlx::query(&self.db.sql(
             "INSERT INTO workspace_members (workspace_id, user_id, role, joined_at) \
              VALUES (?, ?, ?, ?)",
-        )
+        ))
         .bind(workspace_id)
         .bind(user_id)
         .bind(role)
@@ -356,10 +385,10 @@ impl<'a> WorkspaceMemberRepo<'a> {
     }
 
     pub async fn list(&self, workspace_id: &str) -> Result<Vec<WorkspaceMembership>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT workspace_id, user_id, role, joined_at \
              FROM workspace_members WHERE workspace_id = ? ORDER BY joined_at ASC",
-        )
+        ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
         .await?;

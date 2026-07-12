@@ -44,10 +44,10 @@ impl<'a> OidcFlowStateRepo<'a> {
     pub async fn insert(&self, new: &NewOidcFlowState) -> Result<OidcFlowState, DbError> {
         let now = time::OffsetDateTime::now_utc();
         let expires = now + new.ttl;
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO oidc_flow_state (state, pkce_verifier, nonce, created_at, expires_at) \
              VALUES (?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&new.state)
         .bind(&new.pkce_verifier)
         .bind(&new.nonce)
@@ -69,10 +69,10 @@ impl<'a> OidcFlowStateRepo<'a> {
     /// be in the table until the next sweep, but they're no longer
     /// usable).
     pub async fn take(&self, state: &str) -> Result<OidcFlowState, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT state, pkce_verifier, nonce, created_at, expires_at \
              FROM oidc_flow_state WHERE state = ?",
-        )
+        ))
         .bind(state)
         .fetch_optional(self.db.pool())
         .await?
@@ -81,7 +81,7 @@ impl<'a> OidcFlowStateRepo<'a> {
         let expires_at = parse_ts(row.get::<String, _>("expires_at"))?;
         if expires_at < now {
             // Best-effort delete + treat as gone.
-            let _ = sqlx::query("DELETE FROM oidc_flow_state WHERE state = ?")
+            let _ = sqlx::query(&self.db.sql("DELETE FROM oidc_flow_state WHERE state = ?"))
                 .bind(state)
                 .execute(self.db.pool())
                 .await;
@@ -89,7 +89,7 @@ impl<'a> OidcFlowStateRepo<'a> {
         }
         // Single-use — delete on read so a code-reuse attack against a
         // captured `state` fails the second time.
-        sqlx::query("DELETE FROM oidc_flow_state WHERE state = ?")
+        sqlx::query(&self.db.sql("DELETE FROM oidc_flow_state WHERE state = ?"))
             .bind(state)
             .execute(self.db.pool())
             .await?;
@@ -104,10 +104,14 @@ impl<'a> OidcFlowStateRepo<'a> {
 
     /// Janitor — sweeps expired rows. Returns the count removed.
     pub async fn delete_expired(&self) -> Result<u64, DbError> {
-        let res = sqlx::query("DELETE FROM oidc_flow_state WHERE expires_at < ?")
-            .bind(ts(time::OffsetDateTime::now_utc()))
-            .execute(self.db.pool())
-            .await?;
+        let res = sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM oidc_flow_state WHERE expires_at < ?"),
+        )
+        .bind(ts(time::OffsetDateTime::now_utc()))
+        .execute(self.db.pool())
+        .await?;
         Ok(res.rows_affected())
     }
 }

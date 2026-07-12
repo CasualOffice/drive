@@ -76,6 +76,36 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-features
 
+  # Portability gate: run the dochub-db repo layer against a REAL Postgres, not
+  # just sqlite. Proves migrations apply and the ?→$n placeholder rewrite +
+  # integer/timestamp/base64 handling work on Postgres. Gated in-test by
+  # DOCHUB_TEST_PG_URL, so it is a no-op locally.
+  test-postgres:
+    name: test (postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: dochub
+          POSTGRES_PASSWORD: dochub
+          POSTGRES_DB: dochub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dochub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Postgres portability smoke test
+        env:
+          DOCHUB_TEST_PG_URL: postgres://dochub:dochub@localhost:5432/dochub
+        run: cargo test -p dochub-db --test postgres -- --nocapture
+
   spikes:
     name: test (spikes)
     runs-on: ubuntu-latest

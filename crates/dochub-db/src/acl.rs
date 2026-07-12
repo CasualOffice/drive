@@ -64,11 +64,11 @@ impl<'a> AclRepo<'a> {
     /// Create a grant. Re-granting the same (resource, subject) replaces the
     /// prior role so a share can be upgraded/downgraded without stacking rows.
     pub async fn grant(&self, new: &NewAclGrant) -> Result<AclGrant, DbError> {
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "DELETE FROM acl_grants \
              WHERE resource_kind = ? AND resource_id = ? \
                AND subject_kind = ? AND subject_id = ?",
-        )
+        ))
         .bind(&new.resource_kind)
         .bind(&new.resource_id)
         .bind(&new.subject_kind)
@@ -78,11 +78,11 @@ impl<'a> AclRepo<'a> {
 
         let id = ulid::Ulid::new().to_string();
         let created_at = time::OffsetDateTime::now_utc();
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO acl_grants \
                 (id, resource_kind, resource_id, subject_kind, subject_id, role, created_at, created_by) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.resource_kind)
         .bind(&new.resource_id)
@@ -106,11 +106,11 @@ impl<'a> AclRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<AclGrant, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, resource_kind, resource_id, subject_kind, subject_id, role, \
                     created_at, created_by \
              FROM acl_grants WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_one(self.db.pool())
         .await
@@ -119,7 +119,7 @@ impl<'a> AclRepo<'a> {
     }
 
     pub async fn revoke(&self, id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM acl_grants WHERE id = ?")
+        sqlx::query(&self.db.sql("DELETE FROM acl_grants WHERE id = ?"))
             .bind(id)
             .execute(self.db.pool())
             .await?;
@@ -132,12 +132,12 @@ impl<'a> AclRepo<'a> {
         resource_kind: &str,
         resource_id: &str,
     ) -> Result<Vec<AclGrant>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, resource_kind, resource_id, subject_kind, subject_id, role, \
                     created_at, created_by \
              FROM acl_grants WHERE resource_kind = ? AND resource_id = ? \
              ORDER BY created_at ASC",
-        )
+        ))
         .bind(resource_kind)
         .bind(resource_id)
         .fetch_all(self.db.pool())
@@ -148,12 +148,12 @@ impl<'a> AclRepo<'a> {
     /// All grants made directly to a specific user (`subject_kind = 'user'`).
     /// Backs `dochub-authz`'s readable-scope computation for list/search.
     pub async fn list_for_user_subject(&self, user_id: &str) -> Result<Vec<AclGrant>, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, resource_kind, resource_id, subject_kind, subject_id, role, \
                     created_at, created_by \
              FROM acl_grants WHERE subject_kind = 'user' AND subject_id = ? \
              ORDER BY created_at ASC",
-        )
+        ))
         .bind(user_id)
         .fetch_all(self.db.pool())
         .await?;

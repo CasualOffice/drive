@@ -99,19 +99,23 @@ impl<'a> WorkspaceStorageRepo<'a> {
     /// any existing row first so the new row gets a fresh id (which is
     /// what the AAD binds to) + `key_version = 1`.
     pub async fn upsert(&self, new: &NewWorkspaceStorage) -> Result<WorkspaceStorage, DbError> {
-        sqlx::query("DELETE FROM workspace_storage WHERE workspace_id = ?")
-            .bind(&new.workspace_id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM workspace_storage WHERE workspace_id = ?"),
+        )
+        .bind(&new.workspace_id)
+        .execute(self.db.pool())
+        .await?;
         let id = ulid::Ulid::new().to_string();
         let now = time::OffsetDateTime::now_utc();
         let now_s = ts(now);
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO workspace_storage \
              (id, workspace_id, provider, bucket, region, endpoint, access_key_id, secret_ct, \
               key_version, tested_at, tested_ok, tested_error, created_at, modified_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 0, NULL, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&new.workspace_id)
         .bind(new.provider.as_str())
@@ -146,12 +150,12 @@ impl<'a> WorkspaceStorageRepo<'a> {
         &self,
         workspace_id: &str,
     ) -> Result<Option<WorkspaceStorage>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, provider, bucket, region, endpoint, access_key_id, \
                     secret_ct, key_version, tested_at, tested_ok, tested_error, \
                     created_at, modified_at \
              FROM workspace_storage WHERE workspace_id = ?",
-        )
+        ))
         .bind(workspace_id)
         .fetch_optional(self.db.pool())
         .await?;
@@ -159,12 +163,12 @@ impl<'a> WorkspaceStorageRepo<'a> {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Option<WorkspaceStorage>, DbError> {
-        let row = sqlx::query(
+        let row = sqlx::query(&self.db.sql(
             "SELECT id, workspace_id, provider, bucket, region, endpoint, access_key_id, \
                     secret_ct, key_version, tested_at, tested_ok, tested_error, \
                     created_at, modified_at \
              FROM workspace_storage WHERE id = ?",
-        )
+        ))
         .bind(id)
         .fetch_optional(self.db.pool())
         .await?;
@@ -180,12 +184,12 @@ impl<'a> WorkspaceStorageRepo<'a> {
         new_secret_ct: &str,
     ) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE workspace_storage \
              SET access_key_id = ?, secret_ct = ?, key_version = key_version + 1, \
                  tested_at = NULL, tested_ok = 0, tested_error = NULL, modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(new_access_key_id)
         .bind(new_secret_ct)
         .bind(&now_s)
@@ -196,10 +200,14 @@ impl<'a> WorkspaceStorageRepo<'a> {
     }
 
     pub async fn delete(&self, workspace_id: &str) -> Result<(), DbError> {
-        sqlx::query("DELETE FROM workspace_storage WHERE workspace_id = ?")
-            .bind(workspace_id)
-            .execute(self.db.pool())
-            .await?;
+        sqlx::query(
+            &self
+                .db
+                .sql("DELETE FROM workspace_storage WHERE workspace_id = ?"),
+        )
+        .bind(workspace_id)
+        .execute(self.db.pool())
+        .await?;
         Ok(())
     }
 
@@ -207,11 +215,11 @@ impl<'a> WorkspaceStorageRepo<'a> {
     /// should be `None` on success.
     pub async fn touch_test(&self, id: &str, ok: bool, error: Option<&str>) -> Result<(), DbError> {
         let now_s = ts(time::OffsetDateTime::now_utc());
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "UPDATE workspace_storage \
              SET tested_at = ?, tested_ok = ?, tested_error = ?, modified_at = ? \
              WHERE id = ?",
-        )
+        ))
         .bind(&now_s)
         .bind(i64::from(ok))
         .bind(error)

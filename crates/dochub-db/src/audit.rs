@@ -143,11 +143,11 @@ impl<'a> AuditRepo<'a> {
 
         // Chain head: the most recent chained row's entry_hash. Rows predating
         // migration 0017 have a NULL entry_hash and sit outside the chain.
-        let head_row = sqlx::query(
+        let head_row = sqlx::query(&self.db.sql(
             "SELECT entry_hash FROM audit_log \
              WHERE entry_hash IS NOT NULL \
              ORDER BY created_at DESC, id DESC LIMIT 1",
-        )
+        ))
         .fetch_optional(&mut *tx)
         .await?;
         let prev: Option<Sha256Hex> = match head_row {
@@ -173,12 +173,12 @@ impl<'a> AuditRepo<'a> {
         });
         let entry = entry_hash(prev.as_ref(), &canonical);
 
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO audit_log \
              (id, created_at, actor_id, actor_username, action, target_kind, \
               target_id, target_name, ip_address, metadata, prev_hash, entry_hash) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
+        ))
         .bind(&id)
         .bind(&created_s)
         .bind(&new.actor_id)
@@ -221,12 +221,12 @@ impl<'a> AuditRepo<'a> {
     /// failing index, else [`AuditChainStatus::Intact`] (including the empty and
     /// single-row chains). Never mutates anything.
     pub async fn verify_audit_chain(&self) -> Result<AuditChainStatus, DbError> {
-        let rows = sqlx::query(
+        let rows = sqlx::query(&self.db.sql(
             "SELECT id, created_at, actor_id, action, target_kind, target_id, \
              ip_address, metadata, prev_hash, entry_hash \
              FROM audit_log WHERE entry_hash IS NOT NULL \
              ORDER BY created_at ASC, id ASC",
-        )
+        ))
         .fetch_all(self.db.pool())
         .await?;
 
@@ -311,6 +311,7 @@ impl<'a> AuditRepo<'a> {
              FROM audit_log WHERE action IN ({placeholders}) \
              ORDER BY created_at DESC LIMIT ?",
         );
+        let sql = self.db.sql(&sql);
         let mut q = sqlx::query(&sql);
         for a in actions {
             q = q.bind(*a);
@@ -326,21 +327,21 @@ impl<'a> AuditRepo<'a> {
     /// page's last `created_at`); omit for the first page.
     pub async fn list(&self, before: Option<&str>, limit: i64) -> Result<Vec<AuditEvent>, DbError> {
         let rows = if let Some(before) = before {
-            sqlx::query(
+            sqlx::query(&self.db.sql(
                 "SELECT id, created_at, actor_id, actor_username, action, \
                  target_kind, target_id, target_name, ip_address, metadata \
                  FROM audit_log WHERE created_at < ? ORDER BY created_at DESC LIMIT ?",
-            )
+            ))
             .bind(before)
             .bind(limit.clamp(1, 500))
             .fetch_all(self.db.pool())
             .await?
         } else {
-            sqlx::query(
+            sqlx::query(&self.db.sql(
                 "SELECT id, created_at, actor_id, actor_username, action, \
                  target_kind, target_id, target_name, ip_address, metadata \
                  FROM audit_log ORDER BY created_at DESC LIMIT ?",
-            )
+            ))
             .bind(limit.clamp(1, 500))
             .fetch_all(self.db.pool())
             .await?
@@ -481,10 +482,10 @@ mod tests {
         }
 
         // Read the chain in append order and assert prev_hash links.
-        let rows = sqlx::query(
+        let rows = sqlx::query(&db.sql(
             "SELECT prev_hash, entry_hash FROM audit_log \
              ORDER BY created_at ASC, id ASC",
-        )
+        ))
         .fetch_all(db.pool())
         .await
         .expect("rows");
@@ -515,14 +516,15 @@ mod tests {
         }
 
         // The id of the 3rd row (index 2) in chain order.
-        let ordered = sqlx::query("SELECT id FROM audit_log ORDER BY created_at ASC, id ASC")
-            .fetch_all(db.pool())
-            .await
-            .expect("ids");
+        let ordered =
+            sqlx::query(&db.sql("SELECT id FROM audit_log ORDER BY created_at ASC, id ASC"))
+                .fetch_all(db.pool())
+                .await
+                .expect("ids");
         let victim: String = ordered[2].get("id");
 
         // Simulate tampering a committed row's field (never done in real code).
-        sqlx::query("UPDATE audit_log SET action = ? WHERE id = ?")
+        sqlx::query(&db.sql("UPDATE audit_log SET action = ? WHERE id = ?"))
             .bind("tampered.action")
             .bind(&victim)
             .execute(db.pool())
@@ -544,13 +546,14 @@ mod tests {
                 .await
                 .expect("insert");
         }
-        let ordered = sqlx::query("SELECT id FROM audit_log ORDER BY created_at ASC, id ASC")
-            .fetch_all(db.pool())
-            .await
-            .expect("ids");
+        let ordered =
+            sqlx::query(&db.sql("SELECT id FROM audit_log ORDER BY created_at ASC, id ASC"))
+                .fetch_all(db.pool())
+                .await
+                .expect("ids");
         let victim: String = ordered[0].get("id");
 
-        sqlx::query("UPDATE audit_log SET metadata = ? WHERE id = ?")
+        sqlx::query(&db.sql("UPDATE audit_log SET metadata = ? WHERE id = ?"))
             .bind(r#"{"k":"tampered"}"#)
             .bind(&victim)
             .execute(db.pool())

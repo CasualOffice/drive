@@ -79,12 +79,13 @@ impl<'a> ProvenanceKeysRepo<'a> {
     /// Fetch the raw persisted `(wrapped_secret_b64, public_key_b64)` for a
     /// workspace, if a key has been created.
     async fn get_raw(&self, workspace_id: &str) -> Result<Option<(String, String)>, DbError> {
-        let row = sqlx::query(
-            "SELECT wrapped_secret, public_key FROM provenance_keys WHERE workspace_id = ?",
-        )
-        .bind(workspace_id)
-        .fetch_optional(self.db.pool())
-        .await?;
+        let row =
+            sqlx::query(&self.db.sql(
+                "SELECT wrapped_secret, public_key FROM provenance_keys WHERE workspace_id = ?",
+            ))
+            .bind(workspace_id)
+            .fetch_optional(self.db.pool())
+            .await?;
         Ok(row.map(|r| (r.get("wrapped_secret"), r.get("public_key"))))
     }
 
@@ -97,10 +98,10 @@ impl<'a> ProvenanceKeysRepo<'a> {
         public_key_b64: &str,
     ) -> Result<(), DbError> {
         let now = ts(time::OffsetDateTime::now_utc());
-        sqlx::query(
+        sqlx::query(&self.db.sql(
             "INSERT INTO provenance_keys (workspace_id, wrapped_secret, public_key, created_at) \
              VALUES (?, ?, ?, ?)",
-        )
+        ))
         .bind(workspace_id)
         .bind(wrapped_secret_b64)
         .bind(public_key_b64)
