@@ -24,6 +24,7 @@ mod grants;
 pub mod headers;
 mod host_dispatch;
 mod invitations;
+mod mcp_http;
 mod members;
 mod notes;
 mod oidc;
@@ -159,6 +160,7 @@ fn app_origin_router(state: HttpState) -> Router {
             get(semantic_search::semantic_search),
         )
         .route("/api/search/ask", post(ask::ask))
+        .route("/api/mcp", post(mcp_http::mcp_endpoint))
         .with_state(state.clone())
         .merge(wopi_router)
         .merge(auth_router)
