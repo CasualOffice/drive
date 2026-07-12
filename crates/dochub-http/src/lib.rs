@@ -31,6 +31,7 @@ mod projects_http;
 mod rate_limit;
 mod raw;
 mod search;
+mod semantic_search;
 mod share;
 mod spa;
 mod state;
@@ -152,6 +153,10 @@ fn app_origin_router(state: HttpState) -> Router {
         .route("/api/admin/system", get(admin::system))
         .route("/api/search", get(search::search))
         .route("/api/search/content", get(content_search::content_search))
+        .route(
+            "/api/search/semantic",
+            get(semantic_search::semantic_search),
+        )
         .with_state(state.clone())
         .merge(wopi_router)
         .merge(auth_router)

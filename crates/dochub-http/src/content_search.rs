@@ -396,7 +396,7 @@ fn index_internal(e: dochub_index::IndexError) -> StatusCode {
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
-fn ws_status(e: crate::workspaces::WsError) -> StatusCode {
+pub(crate) fn ws_status(e: crate::workspaces::WsError) -> StatusCode {
     use crate::workspaces::WsError;
     match e {
         WsError::Forbidden | WsError::NotAMember => StatusCode::FORBIDDEN,
@@ -417,7 +417,7 @@ pub(crate) fn extension_of(name: &str) -> Option<String> {
 }
 
 /// Coarse content-kind label for the SPA, derived from the extension.
-fn kind_of(file: &File) -> String {
+pub(crate) fn kind_of(file: &File) -> String {
     let ext = extension_of(&file.name);
     match ext.as_deref() {
         Some("md") => "markdown",
