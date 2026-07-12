@@ -11,7 +11,7 @@
 //! model (e.g. Claude) slots in behind the same trait.
 
 use axum::{extract::State, http::StatusCode, Json};
-use dochub_ai::{AnswerContext, Answerer, ExtractiveAnswerer};
+use dochub_ai::AnswerContext;
 use dochub_auth::AuthSession;
 use serde::{Deserialize, Serialize};
 
@@ -93,7 +93,7 @@ pub(crate) async fn ask(
         })
         .collect();
 
-    let answer = ExtractiveAnswerer::default()
+    let answer = crate::ai::answerer()
         .answer(&query, &contexts)
         .await
         .map_err(|e| {
