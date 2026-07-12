@@ -24,7 +24,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use dochub_ai::{AnswerContext, Answerer, ExtractiveAnswerer};
+use dochub_ai::AnswerContext;
 use dochub_auth::AuthSession;
 use dochub_mcp::{JsonRpcRequest, McpServer, ServerInfo, Tool, ToolError, ToolHandler, ToolOutput};
 use serde_json::{json, Value};
@@ -189,7 +189,7 @@ async fn format_answer(q: &str, chunks: &[Chunk]) -> String {
             text: chunk.chunk_text.clone(),
         })
         .collect();
-    let answer = match ExtractiveAnswerer::default().answer(q, &contexts).await {
+    let answer = match crate::ai::answerer().answer(q, &contexts).await {
         Ok(a) => a,
         Err(e) => return format!("Failed to compose an answer: {e}"),
     };
