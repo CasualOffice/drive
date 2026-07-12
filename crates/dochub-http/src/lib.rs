@@ -40,6 +40,7 @@ mod workspace_storage;
 mod workspaces;
 
 pub use access_log::access_log;
+pub use content_search::{spawn_indexer, IndexFileHandler};
 pub use rate_limit::{RateLimitConfig, RateLimiter};
 pub use state::HttpState;
 

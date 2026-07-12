@@ -103,6 +103,12 @@ async fn main() -> anyhow::Result<()> {
         presence,
     };
 
+    // Background content indexer — drains the durable job queue, running an
+    // `index_file` job (decrypt head, extract text, upsert into the content
+    // index) off the request path for every committed version. The lazy
+    // reindex on `/api/search/content` remains as an idempotent backstop.
+    let _indexer = dochub_http::spawn_indexer(state.clone());
+
     // OB1 — structured access log per request. Replaces tower-http's
     // default TraceLayer (which span-wrapped requests but never emitted
     // redacted, JSON-shaped events for log aggregation). Mounted

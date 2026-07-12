@@ -897,6 +897,7 @@ dependencies = [
  "dochub-index",
  "dochub-storage",
  "dochub-wopi",
+ "dochub-worker",
  "futures",
  "hmac",
  "http-body-util",

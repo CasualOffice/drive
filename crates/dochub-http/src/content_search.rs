@@ -125,75 +125,176 @@ pub(crate) async fn reindex_pending(
     }
 
     // 2. (Re)index pending / changed heads.
-    let deks = WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone());
-    let registry = Registry::new(state.db.clone(), state.storage.clone(), deks);
-    let versions = FileVersionsRepo::new(&state.db);
-
     let candidates = files
         .list_index_candidates(workspace_id, REINDEX_BATCH)
         .await
         .map_err(internal)?;
 
     for f in candidates {
-        let ext = extension_of(&f.name);
-        let kind = ext.as_deref().and_then(DocKind::from_extension);
-        // Extractable = plain text (md/txt/csv/json/yaml) OR OOXML with a text
-        // extractor (docx/xlsx/pptx). xlsm (opaque) and pdf remain title-only
-        // until their extractors land (`dochub_core::extract`).
-        let extractable = kind.is_some_and(dochub_core::supports_extraction);
-
-        let (content, state_label) = if extractable {
-            let kind = kind.expect("extractable implies a known kind");
-            match registry
-                .read_or_backfill_for_file(&f.id, INDEXER_AUTHOR)
-                .await
-            {
-                Ok(bytes) => match dochub_core::extract_text(kind, &bytes) {
-                    Ok(text) => (text, "ready"),
-                    Err(e) => {
-                        // Extractor rejected these bytes (e.g. a corrupt OOXML
-                        // container): index title-only rather than retrying
-                        // forever on bytes that will never parse.
-                        tracing::warn!(file_id = %f.id, error = %e, "reindex: text extraction failed");
-                        (String::new(), "unsupported")
-                    }
-                },
-                Err(e) => {
-                    // Missing/unreadable head — leave pending, try again later.
-                    tracing::warn!(file_id = %f.id, error = %e, "reindex: head read failed");
-                    continue;
-                }
-            }
-        } else {
-            // xlsm/pdf (and any non-document): title/extension only.
-            (String::new(), "unsupported")
-        };
-
-        // Head hash for staleness bookkeeping (empty when the file has no
-        // committed version yet — a stable sentinel that won't re-trigger).
-        let head_hash = versions
-            .head(&f.id)
-            .await
-            .map_err(internal)?
-            .map(|v| v.content_hash)
-            .unwrap_or_default();
-
-        let doc = IndexDoc {
-            file_id: f.id.clone(),
-            workspace_id: workspace_id.to_string(),
-            title: f.name.clone(),
-            extension: ext.unwrap_or_default(),
-            content,
-            content_hash: head_hash.clone(),
-            modified_at: f.modified_at.unix_timestamp(),
-        };
-        index.upsert(&doc).map_err(index_internal)?;
-        files
-            .set_index_state(&f.id, state_label, Some(&head_hash))
-            .await
-            .map_err(internal)?;
+        index_one(state, index, workspace_id, &f).await?;
     }
     Ok(())
+}
+
+/// Index a single non-trashed file's head into `index`: decrypt + extract its
+/// text (or title-only for unsupported kinds), upsert, and record its
+/// `index_state`. A head-read failure leaves the file `pending` (returns `Ok`
+/// without touching the index) so one bad blob never fails the caller. Shared
+/// by the lazy [`reindex_pending`] sweep and the background [`index_file_now`]
+/// job path.
+pub(crate) async fn index_one(
+    state: &HttpState,
+    index: &Index,
+    workspace_id: &str,
+    f: &dochub_db::File,
+) -> Result<(), StatusCode> {
+    let deks = WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone());
+    let registry = Registry::new(state.db.clone(), state.storage.clone(), deks);
+    let versions = FileVersionsRepo::new(&state.db);
+    let files = FileRepo::new(&state.db);
+
+    let ext = extension_of(&f.name);
+    let kind = ext.as_deref().and_then(DocKind::from_extension);
+    // Extractable = plain text (md/txt/csv/json/yaml) OR OOXML with a text
+    // extractor (docx/xlsx/pptx). xlsm (opaque) and pdf remain title-only until
+    // their extractors land (`dochub_core::extract`).
+    let extractable = kind.is_some_and(dochub_core::supports_extraction);
+
+    let (content, state_label) = if extractable {
+        let kind = kind.expect("extractable implies a known kind");
+        match registry
+            .read_or_backfill_for_file(&f.id, INDEXER_AUTHOR)
+            .await
+        {
+            Ok(bytes) => match dochub_core::extract_text(kind, &bytes) {
+                Ok(text) => (text, "ready"),
+                Err(e) => {
+                    // Extractor rejected these bytes (e.g. a corrupt OOXML
+                    // container): index title-only rather than retrying forever
+                    // on bytes that will never parse.
+                    tracing::warn!(file_id = %f.id, error = %e, "reindex: text extraction failed");
+                    (String::new(), "unsupported")
+                }
+            },
+            Err(e) => {
+                // Missing/unreadable head — leave pending, try again later.
+                tracing::warn!(file_id = %f.id, error = %e, "reindex: head read failed");
+                return Ok(());
+            }
+        }
+    } else {
+        // xlsm/pdf (and any non-document): title/extension only.
+        (String::new(), "unsupported")
+    };
+
+    // Head hash for staleness bookkeeping (empty when the file has no committed
+    // version yet — a stable sentinel that won't re-trigger).
+    let head_hash = versions
+        .head(&f.id)
+        .await
+        .map_err(internal)?
+        .map(|v| v.content_hash)
+        .unwrap_or_default();
+
+    let doc = IndexDoc {
+        file_id: f.id.clone(),
+        workspace_id: workspace_id.to_string(),
+        title: f.name.clone(),
+        extension: ext.unwrap_or_default(),
+        content,
+        content_hash: head_hash.clone(),
+        modified_at: f.modified_at.unix_timestamp(),
+    };
+    index.upsert(&doc).map_err(index_internal)?;
+    files
+        .set_index_state(&f.id, state_label, Some(&head_hash))
+        .await
+        .map_err(internal)?;
+    Ok(())
+}
+
+// ── Eager, single-file indexing (background worker path) ───────────────────
+
+/// (Re)index one file by id, eagerly — the body of the `index_file` job the
+/// durable queue runs after every commit. Resolves the process index, loads the
+/// file, and either removes it (missing or trashed) or indexes its head via
+/// [`index_one`]. Idempotent: safe to run repeatedly and safe to race with the
+/// lazy [`reindex_pending`] sweep (both upsert the same `file_id`).
+pub(crate) async fn index_file_now(state: &HttpState, file_id: &str) -> Result<(), StatusCode> {
+    let index = index_for(state)?;
+    let files = FileRepo::new(&state.db);
+
+    let file = match files.find_by_id(file_id).await {
+        Ok(f) => f,
+        // Hard-deleted / unknown id — ensure it is not left in the index.
+        Err(dochub_db::DbError::NotFound) => {
+            index.remove(file_id).map_err(index_internal)?;
+            return Ok(());
+        }
+        Err(e) => return Err(internal(e)),
+    };
+
+    // Trashed → tombstone out of the index (mirrors reindex_pending step 1).
+    if file.trashed_at.is_some() {
+        index.remove(file_id).map_err(index_internal)?;
+        files
+            .set_index_state(file_id, "trashed", None)
+            .await
+            .map_err(internal)?;
+        return Ok(());
+    }
+
+    let Some(ws) = file.workspace_id.clone() else {
+        // A pre-workspaces legacy row can't be tenant-scoped; skip it.
+        return Ok(());
+    };
+    index_one(state, &index, &ws, &file).await
+}
+
+// ── Background worker: the `index_file` job handler ────────────────────────
+
+/// The durable-queue handler for `index_file` jobs (payload = `file_id`).
+/// Registered on the [`dochub_worker::Worker`] spawned by [`spawn_indexer`];
+/// each job runs [`index_file_now`] off the request path.
+#[derive(Clone)]
+pub struct IndexFileHandler {
+    state: HttpState,
+}
+
+impl IndexFileHandler {
+    #[must_use]
+    pub fn new(state: HttpState) -> Self {
+        Self { state }
+    }
+}
+
+impl std::fmt::Debug for IndexFileHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexFileHandler").finish_non_exhaustive()
+    }
+}
+
+#[async_trait::async_trait]
+impl dochub_worker::JobHandler for IndexFileHandler {
+    async fn handle(&self, job: &dochub_db::Job) -> dochub_worker::HandlerResult {
+        let file_id = job.payload.trim();
+        index_file_now(&self.state, file_id)
+            .await
+            .map_err(|code| format!("index_file {file_id}: {code}").into())
+    }
+}
+
+/// Build and spawn the background indexer: a [`dochub_worker::Worker`] with the
+/// `index_file` handler registered, draining the durable queue. Returns the
+/// `JoinHandle` so the caller can abort it on shutdown (mirrors
+/// `PresenceHub::spawn_sweep`).
+#[must_use]
+pub fn spawn_indexer(state: HttpState) -> tokio::task::JoinHandle<()> {
+    let worker = dochub_worker::Worker::new(state.db.clone()).register(
+        dochub_db::KIND_INDEX_FILE,
+        std::sync::Arc::new(IndexFileHandler::new(state)),
+    );
+    std::sync::Arc::new(worker).spawn()
 }
 
 // ── Handler ──────────────────────────────────────────────────────────────
