@@ -545,6 +545,12 @@ function primaryAction(
         onClick: () => openInFullscreen(file),
       };
     case "doc":
+    // Plain-text document kinds (.md / .txt / .csv / .json / .yaml / …) open in
+    // the in-Drive CodeText editor — the same fullscreen route FileFullscreen
+    // already renders for them (isEditableKind). Previously they fell through to
+    // Download, so an editable file couldn't be edited (drive#106).
+    case "md":
+    case "text":
       return {
         label: "Open in editor",
         Icon: ExternalLink,
