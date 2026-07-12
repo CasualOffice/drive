@@ -1,0 +1,21 @@
+[package]
+name        = "dochub-mcp"
+description = "Model Context Protocol (MCP) server core for Doc-Hub — JSON-RPC tool registry + dispatch"
+version     = { workspace = true }
+edition     = { workspace = true }
+license     = { workspace = true }
+authors     = { workspace = true }
+repository  = { workspace = true }
+rust-version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = "0.1"
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+
+[dev-dependencies]
+tokio       = { workspace = true }
