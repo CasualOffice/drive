@@ -11,6 +11,7 @@ mod about;
 mod access_log;
 mod activity;
 mod admin;
+mod ask;
 mod authz;
 mod collab;
 mod compliance;
@@ -52,7 +53,7 @@ use axum::{
     http::{HeaderValue, StatusCode},
     middleware,
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use dochub_auth::AuthSession;
@@ -157,6 +158,7 @@ fn app_origin_router(state: HttpState) -> Router {
             "/api/search/semantic",
             get(semantic_search::semantic_search),
         )
+        .route("/api/search/ask", post(ask::ask))
         .with_state(state.clone())
         .merge(wopi_router)
         .merge(auth_router)

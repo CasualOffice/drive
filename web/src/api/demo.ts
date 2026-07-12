@@ -742,6 +742,64 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     hits.sort((a, b) => b.score - a.score);
     return hits.slice(0, limit) as unknown as T;
   }
+  // RAG question answering (Phase 5). The real backend retrieves chunk
+  // embeddings and composes an extractive answer with citations. The demo
+  // approximates it: pick the corpus sentences that best overlap the question
+  // and stitch them into an answer, citing the documents they came from.
+  if (p === "/api/search/ask" && method === "POST") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const q = ((init.json as { q?: string })?.q ?? "").trim();
+    const terms = new Set(
+      q
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length >= 2),
+    );
+    if (terms.size === 0) {
+      return { answer: "", citations: [] } as unknown as T;
+    }
+    const corpus = demoDocText();
+    type Scored = { fileId: string; title: string; sentence: string; overlap: number };
+    const scored: Scored[] = [];
+    for (const file of state.files) {
+      const raw = corpus[file.id];
+      if (!raw) continue;
+      const text = raw.replace(/\s+/g, " ").trim();
+      for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+        const words = new Set(sentence.toLowerCase().split(/[^a-z0-9]+/));
+        let overlap = 0;
+        for (const t of terms) if (words.has(t)) overlap += 1;
+        if (overlap > 0) {
+          scored.push({ fileId: file.id, title: file.name, sentence: sentence.trim(), overlap });
+        }
+      }
+    }
+    if (scored.length === 0) {
+      return { answer: "", citations: [] } as unknown as T;
+    }
+    scored.sort((a, b) => b.overlap - a.overlap);
+    const chosen = scored.slice(0, 3);
+    const answer = chosen.map((s) => s.sentence).join(" ");
+    const citations: Array<{
+      file_id: string;
+      title: string;
+      kind: string;
+      snippet: string;
+      score: number;
+    }> = [];
+    for (const s of chosen) {
+      if (citations.some((c) => c.file_id === s.fileId)) continue;
+      const file = state.files.find((f) => f.id === s.fileId);
+      citations.push({
+        file_id: s.fileId,
+        title: s.title,
+        kind: file ? demoKind(file) : "file",
+        snippet: s.sentence,
+        score: s.overlap / terms.size,
+      });
+    }
+    return { answer, citations } as unknown as T;
+  }
   // Workspaces — demo has Personal + one seeded Team workspace ("Demo")
   // with the demo user as Owner of both. Create/rename/transfer are
   // shimmed in-memory.

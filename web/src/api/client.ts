@@ -1065,6 +1065,40 @@ export async function searchSemantic(
   });
 }
 
+// ─── RAG question answering (Phase 5) ─────────────────────────────────
+// Ask a natural-language question; the backend retrieves the most relevant
+// document passages and composes a cited answer from them. Distinct from
+// search: the response is a written answer plus the sources it drew from.
+
+export interface AskCitation {
+  file_id: string;
+  title: string;
+  kind: string;
+  /** The cited passage text. */
+  snippet: string;
+  score: number;
+}
+
+export interface AskResponse {
+  /** Composed answer; empty when nothing in the workspace addresses it. */
+  answer: string;
+  /** Sources supporting the answer, in order of first use. */
+  citations: AskCitation[];
+}
+
+/** `POST /api/search/ask` — RAG answer with citations. Cancelable via
+ *  `signal`. Returns an empty `answer` when no passage addresses the question. */
+export async function askQuestion(
+  question: string,
+  opts: { workspace?: string | null; signal?: AbortSignal } = {},
+): Promise<AskResponse> {
+  return request<AskResponse>("/api/search/ask", {
+    method: "POST",
+    json: { q: question, workspace: opts.workspace ?? undefined },
+    signal: opts.signal,
+  });
+}
+
 // ─── Global search ────────────────────────────────────────────────────
 
 /** Lightweight shape used by the Cmd-K palette + back-compat callers. */

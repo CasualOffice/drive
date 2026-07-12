@@ -75,59 +75,17 @@ pub(crate) async fn semantic_search(
         return Ok(Json(vec![]));
     }
 
-    // Embed the query with the same embedder the embed_file job used, so the
-    // query vector lives in the same space as the stored chunk vectors.
-    let embedder = LocalEmbedder::default();
-    let query_vec = embedder.embed_one(&query).await.map_err(|e| {
-        tracing::error!(error = %e, "semantic search: query embed failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    // Candidate set: every chunk vector in the workspace. Brute-force cosine —
-    // fine at per-workspace scale (an ANN index is the scale follow-up).
-    let stored = EmbeddingRepo::new(&s.db)
-        .list_for_workspace(&workspace)
-        .await
-        .map_err(internal)?;
-    if stored.is_empty() {
-        return Ok(Json(vec![]));
-    }
-
-    let candidates: Vec<(StoredEmbedding, Vec<f32>)> = stored
-        .into_iter()
-        .map(|e| {
-            let v = e.vector.clone();
-            (e, v)
-        })
-        .collect();
-    // Rank everything; dedup + permission filtering below trims to `limit`.
-    let ranked = top_k(&query_vec, &candidates, candidates.len(), MIN_SCORE);
-
-    // Permission filter + enrich, deduped to the best chunk per file.
-    let scope = dochub_authz::readable_scope(&s.db, &session.user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let files = FileRepo::new(&s.db);
+    // Retrieve enough chunks to cover `limit` distinct files after dedup, then
+    // keep the best chunk per file (results are score-descending).
+    let ranked = retrieve_chunks(&s, &session.user_id, &workspace, &query, limit * 4).await?;
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<SemanticHit> = Vec::with_capacity(limit);
-    for scored in ranked {
+    for (chunk, file, score) in ranked {
         if out.len() >= limit {
             break;
         }
-        let chunk = scored.item;
-        // Ranked is score-descending, so the first chunk seen for a file is its
-        // best; skip later (lower-scoring) chunks from the same file.
         if !seen.insert(chunk.file_id.clone()) {
-            continue;
-        }
-        let Ok(file) = files.find_by_id(&chunk.file_id).await else {
-            continue;
-        };
-        if file.workspace_id.as_deref() != Some(workspace.as_str())
-            || file.trashed_at.is_some()
-            || !scope.can_view_file(&file)
-        {
-            continue;
+            continue; // a better chunk from this file already shown.
         }
         out.push(SemanticHit {
             file_id: chunk.file_id,
@@ -135,11 +93,82 @@ pub(crate) async fn semantic_search(
             kind: kind_of(&file),
             snippet: chunk.chunk_text,
             chunk_index: chunk.chunk_index,
-            score: scored.score,
+            score,
             modified_at: file.modified_at.format(&Rfc3339).unwrap_or_default(),
         });
     }
     Ok(Json(out))
+}
+
+/// Embed `query`, rank the workspace's stored chunk vectors by cosine
+/// similarity, and return up to `max_chunks` permission-passing chunks
+/// (score-descending, NOT deduped per file — callers dedup as needed). Each
+/// entry carries the chunk, its already-loaded [`File`] row (so callers needn't
+/// re-fetch), and the score. Empty query or no embeddings → empty.
+///
+/// Shared by the semantic-search endpoint and the RAG `ask` endpoint so both
+/// retrieve identically and enforce the same permission filter.
+pub(crate) async fn retrieve_chunks(
+    s: &HttpState,
+    user_id: &str,
+    workspace: &str,
+    query: &str,
+    max_chunks: usize,
+) -> Result<Vec<(StoredEmbedding, dochub_db::File, f32)>, StatusCode> {
+    if query.is_empty() || max_chunks == 0 {
+        return Ok(Vec::new());
+    }
+
+    // Embed the query with the same embedder the embed_file job used, so the
+    // query vector lives in the same space as the stored chunk vectors.
+    let embedder = LocalEmbedder::default();
+    let query_vec = embedder.embed_one(query).await.map_err(|e| {
+        tracing::error!(error = %e, "semantic retrieve: query embed failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    // Candidate set: every chunk vector in the workspace. Brute-force cosine —
+    // fine at per-workspace scale (an ANN index is the scale follow-up).
+    let stored = EmbeddingRepo::new(&s.db)
+        .list_for_workspace(workspace)
+        .await
+        .map_err(internal)?;
+    if stored.is_empty() {
+        return Ok(Vec::new());
+    }
+    let candidates: Vec<(StoredEmbedding, Vec<f32>)> = stored
+        .into_iter()
+        .map(|e| {
+            let v = e.vector.clone();
+            (e, v)
+        })
+        .collect();
+    let ranked = top_k(&query_vec, &candidates, candidates.len(), MIN_SCORE);
+
+    // Permission filter (`readable_scope` + workspace + trash) so a chunk the
+    // caller may not view never leaks.
+    let scope = dochub_authz::readable_scope(&s.db, user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let files = FileRepo::new(&s.db);
+    let mut out = Vec::with_capacity(max_chunks);
+    for scored in ranked {
+        if out.len() >= max_chunks {
+            break;
+        }
+        let chunk = scored.item;
+        let Ok(file) = files.find_by_id(&chunk.file_id).await else {
+            continue;
+        };
+        if file.workspace_id.as_deref() != Some(workspace)
+            || file.trashed_at.is_some()
+            || !scope.can_view_file(&file)
+        {
+            continue;
+        }
+        out.push((chunk, file, scored.score));
+    }
+    Ok(out)
 }
 
 fn internal(e: dochub_db::DbError) -> StatusCode {
