@@ -899,6 +899,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bytes",
+ "dochub-ai",
  "dochub-auth",
  "dochub-authz",
  "dochub-core",

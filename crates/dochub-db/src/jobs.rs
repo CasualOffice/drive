@@ -32,6 +32,12 @@ pub mod state {
 /// Payload is the bare `file_id`.
 pub const KIND_INDEX_FILE: &str = "index_file";
 
+/// Job-kind discriminator for "(re)embed this file's content" — the RAG layer's
+/// chunk + embed + store step. Enqueued alongside [`KIND_INDEX_FILE`] on commit;
+/// consumed by the embed handler in `dochub-http`. Payload is the bare
+/// `file_id`.
+pub const KIND_EMBED_FILE: &str = "embed_file";
+
 /// A stored job row.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Job {

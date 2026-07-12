@@ -17,6 +17,7 @@ mod compliance;
 mod content_search;
 mod diff;
 mod direct_upload;
+mod embedding;
 mod files;
 mod grants;
 pub mod headers;
@@ -41,6 +42,7 @@ mod workspaces;
 
 pub use access_log::access_log;
 pub use content_search::{spawn_indexer, IndexFileHandler};
+pub use embedding::EmbedFileHandler;
 pub use rate_limit::{RateLimitConfig, RateLimiter};
 pub use state::HttpState;
 

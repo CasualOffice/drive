@@ -284,17 +284,23 @@ impl dochub_worker::JobHandler for IndexFileHandler {
     }
 }
 
-/// Build and spawn the background indexer: a [`dochub_worker::Worker`] with the
-/// `index_file` handler registered, draining the durable queue. Returns the
-/// `JoinHandle` so the caller can abort it on shutdown (mirrors
-/// `PresenceHub::spawn_sweep`).
+/// Build and spawn the background worker: a [`dochub_worker::Worker`] with the
+/// `index_file` (full-text) and `embed_file` (RAG) handlers registered, draining
+/// the durable queue. Returns the `JoinHandle` so the caller can abort it on
+/// shutdown (mirrors `PresenceHub::spawn_sweep`).
 #[must_use]
 pub fn spawn_indexer(state: HttpState) -> tokio::task::JoinHandle<()> {
-    let worker = dochub_worker::Worker::new(state.db.clone()).register(
-        dochub_db::KIND_INDEX_FILE,
-        std::sync::Arc::new(IndexFileHandler::new(state)),
-    );
-    std::sync::Arc::new(worker).spawn()
+    use std::sync::Arc;
+    let worker = dochub_worker::Worker::new(state.db.clone())
+        .register(
+            dochub_db::KIND_INDEX_FILE,
+            Arc::new(IndexFileHandler::new(state.clone())),
+        )
+        .register(
+            dochub_db::KIND_EMBED_FILE,
+            Arc::new(crate::embedding::EmbedFileHandler::new(state)),
+        );
+    Arc::new(worker).spawn()
 }
 
 // ── Handler ──────────────────────────────────────────────────────────────
@@ -401,7 +407,7 @@ fn ws_status(e: crate::workspaces::WsError) -> StatusCode {
 }
 
 /// Lowercase filename extension, or `None` when there is none.
-fn extension_of(name: &str) -> Option<String> {
+pub(crate) fn extension_of(name: &str) -> Option<String> {
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let (stem, ext) = base.rsplit_once('.')?;
     if stem.is_empty() || ext.is_empty() {

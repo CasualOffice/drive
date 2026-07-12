@@ -42,7 +42,7 @@ pub use file_versions::{FileVersionsRepo, NewVersion, Version};
 pub use files::{File, FileRepo, FileStatus, NewFile};
 pub use folders::{Folder, FolderRepo, NewFolder};
 pub use invitations::{NewWorkspaceInvitation, WorkspaceInvitation, WorkspaceInvitationRepo};
-pub use jobs::{state as job_state, Job, JobsRepo, NewJob, KIND_INDEX_FILE};
+pub use jobs::{state as job_state, Job, JobsRepo, NewJob, KIND_EMBED_FILE, KIND_INDEX_FILE};
 pub use key_rotation::RotationReport;
 pub use legal_holds::{target_kind, LegalHold, LegalHoldsRepo, NewLegalHold};
 pub use notes::{

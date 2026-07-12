@@ -28,7 +28,7 @@ use thiserror::Error;
 
 use crate::{
     file_versions::{FileVersionsRepo, NewVersion, Version},
-    jobs::{JobsRepo, NewJob, KIND_INDEX_FILE},
+    jobs::{JobsRepo, NewJob, KIND_EMBED_FILE, KIND_INDEX_FILE},
     workspace_keys::{DekError, WorkspaceDeks},
     Db, DbError, FileRepo,
 };
@@ -153,16 +153,21 @@ impl Registry {
             .await?;
 
         if reason != BACKFILL_REASON {
-            let enqueued = JobsRepo::new(&self.db)
-                .enqueue(&NewJob {
-                    kind: KIND_INDEX_FILE.to_string(),
-                    payload: file_id.to_string(),
-                    max_attempts: None,
-                    run_after: None,
-                })
-                .await;
-            if let Err(e) = enqueued {
-                tracing::warn!(file_id, error = %e, "commit_version: failed to enqueue reindex job");
+            let jobs = JobsRepo::new(&self.db);
+            // Schedule content indexing (full-text) and embedding (RAG) for the
+            // new head. Independent jobs so each retries on its own.
+            for kind in [KIND_INDEX_FILE, KIND_EMBED_FILE] {
+                let enqueued = jobs
+                    .enqueue(&NewJob {
+                        kind: kind.to_string(),
+                        payload: file_id.to_string(),
+                        max_attempts: None,
+                        run_after: None,
+                    })
+                    .await;
+                if let Err(e) = enqueued {
+                    tracing::warn!(file_id, kind, error = %e, "commit_version: failed to enqueue job");
+                }
             }
         }
 
