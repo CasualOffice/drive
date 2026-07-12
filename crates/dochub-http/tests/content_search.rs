@@ -363,18 +363,81 @@ async fn workspace_isolation() {
 }
 
 #[tokio::test]
-async fn commit_enqueues_index_job() {
+async fn commit_enqueues_index_and_embed_jobs() {
     let state = fixture().await;
     let owner = user_id(&state, "admin").await;
     let ws = personal_ws(&state, &owner).await;
 
-    // A single committed version schedules exactly one index_file job.
+    // A single committed version schedules an index_file AND an embed_file job.
     make_file(&state, &ws, &owner, "notes.md", b"content to index").await;
     let queued = JobsRepo::new(&state.db)
         .count_in_state(dochub_db::job_state::QUEUED)
         .await
         .unwrap();
-    assert_eq!(queued, 1);
+    assert_eq!(queued, 2);
+}
+
+#[tokio::test]
+async fn worker_embeds_committed_file() {
+    let state = fixture().await;
+    let owner = user_id(&state, "admin").await;
+    let ws = personal_ws(&state, &owner).await;
+    let id = make_file(
+        &state,
+        &ws,
+        &owner,
+        "memo.md",
+        b"quarterly revenue recognition rules for deferred subscription income",
+    )
+    .await;
+
+    // Drain both queued jobs through the real handlers.
+    let worker = dochub_worker::Worker::new(state.db.clone())
+        .register(
+            dochub_db::KIND_INDEX_FILE,
+            Arc::new(dochub_http::IndexFileHandler::new(state.clone())),
+        )
+        .register(
+            dochub_db::KIND_EMBED_FILE,
+            Arc::new(dochub_http::EmbedFileHandler::new(state.clone())),
+        );
+    for _ in 0..2 {
+        let step = worker
+            .run_once(time::OffsetDateTime::now_utc())
+            .await
+            .unwrap();
+        assert!(
+            matches!(step, dochub_worker::Step::Completed(_)),
+            "{step:?}"
+        );
+    }
+
+    // The embed handler chunked + embedded the head into the embeddings table.
+    let emb = dochub_db::EmbeddingRepo::new(&state.db);
+    assert!(emb.count_for_file(&id).await.unwrap() >= 1);
+    assert!(emb.content_hash_for_file(&id).await.unwrap().is_some());
+    // A workspace listing returns decoded vectors for retrieval.
+    let stored = emb.list_for_workspace(&ws).await.unwrap();
+    assert!(!stored.is_empty());
+    assert!(stored.iter().all(|s| !s.vector.is_empty()));
+
+    // Re-running embed is idempotent: unchanged head → no duplicate rows.
+    let before = emb.count_for_file(&id).await.unwrap();
+    JobsRepo::new(&state.db)
+        .enqueue(&dochub_db::NewJob {
+            kind: dochub_db::KIND_EMBED_FILE.to_string(),
+            payload: id.clone(),
+            max_attempts: None,
+            run_after: None,
+        })
+        .await
+        .unwrap();
+    let step = worker
+        .run_once(time::OffsetDateTime::now_utc())
+        .await
+        .unwrap();
+    assert!(matches!(step, dochub_worker::Step::Completed(_)));
+    assert_eq!(emb.count_for_file(&id).await.unwrap(), before);
 }
 
 #[tokio::test]
