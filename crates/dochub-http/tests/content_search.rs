@@ -14,7 +14,8 @@ use axum::{
 use dochub_auth::{hash_password, AuthState};
 use dochub_core::{Backend, Config};
 use dochub_db::{
-    Db, FileRepo, NewFile, NewUser, Registry, UserRepo, WorkspaceDeks, WorkspaceKind, WorkspaceRepo,
+    Db, FileRepo, JobsRepo, NewFile, NewUser, Registry, UserRepo, WorkspaceDeks, WorkspaceKind,
+    WorkspaceRepo,
 };
 use dochub_http::{router, HttpState};
 use dochub_storage::Storage;
@@ -359,6 +360,56 @@ async fn workspace_isolation() {
         other_hits[0]["file_id"].as_str().unwrap(),
         admin_hits[0]["file_id"].as_str().unwrap()
     );
+}
+
+#[tokio::test]
+async fn commit_enqueues_index_job() {
+    let state = fixture().await;
+    let owner = user_id(&state, "admin").await;
+    let ws = personal_ws(&state, &owner).await;
+
+    // A single committed version schedules exactly one index_file job.
+    make_file(&state, &ws, &owner, "notes.md", b"content to index").await;
+    let queued = JobsRepo::new(&state.db)
+        .count_in_state(dochub_db::job_state::QUEUED)
+        .await
+        .unwrap();
+    assert_eq!(queued, 1);
+}
+
+#[tokio::test]
+async fn worker_indexes_committed_file() {
+    let state = fixture().await;
+    let owner = user_id(&state, "admin").await;
+    let ws = personal_ws(&state, &owner).await;
+    // Body-only codeword — only content indexing makes it findable.
+    let id = make_file(&state, &ws, &owner, "memo.md", b"the codeword is platypus").await;
+
+    // Drain the queued index_file job through the real handler.
+    let worker = dochub_worker::Worker::new(state.db.clone()).register(
+        dochub_db::KIND_INDEX_FILE,
+        Arc::new(dochub_http::IndexFileHandler::new(state.clone())),
+    );
+    let step = worker
+        .run_once(time::OffsetDateTime::now_utc())
+        .await
+        .unwrap();
+    assert!(
+        matches!(step, dochub_worker::Step::Completed(_)),
+        "handler should complete the index job: {step:?}"
+    );
+    assert_eq!(
+        JobsRepo::new(&state.db)
+            .count_in_state(dochub_db::job_state::DONE)
+            .await
+            .unwrap(),
+        1
+    );
+
+    // The worker populated the shared index: the body term is now searchable.
+    let app = router(state);
+    let cookie = sign_in_as(&app, "admin").await;
+    assert_eq!(ids(&search(&app, &cookie, "platypus").await), vec![id]);
 }
 
 /// Build a minimal but valid `.docx` (OOXML zip) whose `word/document.xml`

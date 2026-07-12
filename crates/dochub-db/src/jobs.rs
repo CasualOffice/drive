@@ -26,6 +26,12 @@ pub mod state {
     pub const FAILED: &str = "failed";
 }
 
+/// Job-kind discriminator for "(re)index this file's content". The producer
+/// ([`crate::Registry::commit_version`]) and the consumer (the `dochub-worker`
+/// handler in `dochub-http`) share this constant so the string is defined once.
+/// Payload is the bare `file_id`.
+pub const KIND_INDEX_FILE: &str = "index_file";
+
 /// A stored job row.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Job {

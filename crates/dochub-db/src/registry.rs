@@ -28,12 +28,18 @@ use thiserror::Error;
 
 use crate::{
     file_versions::{FileVersionsRepo, NewVersion, Version},
+    jobs::{JobsRepo, NewJob, KIND_INDEX_FILE},
     workspace_keys::{DekError, WorkspaceDeks},
     Db, DbError, FileRepo,
 };
 
 /// The `versions/{hash}` storage-key prefix. `content_hash` is the remainder.
 const KEY_PREFIX: &str = "versions/";
+
+/// Reason recorded on the one-time legacy-blob backfill. A commit with this
+/// reason is triggered *by the indexer's own read path*, so it does not enqueue
+/// a further reindex (that pass already indexes the file).
+const BACKFILL_REASON: &str = "backfill v1";
 
 /// The legacy plaintext blob key for a pre-version file. Bytes uploaded before
 /// the read-path cutover live here in the clear (`docs/ARCHITECTURE.md`
@@ -137,10 +143,28 @@ impl Registry {
             })
             .await?;
 
-        // Move the head pointer. (Phase 3 will enqueue a reindex here.)
+        // Move the head pointer, then schedule a content reindex of the new
+        // head on the durable job queue. Best-effort: a failed enqueue is
+        // logged, never fails the commit — the lazy reindex backstop still
+        // catches it. Skipped for the indexer's own backfill commits, which
+        // index the file in the same pass.
         FileRepo::new(&self.db)
             .set_version_head(file_id, seq, size)
             .await?;
+
+        if reason != BACKFILL_REASON {
+            let enqueued = JobsRepo::new(&self.db)
+                .enqueue(&NewJob {
+                    kind: KIND_INDEX_FILE.to_string(),
+                    payload: file_id.to_string(),
+                    max_attempts: None,
+                    run_after: None,
+                })
+                .await;
+            if let Err(e) = enqueued {
+                tracing::warn!(file_id, error = %e, "commit_version: failed to enqueue reindex job");
+            }
+        }
 
         Ok(version)
     }
@@ -175,7 +199,7 @@ impl Registry {
         // Legacy file: pull the plaintext blob, seal it as the first version,
         // then serve exactly those bytes.
         let legacy = self.storage.read_plaintext(&legacy_key(file_id)).await?;
-        self.commit_version(workspace, file_id, &legacy, author_id, "backfill v1")
+        self.commit_version(workspace, file_id, &legacy, author_id, BACKFILL_REASON)
             .await?;
         Ok(legacy)
     }
