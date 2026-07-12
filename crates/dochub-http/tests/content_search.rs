@@ -361,6 +361,63 @@ async fn workspace_isolation() {
     );
 }
 
+/// Build a minimal but valid `.docx` (OOXML zip) whose `word/document.xml`
+/// carries `paragraphs` as `<w:t>` runs — enough for `dochub_core::extract` to
+/// pull the body text.
+fn docx_bytes(paragraphs: &[&str]) -> Vec<u8> {
+    use std::fmt::Write as _;
+    use std::io::{Cursor, Write};
+    use zip::write::SimpleFileOptions;
+
+    let mut body = String::new();
+    for p in paragraphs {
+        write!(body, "<w:p><w:r><w:t>{p}</w:t></w:r></w:p>").unwrap();
+    }
+    let doc = format!(
+        r#"<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}</w:body></w:document>"#
+    );
+    let mut buf = Vec::new();
+    {
+        let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
+        let opts =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        w.start_file("[Content_Types].xml", opts).unwrap();
+        w.write_all(b"<Types/>").unwrap();
+        w.start_file("word/document.xml", opts).unwrap();
+        w.write_all(doc.as_bytes()).unwrap();
+        w.finish().unwrap();
+    }
+    buf
+}
+
+#[tokio::test]
+async fn docx_content_is_searchable() {
+    let state = fixture().await;
+    let owner = user_id(&state, "admin").await;
+    let ws = personal_ws(&state, &owner).await;
+    // Distinctive phrase lives only inside the docx body, not its name.
+    let bytes = docx_bytes(&[
+        "The acquisition of Aperture Science closed in Q3.",
+        "Synergy targets exceeded plan.",
+    ]);
+    let id = make_file(&state, &ws, &owner, "Board memo.docx", &bytes).await;
+
+    let app = router(state);
+    let cookie = sign_in_as(&app, "admin").await;
+
+    // A term only inside the extracted docx body is found — proves extraction
+    // ran, not just title indexing.
+    let hits = search(&app, &cookie, "Aperture").await;
+    assert_eq!(ids(&hits), vec![id.clone()]);
+    assert_eq!(hits[0]["kind"].as_str().unwrap(), "document");
+    // A word in neither title nor body does not match.
+    assert!(search(&app, &cookie, "helicopter")
+        .await
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
 #[tokio::test]
 async fn unsupported_format_indexes_title_only() {
     let state = fixture().await;

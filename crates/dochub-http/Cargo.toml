@@ -52,3 +52,4 @@ jsonwebtoken  = { workspace = true }
 http-body-util = { workspace = true }
 tower          = { version = "0.5", features = ["util"] }
 tempfile       = { workspace = true }
+zip            = { workspace = true }

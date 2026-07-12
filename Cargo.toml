@@ -103,6 +103,12 @@ mime_guess        = "2"
 # about their extension by inspecting the first few bytes of the payload.
 infer             = { version = "0.19", default-features = false }
 
+# OOXML text extraction for the content index (dochub-core::extract). `zip`
+# opens the docx/xlsx/pptx container; `quick-xml` streams the inner parts.
+# deflate-only zip keeps the surface small (OOXML uses store + deflate).
+zip               = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml         = "0.38"
+
 # Server-side image-only thumbnail decoder (pipeline §5.4). PDF / video
 # decoders are deferred to v0.2 — they require a sandboxed subprocess
 # per the security brief, so we don't run them in-process.

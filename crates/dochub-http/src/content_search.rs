@@ -94,10 +94,11 @@ fn index_for(state: &HttpState) -> Result<Arc<Index>, StatusCode> {
 // ── Lazy reindex ─────────────────────────────────────────────────────────
 
 /// Bring the content index up to date for one workspace: remove trashed files,
-/// then (re)index every pending / changed head. Text formats
-/// (`md/txt/csv/json/yaml`) are decrypted and their UTF-8 content indexed;
-/// `docx/xlsx/xlsm/pptx/pdf` are indexed by **title + extension only** for now
-/// (content extraction via `core` is the Phase 3 follow-up, build spec §1).
+/// then (re)index every pending / changed head. Extractable formats are
+/// decrypted and their text indexed via `dochub_core::extract`:
+/// `md/txt/csv/json/yaml` (UTF-8) and `docx/xlsx/pptx` (OOXML text). `xlsm`
+/// (opaque by policy) and `pdf` (extractor pending) are indexed by **title +
+/// extension only**.
 ///
 /// Idempotent and cheap in steady state (the candidate query returns nothing
 /// once every head is indexed). A read failure on one file is logged and
@@ -136,17 +137,27 @@ pub(crate) async fn reindex_pending(
     for f in candidates {
         let ext = extension_of(&f.name);
         let kind = ext.as_deref().and_then(DocKind::from_extension);
-        let is_text = matches!(
-            kind,
-            Some(DocKind::Md | DocKind::Txt | DocKind::Csv | DocKind::Json | DocKind::Yaml)
-        );
+        // Extractable = plain text (md/txt/csv/json/yaml) OR OOXML with a text
+        // extractor (docx/xlsx/pptx). xlsm (opaque) and pdf remain title-only
+        // until their extractors land (`dochub_core::extract`).
+        let extractable = kind.is_some_and(dochub_core::supports_extraction);
 
-        let (content, state_label) = if is_text {
+        let (content, state_label) = if extractable {
+            let kind = kind.expect("extractable implies a known kind");
             match registry
                 .read_or_backfill_for_file(&f.id, INDEXER_AUTHOR)
                 .await
             {
-                Ok(bytes) => (String::from_utf8_lossy(&bytes).into_owned(), "ready"),
+                Ok(bytes) => match dochub_core::extract_text(kind, &bytes) {
+                    Ok(text) => (text, "ready"),
+                    Err(e) => {
+                        // Extractor rejected these bytes (e.g. a corrupt OOXML
+                        // container): index title-only rather than retrying
+                        // forever on bytes that will never parse.
+                        tracing::warn!(file_id = %f.id, error = %e, "reindex: text extraction failed");
+                        (String::new(), "unsupported")
+                    }
+                },
                 Err(e) => {
                     // Missing/unreadable head — leave pending, try again later.
                     tracing::warn!(file_id = %f.id, error = %e, "reindex: head read failed");
@@ -154,7 +165,7 @@ pub(crate) async fn reindex_pending(
                 }
             }
         } else {
-            // docx/xlsx/xlsm/pptx/pdf (and any non-text): title/extension only.
+            // xlsm/pdf (and any non-document): title/extension only.
             (String::new(), "unsupported")
         };
 
