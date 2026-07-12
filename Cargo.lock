@@ -906,6 +906,7 @@ dependencies = [
  "dochub-crypto",
  "dochub-db",
  "dochub-index",
+ "dochub-mcp",
  "dochub-storage",
  "dochub-wopi",
  "dochub-worker",

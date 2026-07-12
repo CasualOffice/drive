@@ -22,6 +22,7 @@ dochub-authz   = { path = "../dochub-authz" }
 dochub-index   = { path = "../dochub-index" }
 dochub-worker  = { path = "../dochub-worker" }
 dochub-ai      = { path = "../dochub-ai" }
+dochub-mcp     = { path = "../dochub-mcp" }
 
 async-trait   = "0.1"
 axum          = { workspace = true }
