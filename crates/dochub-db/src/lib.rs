@@ -9,6 +9,7 @@
 
 mod acl;
 mod audit;
+mod embeddings;
 mod error;
 mod file_versions;
 mod files;
@@ -35,6 +36,7 @@ mod workspaces;
 
 pub use acl::{resource_kind, subject_kind, AclGrant, AclRepo, NewAclGrant};
 pub use audit::{action, AuditChainStatus, AuditEvent, AuditRepo, NewAuditEvent};
+pub use embeddings::{EmbeddingRepo, NewEmbedding, StoredEmbedding};
 pub use error::DbError;
 pub use file_versions::{FileVersionsRepo, NewVersion, Version};
 pub use files::{File, FileRepo, FileStatus, NewFile};
