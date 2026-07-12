@@ -1,0 +1,23 @@
+[package]
+name        = "dochub-worker"
+description = "Background job runner that drains the durable job queue (dochub-db JobsRepo)"
+version     = { workspace = true }
+edition     = { workspace = true }
+license     = { workspace = true }
+authors     = { workspace = true }
+repository  = { workspace = true }
+rust-version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+dochub-db     = { path = "../dochub-db" }
+
+async-trait   = "0.1"
+tokio         = { workspace = true }
+time          = { workspace = true }
+tracing       = { workspace = true }
+
+[dev-dependencies]
+tokio         = { workspace = true }
