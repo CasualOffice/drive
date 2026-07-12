@@ -2,9 +2,9 @@
 //! comes online when CI gains a Postgres service.
 
 use dochub_db::{
-    Db, DbError, FileRepo, FolderRepo, JobsRepo, NewFile, NewFolder, NewJob, NewSession, NewTag,
-    NewUser, ProvenanceKeysRepo, SessionRepo, TagRepo, UserRepo, WorkspaceDeks, WorkspaceKeysRepo,
-    WorkspaceKind, WorkspaceRepo,
+    Db, DbError, EmbeddingRepo, FileRepo, FolderRepo, JobsRepo, NewEmbedding, NewFile, NewFolder,
+    NewJob, NewSession, NewTag, NewUser, ProvenanceKeysRepo, SessionRepo, TagRepo, UserRepo,
+    WorkspaceDeks, WorkspaceKeysRepo, WorkspaceKind, WorkspaceRepo,
 };
 
 async fn fresh_db() -> Db {
@@ -831,4 +831,121 @@ async fn jobs_retry_with_backoff_then_fail() {
         .is_none());
     assert_eq!(jobs.count_in_state("failed").await.unwrap(), 1);
     assert_eq!(j.state, "queued");
+}
+
+#[tokio::test]
+async fn embeddings_replace_list_and_vector_roundtrip() {
+    let db = fresh_db().await;
+    let repo = EmbeddingRepo::new(&db);
+    let ws = "ws-emb";
+
+    let chunks = vec![
+        NewEmbedding {
+            chunk_index: 0,
+            vector: vec![0.1, -0.2, 0.3, 0.4],
+            chunk_text: "first chunk".into(),
+            char_start: 0,
+            char_end: 11,
+        },
+        NewEmbedding {
+            chunk_index: 1,
+            vector: vec![1.0, 0.0, -1.0, 0.5],
+            chunk_text: "second chunk".into(),
+            char_start: 11,
+            char_end: 23,
+        },
+    ];
+    repo.replace_for_file("file-a", ws, "hash-1", 4, &chunks)
+        .await
+        .unwrap();
+    assert_eq!(repo.count_for_file("file-a").await.unwrap(), 2);
+    assert_eq!(
+        repo.content_hash_for_file("file-a")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("hash-1")
+    );
+
+    // list returns rows with vectors decoded exactly (f32 bit-for-bit).
+    let stored = repo.list_for_workspace(ws).await.unwrap();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].chunk_index, 0);
+    assert_eq!(stored[0].vector, vec![0.1, -0.2, 0.3, 0.4]);
+    assert_eq!(stored[1].vector, vec![1.0, 0.0, -1.0, 0.5]);
+    assert_eq!(stored[1].chunk_text, "second chunk");
+
+    // Re-embed replaces the whole set atomically (no old rows linger).
+    let fresh = vec![NewEmbedding {
+        chunk_index: 0,
+        vector: vec![9.0, 9.0, 9.0, 9.0],
+        chunk_text: "rewritten".into(),
+        char_start: 0,
+        char_end: 9,
+    }];
+    repo.replace_for_file("file-a", ws, "hash-2", 4, &fresh)
+        .await
+        .unwrap();
+    assert_eq!(repo.count_for_file("file-a").await.unwrap(), 1);
+    assert_eq!(
+        repo.content_hash_for_file("file-a")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("hash-2")
+    );
+    assert_eq!(
+        repo.list_for_workspace(ws).await.unwrap()[0].vector,
+        vec![9.0, 9.0, 9.0, 9.0]
+    );
+
+    // delete removes them.
+    assert_eq!(repo.delete_for_file("file-a").await.unwrap(), 1);
+    assert_eq!(repo.count_for_file("file-a").await.unwrap(), 0);
+    assert!(repo
+        .content_hash_for_file("file-a")
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
+async fn embeddings_reject_dim_mismatch_and_scope_by_workspace() {
+    let db = fresh_db().await;
+    let repo = EmbeddingRepo::new(&db);
+
+    // A vector whose length disagrees with `dims` is rejected before any write.
+    let bad = vec![NewEmbedding {
+        chunk_index: 0,
+        vector: vec![1.0, 2.0, 3.0], // len 3
+        chunk_text: "x".into(),
+        char_start: 0,
+        char_end: 1,
+    }];
+    assert!(matches!(
+        repo.replace_for_file("f", "ws1", "h", 4, &bad).await,
+        Err(DbError::Corrupt(_))
+    ));
+    assert_eq!(repo.count_for_file("f").await.unwrap(), 0);
+
+    // Workspace isolation: a listing only returns its own workspace's rows.
+    let one = vec![NewEmbedding {
+        chunk_index: 0,
+        vector: vec![0.5, 0.5],
+        chunk_text: "a".into(),
+        char_start: 0,
+        char_end: 1,
+    }];
+    repo.replace_for_file("fa", "wsA", "h", 2, &one)
+        .await
+        .unwrap();
+    repo.replace_for_file("fb", "wsB", "h", 2, &one)
+        .await
+        .unwrap();
+    assert_eq!(repo.list_for_workspace("wsA").await.unwrap().len(), 1);
+    assert_eq!(repo.list_for_workspace("wsB").await.unwrap().len(), 1);
+    assert_eq!(
+        repo.list_for_workspace("wsA").await.unwrap()[0].file_id,
+        "fa"
+    );
 }
