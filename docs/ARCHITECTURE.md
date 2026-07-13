@@ -90,10 +90,11 @@ One `<Editor>` component hosts each format via its sibling SDK. Team documents c
 
 ## AI layer (optional)
 
-`dochub-ai` sits beside search, never replacing it for compliance-critical retrieval:
-- **Semantic search:** embeddings + rerank alongside Tantivy exact/full-text results.
-- **Summaries, entity + PII detection, cross-document Q&A** — all read-only suggestions; a human approves any action (e.g. flagging PII). AI never mutates documents or history.
-- **Provider:** pluggable; default Claude via the Anthropic API (Haiku for extraction/classification, Sonnet/Opus for reasoning/Q&A), with a local-model adapter for air-gapped installs. Every AI action is audited.
+`dochub-ai` sits beside search, never replacing it for compliance-critical retrieval. Operator guide: [`AI-MCP.md`](./AI-MCP.md).
+- **Semantic search + RAG:** embeddings + cosine top-k alongside Tantivy exact/full-text results, feeding a cited answer (`GET /api/search/semantic`, `POST /api/search/ask`). Offline, an extractive answerer stands in — no network, invents nothing.
+- **Agentic research:** `POST /api/agent/ask` drives a bounded ReAct loop — the model runs its own permission-scoped searches, refines, then answers with citations + a search trace. Needs a configured provider; reports `available:false` otherwise.
+- **MCP:** `POST /api/mcp` (JSON-RPC 2.0) exposes `semantic_search` / `ask` / `research` as tools, authed by session **or** a bearer PAT. Read-only; every tool call is permission-filtered and rate-limited.
+- **Provider:** pluggable via `DOCHUB_AI_PROVIDER` — Claude (Anthropic Messages API), ChatGPT, or a local OpenAI-compatible server for air-gapped installs. AI never mutates documents or history.
 
 ## Data model (portable)
 

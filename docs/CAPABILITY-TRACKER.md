@@ -6,6 +6,8 @@
 
 **Status legend:** `Shipped` (merged + tested on `main`) · `Partial` (real code, incomplete) · `In progress` (active this phase) · `Design-only` (spec exists, no code) · `Not-started` (nothing yet).
 
+> **Update (2026-07):** the AI/agentic backbone has since shipped and the TL;DR below is superseded — `dochub-ai`, `dochub-mcp`, and `dochub-worker` exist and are tested. Landed since this tracker was written: the durable job queue + worker, Office/PDF text extraction, search-by-tag, semantic search + RAG (`ask`), the **agentic** ReAct research loop (`/api/agent/ask` + MCP `research`), the MCP endpoint with bearer-PAT auth, per-user AI rate limiting, hash-chained audit + Activity UI, and Postgres portability in CI. See the status matrix (§2, refreshed) and the operator guide [`AI-MCP.md`](./AI-MCP.md). The narrative in §1 is kept for historical provenance.
+
 **Provenance of this tracker:** statuses below were reconstructed by directly reading the workspace (`Cargo.toml`, `crates/*`, `web/package.json`, `PIPELINE.md`) plus the one capability audit that completed cleanly (content-search). A multi-agent audit was attempted but most agents were blocked by a macOS TCC / Full-Disk-Access denial on `~/Desktop` (they returned "could not read the code"); those verdicts were discarded and replaced with direct reads. Items I could not open are marked _(unverified)_.
 
 ---
@@ -23,7 +25,7 @@ The **inherited Drive spine is shipped and solid** (storage facade, portable mig
 | Storage / DB spine | **Shipped** | `dochub-storage` (OpenDAL facade), `dochub-db` portable migrations | — | — |
 | Auth (Argon2id, sessions, OIDC) | **Shipped** | `dochub-auth`; `__Host-` cookie; PKCE | Multi-IdP federation (deferred) | — |
 | RBAC + ACLs + projects | **Shipped** | `dochub-authz` (Owner/Admin/Member, per-resource ACLs), enforced (PR #85) | Enforcement-coverage audit across every route _(unverified)_ | S |
-| Audit log | **Shipped (append-only)** | append-only `audit_log` (SP3) | Hash-chaining the log (P0-4); emit-coverage audit; UI/report | M |
+| Audit log | **Shipped (append-only, hash-chained)** | append-only `audit_log` (SP3), SHA-256 hash-chained (`prev_hash`/`entry_hash` + `verify_audit_chain`); Activity feed UI; token lifecycle events (PR #141/#143) | Full emit-coverage audit across every route | S |
 | Encryption at rest | **In progress** | `dochub-crypto` AES-256-GCM secret-envelope (SP8, shipped for BYO creds) | Generalize envelope to **document bytes** + per-workspace DEK; boot-refuses-without-key (P0-3) | M |
 | Provenance / hash-chain (“prove things”) | **In progress** | version engine + `dochub-crypto` scaffolding | `content_hash`/`prev_hash`, write-once blobs, `verify_chain`, restore-as-new, chained audit (P0-4) | L |
 | Documents-only ingest | **In progress** | allowlist scaffolding | Extension **+ magic-byte sniff** on every path; reject test (P0-2) | S |
@@ -31,12 +33,12 @@ The **inherited Drive spine is shipped and solid** (storage facade, portable mig
 | Full-text / global search | **Partial** | `GET /api/search` (metadata, shipped + UI-wired, 20+ tests); `GET /api/search/content` (BM25 + `<b>` snippets, **7 unit + 6 integ tests**); **SPA-wired** — `searchContent` in `CommandPalette.tsx` + `Files.tsx` with `SearchSnippet` | Office/PDF content coverage (extraction gap); filters/facets on content results | S–M |
 | Search by tag | **Not-started** | — (no tag tables/routes found) | Tag model + `document_tags` migration, tag CRUD endpoints, tag filter in search, tag UI | M |
 | Vaults | **Partial** | projects/workspaces (SP4) as the container | Explicit **Vault** UX + per-vault DEK boundary story, vault switcher/grid in SPA | M |
-| RAG / AI layer | **Design-only** | design in `docs/design/foundation-access-rag-mcp.md`; Phase 5 in `PIPELINE.md` | `dochub-ai` crate: embeddings, vector store, semantic rerank, summaries, PII, cross-doc Q&A, Claude provider | XL |
-| MCP integration | **Design-only** | design in `foundation-access-rag-mcp.md` | `dochub-mcp` server: transport, auth, tool surface (search/read/versions/provenance) | L |
-| Agentic pipeline / job runner | **Not-started** | `PIPELINE.md` is a *doc*, not code | Durable job/queue runner (the retired thumb-worker pattern), then agent orchestration (plan→execute→review, read-only, audited) | L |
+| RAG / AI layer | **Shipped** | `dochub-ai` (chunk → embed → cosine top-k → answer); offline `LocalEmbedder` + `ExtractiveAnswerer`; provider-agnostic `RemoteAnswerer` (Claude / OpenAI / local via `DOCHUB_AI_PROVIDER`); `GET /api/search/semantic` + `POST /api/search/ask`; SPA Answer panel. Per-user rate limiting (PR #142). Guide: [`AI-MCP.md`](./AI-MCP.md) | Summaries / entity + PII detection (deferred) | M |
+| MCP integration | **Shipped** | `dochub-mcp` JSON-RPC 2.0 core; `POST /api/mcp` with `semantic_search` / `ask` / `research` tools, permission-filtered; session **or** bearer-PAT auth (PR #139) | Streaming transport (SSE) | S |
+| Agentic pipeline / job runner | **Shipped** | durable `jobs` queue + `dochub-worker` (poll + backoff); `index_file`/`embed_file` handlers; **agentic** ReAct research loop (`dochub_ai::Agent`), `POST /api/agent/ask` + MCP `research`, SPA Research panel (PR #137/#138) | Broader agent tool surface (versions/provenance actions) | M |
 | Frontend state (Redux etc.) | **Not-started (ad-hoc today)** | React 19 + Vite + Tailwind v4; `react-hook-form` + `zod` + `rxjs` + Context | A real state layer (**Redux Toolkit** or Zustand) + typed API client + server-cache (RTK Query) + error boundaries | L |
 | UX / UI polish | **Partial** | neobrutal `tokens.css`, domain primitives (StatusChip, RegistryMotif) | Shared `Button/Card/Input` primitives (inline styles today); loading/empty/error/skeleton states; a11y; mobile | L |
-| Backend robustness | **Partial** _(unverified depth)_ | Axum handlers; `zod`-side validation on client | Consistent error→status→JSON envelope audit; boot config validation; rate limiting; observability (tracing/metrics) | M |
+| Backend robustness | **Partial** | Axum handlers; `zod`-side validation on client; per-user rate limiting on uploads + AI endpoints (429 + `Retry-After`, PR #142); portable Postgres path (PR #133) tested in CI | Consistent error→status→JSON envelope audit; boot config validation; observability (metrics) | M |
 | Notes editor | **Partial (bug)** | TipTap + `tiptap-markdown` + `marked` | **Bug:** pasted markdown not rendered until reload (see §5) | S |
 
 ---
