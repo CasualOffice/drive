@@ -76,8 +76,41 @@ pub fn router(state: HttpState) -> Router {
         .merge(usercontent_router(state))
 }
 
+/// Liveness probe — the process is up and serving. Unconditional and
+/// dependency-free, so a transient DB blip never restarts a healthy process.
 async fn healthz() -> impl IntoResponse {
     (StatusCode::OK, "ok\n")
+}
+
+#[derive(serde::Serialize)]
+struct Readiness {
+    ready: bool,
+    /// Per-dependency status (`"ok"` / `"error"`).
+    checks: std::collections::BTreeMap<&'static str, &'static str>,
+    backend: String,
+}
+
+/// Readiness probe — the process can serve real traffic, i.e. its critical
+/// dependency (the database) is reachable. `200` when ready, `503` otherwise, so
+/// an orchestrator stops routing to an instance that can't reach its DB without
+/// killing it (that's [`healthz`]'s job). Unauthenticated, like `healthz`.
+async fn readyz(State(s): State<HttpState>) -> impl IntoResponse {
+    let db_ok = s.db.ping().await.is_ok();
+    let mut checks = std::collections::BTreeMap::new();
+    checks.insert("db", if db_ok { "ok" } else { "error" });
+    let status = if db_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        axum::Json(Readiness {
+            ready: db_ok,
+            checks,
+            backend: format!("{:?}", s.config.backend),
+        }),
+    )
 }
 
 #[derive(serde::Serialize)]
@@ -153,6 +186,7 @@ fn app_origin_router(state: HttpState) -> Router {
 
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route("/api/me", get(api_me))
         .route("/api/about", get(about::about))
         .route("/api/activity", get(activity::list_activity))

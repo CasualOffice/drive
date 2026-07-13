@@ -103,3 +103,9 @@ TEXT ULID ids, ISO-8601 UTC timestamps, INTEGER 0/1 bools; no JSONB/enum/native-
 ## Boot invariants (fail-fast)
 
 The binary refuses to start unless: a master key/KMS is configured; the two origins differ (in production); the DB migrates cleanly; storage backend is reachable. These are asserted in `dochub-bin` and covered by tests.
+
+## Health probes
+
+Two unauthenticated app-origin endpoints for orchestration:
+- `GET /healthz` — **liveness**. Unconditional `200`; the process is up. A transient dependency blip must not fail this (it would trigger a needless restart).
+- `GET /readyz` — **readiness**. `200` when the critical dependency (the database) is reachable (`SELECT 1`), else `503` with `{ "ready": false, "checks": { "db": "error" } }`. Orchestrators stop routing to a not-ready instance without killing it.

@@ -66,6 +66,13 @@ impl Db {
         self.backend
     }
 
+    /// Cheap connectivity check for readiness probes: run `SELECT 1` against the
+    /// pool. `Ok(())` means the database is reachable and accepting queries.
+    pub async fn ping(&self) -> Result<(), DbError> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
     #[must_use]
     pub(crate) fn pool(&self) -> &AnyPool {
         &self.pool

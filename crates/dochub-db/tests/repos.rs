@@ -1100,3 +1100,9 @@ async fn embeddings_list_for_file_returns_chunks_in_order() {
     // A file with no chunks is empty, not an error.
     assert!(repo.list_for_file("nope").await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn ping_succeeds_on_a_live_pool() {
+    let db = fresh_db().await;
+    assert!(db.ping().await.is_ok());
+}

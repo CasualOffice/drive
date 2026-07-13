@@ -100,6 +100,27 @@ async fn healthz_on_app_origin() {
 }
 
 #[tokio::test]
+async fn readyz_reports_ready_when_db_is_reachable() {
+    let app = router(fixture().await);
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/readyz")
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let body = r.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["ready"], true);
+    assert_eq!(json["checks"]["db"], "ok");
+}
+
+#[tokio::test]
 async fn healthz_on_usercontent_returns_421() {
     // /healthz lives on the app router only. Hitting it with the UCN host
     // matches the app-router path but trips the host-dispatch middleware →
