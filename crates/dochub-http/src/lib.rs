@@ -42,6 +42,7 @@ mod semantic_search;
 mod share;
 mod spa;
 mod state;
+mod summary_http;
 mod tags_http;
 mod tokens_http;
 mod versions;
@@ -219,6 +220,10 @@ fn app_origin_router(state: HttpState) -> Router {
         .route("/api/search/ask", post(ask::ask))
         .route("/api/agent/ask", post(agent_http::agent_ask))
         .route("/api/files/{id}/pii", post(pii_http::scan_file_pii))
+        .route(
+            "/api/files/{id}/summary",
+            post(summary_http::summarize_file),
+        )
         .route("/api/mcp", post(mcp_http::mcp_endpoint))
         .with_state(state.clone())
         .merge(wopi_router)

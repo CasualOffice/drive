@@ -9,9 +9,17 @@
  * (encrypted · versioned · verified) and links out to that route.
  */
 import { useState } from "react";
-import { Link as LinkIcon, ScanSearch, ScrollText, ShieldCheck } from "lucide-react";
+import { FileText, Link as LinkIcon, ScanSearch, ScrollText, ShieldCheck } from "lucide-react";
 
-import { scanFilePii, type FileDto, type PiiKind, type PiiScanResult, ApiError } from "../api/client.ts";
+import {
+  scanFilePii,
+  summarizeFile,
+  type FileDto,
+  type PiiKind,
+  type PiiScanResult,
+  type SummaryResult,
+  ApiError,
+} from "../api/client.ts";
 
 export interface DetailsPanelProps {
   file: FileDto;
@@ -52,6 +60,24 @@ export function DetailsPanel({ file, onCreateShare }: DetailsPanelProps) {
       setPiiError(body?.error?.message ?? e.message ?? "Could not scan this document.");
     } finally {
       setScanning(false);
+    }
+  }
+
+  const [summary, setSummary] = useState<SummaryResult | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  async function runSummarize() {
+    setSummarizing(true);
+    setSummaryError(null);
+    try {
+      setSummary(await summarizeFile(file.id));
+    } catch (err) {
+      const e = err as ApiError;
+      const body = e.body as { error?: { message?: string } } | null;
+      setSummaryError(body?.error?.message ?? e.message ?? "Could not summarize this document.");
+    } finally {
+      setSummarizing(false);
     }
   }
 
@@ -111,7 +137,60 @@ export function DetailsPanel({ file, onCreateShare }: DetailsPanelProps) {
             <ScanSearch size={13} strokeWidth={1.6} aria-hidden />
             {scanning ? "Scanning…" : "Scan for personal data"}
           </button>
+          <button
+            type="button"
+            onClick={runSummarize}
+            disabled={summarizing}
+            data-testid="summarize-button"
+            style={{ ...ghostAction, cursor: summarizing ? "default" : "pointer", opacity: summarizing ? 0.6 : 1 }}
+          >
+            <FileText size={13} strokeWidth={1.6} aria-hidden />
+            {summarizing ? "Summarizing…" : "Summarize"}
+          </button>
         </div>
+
+        {(summary || summaryError) && (
+          <div
+            data-testid="summary-results"
+            style={{
+              marginTop: "var(--space-1)",
+              paddingTop: "var(--space-3)",
+              borderTop: "1px solid var(--border-hair)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-2)",
+            }}
+          >
+            {summaryError && (
+              <div style={{ fontSize: "var(--text-sm)", color: "var(--status-danger-700, #b42318)" }}>
+                {summaryError}
+              </div>
+            )}
+            {summary && !summary.supported && (
+              <div style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+                This document format can’t be summarized yet.
+              </div>
+            )}
+            {summary && summary.supported && summary.summary === "" && (
+              <div style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+                Nothing to summarize — no extractable text.
+              </div>
+            )}
+            {summary && summary.supported && summary.summary !== "" && (
+              <>
+                <div style={{ fontSize: "var(--text-xs)", fontWeight: "var(--weight-medium)", letterSpacing: "0.02em", textTransform: "uppercase", color: "var(--fg-muted)" }}>
+                  Summary
+                </div>
+                <p style={{ margin: 0, fontSize: "var(--text-sm)", lineHeight: 1.5, color: "var(--fg-default)" }}>
+                  {summary.summary}
+                </p>
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+                  Extracted from the document — a read-only suggestion, nothing invented.
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {(pii || piiError) && (
           <div

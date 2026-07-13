@@ -553,7 +553,7 @@ Cross-cutting invariants every flow honours:
 **Happy path.**
 
 1. **Semantic search** — a natural-language query returns documents a keyword search misses, reranked alongside Tantivy exact hits (never replacing them for compliance-critical retrieval).
-2. **Summary** — the AI panel offers a document/section summary; it's a read-only suggestion, clearly labelled **AI**.
+2. **Summary** — from a document's **Details** compliance panel, **Summarize** (`POST /api/files/{id}/summary`) returns a few-sentence, read-only excerpt of the most salient content, **in document order**. Purely extractive (nothing invented), read-only, and audited (`ai.summary`). Unsupported formats (pdf/xlsm) say so rather than erroring.
 3. **PII / entity detection** — from a document's **Details** compliance panel, **Scan for personal data** (`POST /api/files/{id}/pii`) flags suspected PII (email, payment card, US SSN, IP) as *suggestions*, each shown **masked** (`•••• 1111`) with a kind label. A human approves any resulting action (e.g. tagging). The scan is read-only and audited (`pii.scan`); the AI never redacts or edits. Unsupported formats (pdf/xlsm) say so rather than erroring.
 4. **Cross-document Q&A** — "which contract has the 30-day termination clause?" returns cited passages with document + version links.
 5. Every AI action is audited (`ai.query`, `ai.summary`, …). No AI action creates or changes a version.

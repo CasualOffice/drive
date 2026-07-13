@@ -520,6 +520,33 @@ function demoLuhn(digits: string): boolean {
   return sum % 10 === 0;
 }
 
+/** Minimal offline extractive summary over demo text — mirrors the server's
+ *  frequency-based summarizer closely enough for the demo surface. Returns the
+ *  top-scoring sentences in document order (verbatim excerpts, nothing made up). */
+function demoSummarize(text: string, max: number): string[] {
+  const sentences = text
+    .split(/[.!?\n]/)
+    .map((s) => s.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+  if (sentences.length <= max) return sentences;
+  const stop = new Set(["the", "and", "for", "are", "that", "this", "with", "from", "over"]);
+  const freq = new Map<string, number>();
+  const terms = (s: string) =>
+    s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !stop.has(t));
+  for (const s of sentences) for (const t of terms(s)) freq.set(t, (freq.get(t) ?? 0) + 1);
+  const scored = sentences.map((s, i) => {
+    const uniq = [...new Set(terms(s))];
+    const score = uniq.length ? uniq.reduce((a, t) => a + (freq.get(t) ?? 0), 0) / uniq.length : 0;
+    return { i, score };
+  });
+  scored.sort((a, b) => b.score - a.score || a.i - b.i);
+  return scored
+    .slice(0, max)
+    .map((x) => x.i)
+    .sort((a, b) => a - b)
+    .map((i) => sentences[i]);
+}
+
 /** Coarse content-type bucket for a demo file — mirrors the server's
  *  `kind` field on a content hit (document | spreadsheet | pdf | …). */
 function demoKind(file: FileDto): string {
@@ -1259,6 +1286,37 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
       metadata: `{"findings":${findings.length}}`,
     });
     return { supported: true, findings, counts } as unknown as T;
+  }
+
+  // Phase 5 summary. Mirrors `POST /api/files/{id}/summary`: an extractive
+  // summary of the demo doc text (pdf/xlsm → supported:false, like the server).
+  const summaryMatch = p.match(/^\/api\/files\/([^/]+)\/summary$/);
+  if (summaryMatch && method === "POST") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const fid = decodeURIComponent(summaryMatch[1]);
+    const file = state.files.find((f) => f.id === fid);
+    if (!file) throw makeError(404, "file not found");
+    const kind = demoKind(file);
+    if (kind === "pdf" || file.name.toLowerCase().endsWith(".xlsm")) {
+      return { supported: false, summary: "", sentences: [] } as unknown as T;
+    }
+    const n = Math.max(1, Math.min(10, Number(url.searchParams.get("sentences")) || 3));
+    const sentences = demoSummarize(demoDocText()[fid] ?? "", n);
+    emitDemo({
+      actor_id: "demo-user",
+      actor_username: state.username ?? "demo",
+      action: "ai.summary",
+      target_kind: "file",
+      target_id: fid,
+      target_name: file.name,
+      ip_address: null,
+      metadata: `{"sentences":${sentences.length}}`,
+    });
+    return {
+      supported: true,
+      summary: sentences.map((s) => `${s}.`).join(" "),
+      sentences,
+    } as unknown as T;
   }
 
   // SDK content endpoints — `GET /api/files/{id}/content` returns the

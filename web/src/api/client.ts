@@ -564,6 +564,27 @@ export async function scanFilePii(fileId: string): Promise<PiiScanResult> {
   });
 }
 
+// ─── Document summary (Phase 5 AI) ────────────────────────────────────
+// `POST /api/files/{id}/summary` condenses a document into a few sentences.
+// The offline summarizer is purely EXTRACTIVE — every sentence is a verbatim
+// excerpt, nothing invented. Read-only and audited.
+
+export interface SummaryResult {
+  /** False when the format has no text extractor yet (pdf/xlsm) — a no-op. */
+  supported: boolean;
+  /** The summary paragraph; empty when there's no extractable text. */
+  summary: string;
+  /** The chosen sentences, in document order. */
+  sentences: string[];
+}
+
+export async function summarizeFile(fileId: string, sentences?: number): Promise<SummaryResult> {
+  const q = sentences ? `?sentences=${sentences}` : "";
+  return request<SummaryResult>(`/api/files/${encodeURIComponent(fileId)}/summary${q}`, {
+    method: "POST",
+  });
+}
+
 // ─── Collab room brokering (P2.3) ─────────────────────────────────────
 // Per-document real-time co-editing. The app origin brokers a room on the
 // `collab` server (Yjs / Hocuspocus) and hands back a short-TTL editor

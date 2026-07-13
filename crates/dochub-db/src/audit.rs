@@ -75,6 +75,8 @@ pub mod action {
     pub const TOKEN_REVOKED: &str = "token.revoked";
     /// A document was scanned for PII (read-only; records what was flagged).
     pub const PII_SCAN: &str = "pii.scan";
+    /// A document summary was generated (read-only AI suggestion).
+    pub const AI_SUMMARY: &str = "ai.summary";
 }
 
 /// Outcome of [`AuditRepo::verify_audit_chain`].
