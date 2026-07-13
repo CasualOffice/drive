@@ -532,6 +532,38 @@ export async function verifyChain(fileId: string): Promise<VerifyResult> {
   return request<VerifyResult>(`/api/files/${encodeURIComponent(fileId)}/verify`);
 }
 
+// ─── Signed provenance (Phase 4) ──────────────────────────────────────
+// `GET /api/files/{id}/provenance` returns the file's hash chain as a manifest
+// signed with the workspace's Ed25519 key. A recipient verifies the signature
+// and re-walks the chain OFFLINE with `dochub verify-provenance`.
+
+export interface ProvenanceLink {
+  seq: number;
+  content_hash: string;
+  prev_hash: string | null;
+  created_at: string;
+  author_id: string;
+}
+
+export interface ProvenanceManifest {
+  file_id: string;
+  chain: ProvenanceLink[];
+  head: string | null;
+  generated_at: string;
+}
+
+export interface SignedProvenance {
+  manifest: ProvenanceManifest;
+  /** base64 detached Ed25519 signature over the manifest's canonical bytes. */
+  signature: string;
+  /** base64 32-byte Ed25519 public key that verifies the signature. */
+  public_key: string;
+}
+
+export async function getProvenance(fileId: string): Promise<SignedProvenance> {
+  return request<SignedProvenance>(`/api/files/${encodeURIComponent(fileId)}/provenance`);
+}
+
 // ─── PII scan (Phase 5 compliance) ────────────────────────────────────
 // `POST /api/files/{id}/pii` scans a document's current version for personal
 // data and returns the flagged spans, each MASKED — the raw value never

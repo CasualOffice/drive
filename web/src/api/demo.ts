@@ -1258,6 +1258,35 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     return { status: "intact" } as unknown as T;
   }
 
+  // Signed provenance manifest — mirrors `GET /api/files/{id}/provenance`. The
+  // chain is real-shaped (from demoVersions); the signature/public_key are
+  // placeholders (the demo holds no signing key), so the JSON downloads and
+  // reads like the real artifact but won't cryptographically verify.
+  const provenanceMatch = p.match(/^\/api\/files\/([^/]+)\/provenance$/);
+  if (provenanceMatch && method === "GET") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const fid = decodeURIComponent(provenanceMatch[1]);
+    const file = state.files.find((f) => f.id === fid);
+    if (!file) throw makeError(404, "file not found");
+    const chain = demoVersions(file).versions.map((v) => ({
+      seq: v.seq,
+      content_hash: v.content_hash,
+      prev_hash: v.prev_hash,
+      created_at: v.created_at,
+      author_id: "demo-user",
+    }));
+    return {
+      manifest: {
+        file_id: fid,
+        chain,
+        head: chain.length ? chain[chain.length - 1].content_hash : null,
+        generated_at: new Date(file.modified_at).toISOString(),
+      },
+      signature: "ZGVtby1zaWduYXR1cmU=",
+      public_key: "ZGVtby1wdWJsaWMta2V5",
+    } as unknown as T;
+  }
+
   // Phase 5 PII scan. Mirrors `POST /api/files/{id}/pii`: scans the demo doc
   // text for personal data and returns MASKED findings (never raw values).
   // pdf/xlsm report `supported:false` like the server (no text extractor).

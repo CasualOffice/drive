@@ -428,8 +428,8 @@ Cross-cutting invariants every flow honours:
 **Happy path.**
 
 1. A registrar selects a document version and **Issues** it: the server signs `(content_hash, file_id, version, issuer_id, issued_at)` with the workspace's Ed25519 provenance key. A provenance record is appended (immutable).
-2. The document shows a **Verified** badge with issuer, date, and the signed version. Downloading the provenance bundle yields the version bytes' hash, the signature, and the public key reference.
-3. A recipient runs **Verify** (in-app or with the offline verifier): the tool recomputes `content_hash`, checks the Ed25519 signature, and walks the chain. Green when all pass.
+2. The document's **Details** panel offers **Download provenance** (`GET /api/files/{id}/provenance`): a signed JSON manifest of the file's full hash chain — every version's `content_hash`/`prev_hash`, the head, the detached Ed25519 signature, and the public key.
+3. A recipient verifies it **offline** with `dochub verify-provenance <file>`: the tool checks the Ed25519 signature over the manifest's canonical bytes and re-walks the chain (each `prev_hash` links, head matches). Green when all pass — no server call.
 4. Optional: chain heads are periodically anchored (transparency-log-lite) for third-party-verifiable provenance.
 
 **Keyboard.** `Cmd-K` → "Verify document".

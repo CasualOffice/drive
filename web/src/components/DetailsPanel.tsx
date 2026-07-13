@@ -9,9 +9,17 @@
  * (encrypted · versioned · verified) and links out to that route.
  */
 import { useState } from "react";
-import { FileText, Link as LinkIcon, ScanSearch, ScrollText, ShieldCheck } from "lucide-react";
+import {
+  BadgeCheck,
+  FileText,
+  Link as LinkIcon,
+  ScanSearch,
+  ScrollText,
+  ShieldCheck,
+} from "lucide-react";
 
 import {
+  getProvenance,
   scanFilePii,
   summarizeFile,
   type FileDto,
@@ -81,6 +89,35 @@ export function DetailsPanel({ file, onCreateShare }: DetailsPanelProps) {
     }
   }
 
+  const [provBusy, setProvBusy] = useState(false);
+  const [provNote, setProvNote] = useState<string | null>(null);
+  const [provError, setProvError] = useState<string | null>(null);
+
+  async function downloadProvenance() {
+    setProvBusy(true);
+    setProvError(null);
+    setProvNote(null);
+    try {
+      const signed = await getProvenance(file.id);
+      const blob = new Blob([JSON.stringify(signed, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `provenance-${file.id}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setProvNote("Downloaded — verify offline with dochub verify-provenance.");
+    } catch (err) {
+      const e = err as ApiError;
+      const body = e.body as { error?: { message?: string } } | null;
+      setProvError(body?.error?.message ?? e.message ?? "Could not build the provenance manifest.");
+    } finally {
+      setProvBusy(false);
+    }
+  }
+
   return (
     <section
       data-testid="details-panel"
@@ -147,7 +184,26 @@ export function DetailsPanel({ file, onCreateShare }: DetailsPanelProps) {
             <FileText size={13} strokeWidth={1.6} aria-hidden />
             {summarizing ? "Summarizing…" : "Summarize"}
           </button>
+          <button
+            type="button"
+            onClick={downloadProvenance}
+            disabled={provBusy}
+            data-testid="provenance-button"
+            style={{ ...ghostAction, cursor: provBusy ? "default" : "pointer", opacity: provBusy ? 0.6 : 1 }}
+          >
+            <BadgeCheck size={13} strokeWidth={1.6} aria-hidden />
+            {provBusy ? "Preparing…" : "Download provenance"}
+          </button>
         </div>
+
+        {(provNote || provError) && (
+          <div
+            data-testid="provenance-note"
+            style={{ fontSize: "var(--text-xs)", color: provError ? "var(--status-danger-700, #b42318)" : "var(--fg-muted)" }}
+          >
+            {provError ?? provNote}
+          </div>
+        )}
 
         {(summary || summaryError) && (
           <div
