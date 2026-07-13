@@ -458,7 +458,9 @@ function demoDocText(): Record<string, string> {
       "retention policy keeps every committed version for seven years under a " +
       "legal-hold aware tombstone model. Launch checklist: finalize the " +
       "search UI, wire the audit export, and pass the security review before " +
-      "we announce on casualoffice.org.",
+      "we announce on casualoffice.org. Escalations route to " +
+      "privacy@example.com; the QA payment fixture 4111 1111 1111 1111 must be " +
+      "scrubbed from this doc before launch.",
     f_arch:
       "Architecture overview. A single Rust binary serves the SPA, the JSON " +
       "API, and the encrypted byte streams. Storage goes through the OpenDAL " +
@@ -473,6 +475,49 @@ function demoDocText(): Record<string, string> {
       "The onboarding checklist covers workspace creation, member invites, " +
       "and storage configuration for bring-your-own buckets.",
   };
+}
+
+/** Minimal offline PII scan over demo text — mirrors the server's detector
+ *  (email + Luhn-valid payment card) closely enough for the demo surface.
+ *  Returns MASKED findings only, exactly like the real endpoint. */
+function demoPiiScan(
+  text: string,
+): { kind: string; start: number; end: number; preview: string }[] {
+  const out: { kind: string; start: number; end: number; preview: string }[] = [];
+  const emailRe = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+  for (const m of text.matchAll(emailRe)) {
+    const v = m[0];
+    const tld = v.slice(v.lastIndexOf(".") + 1);
+    out.push({ kind: "email", start: m.index, end: m.index + v.length, preview: `${v[0]}•••@•••.${tld}` });
+  }
+  const cardRe = /\d(?:[ -]?\d){12,18}/g;
+  for (const m of text.matchAll(cardRe)) {
+    const digits = m[0].replace(/[ -]/g, "");
+    if (digits.length >= 13 && digits.length <= 19 && demoLuhn(digits)) {
+      out.push({
+        kind: "credit_card",
+        start: m.index,
+        end: m.index + m[0].length,
+        preview: `•••• ${digits.slice(-4)}`,
+      });
+    }
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+function demoLuhn(digits: string): boolean {
+  let sum = 0;
+  let dbl = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48;
+    if (dbl) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+    dbl = !dbl;
+  }
+  return sum % 10 === 0;
 }
 
 /** Coarse content-type bucket for a demo file — mirrors the server's
@@ -1184,6 +1229,36 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     const file = state.files.find((f) => f.id === fid);
     if (!file) throw makeError(404, "file not found");
     return { status: "intact" } as unknown as T;
+  }
+
+  // Phase 5 PII scan. Mirrors `POST /api/files/{id}/pii`: scans the demo doc
+  // text for personal data and returns MASKED findings (never raw values).
+  // pdf/xlsm report `supported:false` like the server (no text extractor).
+  const piiMatch = p.match(/^\/api\/files\/([^/]+)\/pii$/);
+  if (piiMatch && method === "POST") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const fid = decodeURIComponent(piiMatch[1]);
+    const file = state.files.find((f) => f.id === fid);
+    if (!file) throw makeError(404, "file not found");
+    const kind = demoKind(file);
+    if (kind === "pdf" || file.name.toLowerCase().endsWith(".xlsm")) {
+      return { supported: false, findings: [], counts: {} } as unknown as T;
+    }
+    const text = demoDocText()[fid] ?? "";
+    const findings = demoPiiScan(text);
+    const counts: Record<string, number> = {};
+    for (const f of findings) counts[f.kind] = (counts[f.kind] ?? 0) + 1;
+    emitDemo({
+      actor_id: "demo-user",
+      actor_username: state.username ?? "demo",
+      action: "pii.scan",
+      target_kind: "file",
+      target_id: fid,
+      target_name: file.name,
+      ip_address: null,
+      metadata: `{"findings":${findings.length}}`,
+    });
+    return { supported: true, findings, counts } as unknown as T;
   }
 
   // SDK content endpoints — `GET /api/files/{id}/content` returns the

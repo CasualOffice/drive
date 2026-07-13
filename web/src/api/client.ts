@@ -532,6 +532,38 @@ export async function verifyChain(fileId: string): Promise<VerifyResult> {
   return request<VerifyResult>(`/api/files/${encodeURIComponent(fileId)}/verify`);
 }
 
+// ─── PII scan (Phase 5 compliance) ────────────────────────────────────
+// `POST /api/files/{id}/pii` scans a document's current version for personal
+// data and returns the flagged spans, each MASKED — the raw value never
+// leaves the server. Read-only and audited; the surface renders suggestions
+// for a human to act on.
+
+/** A class of detected personal data — matches the server's `PiiKind`. */
+export type PiiKind = "email" | "credit_card" | "us_ssn" | "ip_address";
+
+export interface PiiFinding {
+  kind: PiiKind;
+  /** Byte offsets into the document's extracted text. */
+  start: number;
+  end: number;
+  /** Masked rendering of the value (e.g. `j•••@•••.com`) — never the value. */
+  preview: string;
+}
+
+export interface PiiScanResult {
+  /** False when the format has no text extractor yet (pdf/xlsm) — a no-op scan. */
+  supported: boolean;
+  findings: PiiFinding[];
+  /** Count per kind, e.g. `{ email: 2, credit_card: 1 }`. */
+  counts: Record<string, number>;
+}
+
+export async function scanFilePii(fileId: string): Promise<PiiScanResult> {
+  return request<PiiScanResult>(`/api/files/${encodeURIComponent(fileId)}/pii`, {
+    method: "POST",
+  });
+}
+
 // ─── Collab room brokering (P2.3) ─────────────────────────────────────
 // Per-document real-time co-editing. The app origin brokers a room on the
 // `collab` server (Yjs / Hocuspocus) and hands back a short-TTL editor

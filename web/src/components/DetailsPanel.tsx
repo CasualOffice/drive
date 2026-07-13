@@ -8,9 +8,10 @@
  * panel now renders a single glass compliance card that states the proof
  * (encrypted · versioned · verified) and links out to that route.
  */
-import { Link as LinkIcon, ScrollText, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { Link as LinkIcon, ScanSearch, ScrollText, ShieldCheck } from "lucide-react";
 
-import { type FileDto } from "../api/client.ts";
+import { scanFilePii, type FileDto, type PiiKind, type PiiScanResult, ApiError } from "../api/client.ts";
 
 export interface DetailsPanelProps {
   file: FileDto;
@@ -25,9 +26,34 @@ function openHistory(file: FileDto) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+const PII_LABELS: Record<PiiKind, string> = {
+  email: "Email address",
+  credit_card: "Payment card",
+  us_ssn: "US SSN",
+  ip_address: "IP address",
+};
+
 export function DetailsPanel({ file, onCreateShare }: DetailsPanelProps) {
   const version = Math.max(file.version, 1);
   const prior = Math.max(version - 1, 0);
+
+  const [pii, setPii] = useState<PiiScanResult | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [piiError, setPiiError] = useState<string | null>(null);
+
+  async function runPiiScan() {
+    setScanning(true);
+    setPiiError(null);
+    try {
+      setPii(await scanFilePii(file.id));
+    } catch (err) {
+      const e = err as ApiError;
+      const body = e.body as { error?: { message?: string } } | null;
+      setPiiError(body?.error?.message ?? e.message ?? "Could not scan this document.");
+    } finally {
+      setScanning(false);
+    }
+  }
 
   return (
     <section
@@ -75,7 +101,84 @@ export function DetailsPanel({ file, onCreateShare }: DetailsPanelProps) {
               Share
             </button>
           )}
+          <button
+            type="button"
+            onClick={runPiiScan}
+            disabled={scanning}
+            data-testid="pii-scan-button"
+            style={{ ...ghostAction, cursor: scanning ? "default" : "pointer", opacity: scanning ? 0.6 : 1 }}
+          >
+            <ScanSearch size={13} strokeWidth={1.6} aria-hidden />
+            {scanning ? "Scanning…" : "Scan for personal data"}
+          </button>
         </div>
+
+        {(pii || piiError) && (
+          <div
+            data-testid="pii-results"
+            style={{
+              marginTop: "var(--space-1)",
+              paddingTop: "var(--space-3)",
+              borderTop: "1px solid var(--border-hair)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-2)",
+            }}
+          >
+            {piiError && (
+              <div style={{ fontSize: "var(--text-sm)", color: "var(--status-danger-700, #b42318)" }}>
+                {piiError}
+              </div>
+            )}
+            {pii && !pii.supported && (
+              <div style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)" }}>
+                This document format can’t be scanned for personal data yet.
+              </div>
+            )}
+            {pii && pii.supported && pii.findings.length === 0 && (
+              <div style={{ fontSize: "var(--text-sm)", color: "var(--status-verified-700)" }}>
+                No personal data detected.
+              </div>
+            )}
+            {pii && pii.supported && pii.findings.length > 0 && (
+              <>
+                <div style={{ fontSize: "var(--text-sm)", fontWeight: "var(--weight-medium)", color: "var(--fg-default)" }}>
+                  {pii.findings.length === 1
+                    ? "1 item of personal data found"
+                    : `${pii.findings.length} items of personal data found`}
+                </div>
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {pii.findings.slice(0, 20).map((f, i) => (
+                    <li
+                      key={`${f.start}-${i}`}
+                      style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--text-xs)" }}
+                    >
+                      <span
+                        style={{
+                          flexShrink: 0,
+                          padding: "1px 6px",
+                          borderRadius: "var(--radius-sm)",
+                          background: "var(--bg-surface)",
+                          border: "1px solid var(--border-hair)",
+                          color: "var(--fg-muted)",
+                          fontWeight: "var(--weight-medium)",
+                        }}
+                      >
+                        {PII_LABELS[f.kind] ?? f.kind}
+                      </span>
+                      <span style={{ fontFamily: "var(--font-mono, monospace)", color: "var(--fg-default)" }}>
+                        {f.preview}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
+                  Values are masked — the document is never modified.
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );
