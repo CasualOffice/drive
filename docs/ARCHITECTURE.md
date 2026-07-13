@@ -104,8 +104,11 @@ TEXT ULID ids, ISO-8601 UTC timestamps, INTEGER 0/1 bools; no JSONB/enum/native-
 
 The binary refuses to start unless: a master key/KMS is configured; the two origins differ (in production); the DB migrates cleanly; storage backend is reachable. These are asserted in `dochub-bin` and covered by tests.
 
-## Health probes
+## Health + observability
 
-Two unauthenticated app-origin endpoints for orchestration:
+Unauthenticated app-origin endpoints for orchestration + monitoring:
 - `GET /healthz` — **liveness**. Unconditional `200`; the process is up. A transient dependency blip must not fail this (it would trigger a needless restart).
 - `GET /readyz` — **readiness**. `200` when the critical dependency (the database) is reachable (`SELECT 1`), else `503` with `{ "ready": false, "checks": { "db": "error" } }`. Orchestrators stop routing to a not-ready instance without killing it.
+- `GET /metrics` — **Prometheus** exposition: HTTP responses by status class, in-flight gauge, uptime. Fed by the access-log middleware, so it reflects real served traffic. Only non-sensitive aggregates; restrict by network policy if needed.
+
+Per-request detail is emitted by the `access_log` middleware (method, redacted path, status, latency, user, workspace, client IP, request id) — `DOCHUB_LOG_FORMAT=json` for a JSON line per request. Shutdown is graceful: on SIGTERM/SIGINT the server drains in-flight requests before exiting.

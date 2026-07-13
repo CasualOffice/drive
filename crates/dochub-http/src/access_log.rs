@@ -46,9 +46,11 @@ pub async fn access_log(req: Request, next: Next) -> Response {
         .get::<AuthSession>()
         .map(|s| s.user_id.clone());
 
+    crate::metrics::record_start();
     let resp = next.run(req).await;
 
     let status = resp.status();
+    crate::metrics::record_end(status.as_u16());
     let duration_us = start.elapsed().as_micros();
     let path_redacted = redact_query(uri.path(), uri.query());
     // Post-handler chance to pick up the user (handlers can set it

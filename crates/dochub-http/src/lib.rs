@@ -28,6 +28,7 @@ mod host_dispatch;
 mod invitations;
 mod mcp_http;
 mod members;
+mod metrics;
 mod notes;
 mod oidc;
 pub mod presence;
@@ -113,6 +114,21 @@ async fn readyz(State(s): State<HttpState>) -> impl IntoResponse {
     )
 }
 
+/// `GET /metrics` — Prometheus exposition of aggregate HTTP counters (by status
+/// class), the in-flight gauge, and uptime. Unauthenticated on the app origin,
+/// the Prometheus norm; only non-sensitive aggregates are exposed. Counters are
+/// fed by the [`access_log`] middleware, so they reflect real served traffic.
+async fn metrics_endpoint(State(s): State<HttpState>) -> impl IntoResponse {
+    let body = metrics::render(s.uptime_seconds());
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; version=0.0.4"),
+        )],
+        body,
+    )
+}
+
 #[derive(serde::Serialize)]
 struct Me {
     admin: String,
@@ -187,6 +203,7 @@ fn app_origin_router(state: HttpState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
+        .route("/metrics", get(metrics_endpoint))
         .route("/api/me", get(api_me))
         .route("/api/about", get(about::about))
         .route("/api/activity", get(activity::list_activity))
