@@ -29,6 +29,7 @@ pub mod embed;
 pub mod pii;
 pub mod remote;
 pub mod retrieve;
+pub mod summarize;
 
 pub use agent::{Agent, AgentConfig, AgentOutcome, DocumentReader, Retriever};
 pub use answer::{Answer, AnswerContext, Answerer, Citation, ExtractiveAnswerer};
@@ -37,6 +38,9 @@ pub use embed::{AiError, Embedder, Embedding, LocalEmbedder};
 pub use pii::{detect_all, PatternPiiDetector, PiiDetector, PiiFinding, PiiKind};
 pub use remote::{ChatMessage, ChatModel, Provider, RemoteAnswerer};
 pub use retrieve::{cosine, top_k, Scored};
+pub use summarize::{
+    summarize_extractive, ExtractiveSummarizer, Summarizer, Summary, SummaryConfig,
+};
 
 #[cfg(test)]
 mod tests {
