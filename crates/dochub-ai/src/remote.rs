@@ -1,11 +1,14 @@
-//! Hosted answerer — provider-agnostic LLM generation over the retrieved
-//! passages.
+//! Hosted LLM — provider-agnostic chat + answerer over the retrieved passages.
 //!
-//! The abstractive counterpart to [`crate::answer::ExtractiveAnswerer`]: instead
-//! of stitching sentences, it asks an LLM to write an answer grounded in the
-//! retrieved passages and cite them inline as `[n]`. It sits behind the same
-//! [`Answerer`] trait, so the RAG endpoint / MCP tool pick it purely by config —
-//! the offline extractive answerer stays the default and the air-gapped path.
+//! Two capabilities sit on one configurable transport:
+//! - [`ChatModel`] — a raw multi-turn chat (system/user/assistant turns → reply
+//!   text). This is what the [`crate::agent`] ReAct loop drives.
+//! - [`Answerer`] — the single-shot RAG counterpart to
+//!   [`crate::answer::ExtractiveAnswerer`]: it asks the model to write an answer
+//!   grounded in numbered passages and cite them inline as `[n]`.
+//!
+//! Both pick the provider purely by config; the offline extractive answerer
+//! stays the default and the air-gapped path.
 //!
 //! **Not tied to one vendor.** [`Provider`] covers the two dominant wire
 //! formats:
@@ -37,6 +40,61 @@ document hub. Answer the user's question using ONLY the numbered context \
 passages provided. Cite the passages you rely on inline as [n] (matching the \
 passage numbers). If the passages do not contain the answer, say you could not \
 find it in the documents. Be concise and do not invent facts.";
+
+/// A role in a chat exchange.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    System,
+    User,
+    Assistant,
+}
+
+impl Role {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
+/// One turn in a chat exchange.
+#[derive(Debug, Clone)]
+pub struct ChatMessage {
+    pub role: Role,
+    pub content: String,
+}
+
+impl ChatMessage {
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: Role::System,
+            content: content.into(),
+        }
+    }
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: Role::User,
+            content: content.into(),
+        }
+    }
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: Role::Assistant,
+            content: content.into(),
+        }
+    }
+}
+
+/// A provider-agnostic multi-turn chat model. The [`crate::agent`] loop drives
+/// this: it appends the model's replies and its own tool observations as turns
+/// and calls [`ChatModel::chat`] again until the model emits a final answer.
+#[async_trait]
+pub trait ChatModel: Send + Sync {
+    /// Send the conversation so far and return the model's next reply text.
+    async fn chat(&self, messages: &[ChatMessage]) -> Result<String, AiError>;
+}
 
 /// LLM wire format. `OpenAi` also covers local OpenAI-compatible servers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,7 +131,8 @@ impl Provider {
     }
 }
 
-/// Answerer backed by a configurable LLM provider.
+/// Hosted LLM client backed by a configurable provider. Implements both
+/// [`ChatModel`] (raw chat, for the agent) and [`Answerer`] (single-shot RAG).
 #[derive(Debug, Clone)]
 pub struct RemoteAnswerer {
     client: reqwest::Client,
@@ -118,6 +177,12 @@ impl RemoteAnswerer {
         self
     }
 
+    #[must_use]
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.max_tokens = max_tokens;
+        self
+    }
+
     /// Construct from the environment. Returns `None` when `DOCHUB_AI_PROVIDER`
     /// is unset/unknown (caller falls back to the offline answerer).
     ///
@@ -153,21 +218,13 @@ impl RemoteAnswerer {
             Provider::OpenAi => format!("{}/chat/completions", self.base_url),
         }
     }
-}
 
-#[async_trait]
-impl Answerer for RemoteAnswerer {
-    async fn answer(&self, question: &str, contexts: &[AnswerContext]) -> Result<Answer, AiError> {
-        if question.trim().is_empty() || contexts.is_empty() {
-            return Ok(Answer {
-                text: String::new(),
-                citations: Vec::new(),
-            });
-        }
-
+    /// Send a chat request and return the reply text. The single network path
+    /// shared by [`ChatModel::chat`] and [`Answerer::answer`].
+    async fn send_chat(&self, messages: &[ChatMessage]) -> Result<String, AiError> {
         let body = match self.provider {
-            Provider::Anthropic => anthropic_body(&self.model, self.max_tokens, question, contexts),
-            Provider::OpenAi => openai_body(&self.model, self.max_tokens, question, contexts),
+            Provider::Anthropic => anthropic_body(&self.model, self.max_tokens, messages),
+            Provider::OpenAi => openai_body(&self.model, self.max_tokens, messages),
         };
 
         let mut req = self.client.post(self.endpoint()).json(&body);
@@ -200,10 +257,38 @@ impl Answerer for RemoteAnswerer {
             )));
         }
 
-        let text = match self.provider {
+        Ok(match self.provider {
             Provider::Anthropic => anthropic_text(&json),
             Provider::OpenAi => openai_text(&json),
-        };
+        })
+    }
+}
+
+#[async_trait]
+impl ChatModel for RemoteAnswerer {
+    async fn chat(&self, messages: &[ChatMessage]) -> Result<String, AiError> {
+        if messages.is_empty() {
+            return Ok(String::new());
+        }
+        self.send_chat(messages).await
+    }
+}
+
+#[async_trait]
+impl Answerer for RemoteAnswerer {
+    async fn answer(&self, question: &str, contexts: &[AnswerContext]) -> Result<Answer, AiError> {
+        if question.trim().is_empty() || contexts.is_empty() {
+            return Ok(Answer {
+                text: String::new(),
+                citations: Vec::new(),
+            });
+        }
+
+        let messages = [
+            ChatMessage::system(SYSTEM_PROMPT),
+            ChatMessage::user(user_prompt(question, contexts)),
+        ];
+        let text = self.send_chat(&messages).await?;
         let citations = parse_citations(&text, contexts.len(), contexts);
         Ok(Answer { text, citations })
     }
@@ -213,7 +298,7 @@ fn env_nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.trim().is_empty())
 }
 
-/// The user turn shared by both providers: the question + numbered passages.
+/// The user turn for single-shot RAG: the question + numbered passages.
 fn user_prompt(question: &str, contexts: &[AnswerContext]) -> String {
     let mut passages = String::new();
     for (i, c) in contexts.iter().enumerate() {
@@ -224,30 +309,40 @@ fn user_prompt(question: &str, contexts: &[AnswerContext]) -> String {
     )
 }
 
-/// Anthropic Messages API request body. Pure — unit-tested.
-fn anthropic_body(
-    model: &str,
-    max_tokens: u32,
-    question: &str,
-    contexts: &[AnswerContext],
-) -> Value {
+/// Anthropic Messages API request body. Pure — unit-tested. Consecutive
+/// `system` turns are hoisted into the top-level `system` field; the rest map to
+/// `messages`.
+fn anthropic_body(model: &str, max_tokens: u32, messages: &[ChatMessage]) -> Value {
+    let system = messages
+        .iter()
+        .filter(|m| m.role == Role::System)
+        .map(|m| m.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let turns: Vec<Value> = messages
+        .iter()
+        .filter(|m| m.role != Role::System)
+        .map(|m| json!({ "role": m.role.as_str(), "content": m.content }))
+        .collect();
     json!({
         "model": model,
         "max_tokens": max_tokens,
-        "system": SYSTEM_PROMPT,
-        "messages": [ { "role": "user", "content": user_prompt(question, contexts) } ],
+        "system": system,
+        "messages": turns,
     })
 }
 
-/// OpenAI Chat Completions request body (also for local servers). Pure.
-fn openai_body(model: &str, max_tokens: u32, question: &str, contexts: &[AnswerContext]) -> Value {
+/// OpenAI Chat Completions request body (also for local servers). Pure —
+/// system turns stay inline as `system` messages.
+fn openai_body(model: &str, max_tokens: u32, messages: &[ChatMessage]) -> Value {
+    let turns: Vec<Value> = messages
+        .iter()
+        .map(|m| json!({ "role": m.role.as_str(), "content": m.content }))
+        .collect();
     json!({
         "model": model,
         "max_tokens": max_tokens,
-        "messages": [
-            { "role": "system", "content": SYSTEM_PROMPT },
-            { "role": "user", "content": user_prompt(question, contexts) },
-        ],
+        "messages": turns,
     })
 }
 
@@ -349,28 +444,37 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_body_has_system_and_numbered_passages() {
-        let c = vec![ctx("f1", "Finance", "Revenue is recognized on delivery.")];
-        let b = anthropic_body("claude-sonnet-5", 1024, "when?", &c);
+    fn anthropic_body_hoists_system_and_keeps_turns() {
+        let msgs = [
+            ChatMessage::system("be terse"),
+            ChatMessage::user("hi"),
+            ChatMessage::assistant("hello"),
+            ChatMessage::user("again"),
+        ];
+        let b = anthropic_body("claude-sonnet-5", 1024, &msgs);
         assert_eq!(b["model"], "claude-sonnet-5");
-        assert!(b["system"].as_str().unwrap().contains("ONLY"));
+        assert_eq!(b["system"], "be terse");
+        // System turn is not in `messages`; the other three are, in order.
+        assert_eq!(b["messages"].as_array().unwrap().len(), 3);
         assert_eq!(b["messages"][0]["role"], "user");
-        assert!(b["messages"][0]["content"]
-            .as_str()
-            .unwrap()
-            .contains("[1] Finance: Revenue is recognized on delivery."));
+        assert_eq!(b["messages"][1]["role"], "assistant");
+        assert_eq!(b["messages"][2]["content"], "again");
     }
 
     #[test]
-    fn openai_body_uses_system_and_user_messages() {
-        let c = vec![ctx("f1", "Finance", "Revenue on delivery.")];
-        let b = openai_body("gpt-4o-mini", 1024, "when?", &c);
+    fn openai_body_keeps_system_inline() {
+        let msgs = [ChatMessage::system("be terse"), ChatMessage::user("hi")];
+        let b = openai_body("gpt-4o-mini", 1024, &msgs);
         assert_eq!(b["messages"][0]["role"], "system");
         assert_eq!(b["messages"][1]["role"], "user");
-        assert!(b["messages"][1]["content"]
-            .as_str()
-            .unwrap()
-            .contains("[1]"));
+        assert_eq!(b["messages"][1]["content"], "hi");
+    }
+
+    #[test]
+    fn answer_user_prompt_numbers_passages() {
+        let c = vec![ctx("f1", "Finance", "Revenue is recognized on delivery.")];
+        let p = user_prompt("when?", &c);
+        assert!(p.contains("[1] Finance: Revenue is recognized on delivery."));
     }
 
     #[test]
@@ -403,5 +507,11 @@ mod tests {
         let a = RemoteAnswerer::new(Provider::OpenAi).with_api_key("k");
         assert!(a.answer("", &[]).await.unwrap().text.is_empty());
         assert!(a.answer("q", &[]).await.unwrap().citations.is_empty());
+    }
+
+    #[tokio::test]
+    async fn empty_messages_skip_network() {
+        let a = RemoteAnswerer::new(Provider::OpenAi).with_api_key("k");
+        assert!(a.chat(&[]).await.unwrap().is_empty());
     }
 }

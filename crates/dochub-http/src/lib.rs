@@ -11,6 +11,7 @@ mod about;
 mod access_log;
 mod activity;
 mod admin;
+mod agent_http;
 mod ai;
 mod ask;
 mod authz;
@@ -161,6 +162,7 @@ fn app_origin_router(state: HttpState) -> Router {
             get(semantic_search::semantic_search),
         )
         .route("/api/search/ask", post(ask::ask))
+        .route("/api/agent/ask", post(agent_http::agent_ask))
         .route("/api/mcp", post(mcp_http::mcp_endpoint))
         .with_state(state.clone())
         .merge(wopi_router)

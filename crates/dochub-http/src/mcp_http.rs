@@ -11,6 +11,8 @@
 //! Tools:
 //! - `semantic_search` — meaning-based retrieval; returns ranked passages.
 //! - `ask` — RAG question answering; returns a composed answer with citations.
+//! - `research` — agentic multi-step research (LLM-driven ReAct loop); the model
+//!   runs its own searches then answers. Needs a configured AI provider.
 //!
 //! Auth is the normal session ([`AuthSession`]); a bearer-token path for
 //! headless agents is a follow-up. Notifications (no `id`) get `204 No Content`.
@@ -60,9 +62,16 @@ pub(crate) async fn mcp_endpoint(
     .register(
         ask_tool(),
         Arc::new(RetrievalTool {
+            state: s.clone(),
+            user_id: session.user_id.clone(),
+            mode: Mode::Ask,
+        }),
+    )
+    .register(
+        research_tool(),
+        Arc::new(ResearchTool {
             state: s,
             user_id: session.user_id,
-            mode: Mode::Ask,
         }),
     );
 
@@ -97,6 +106,14 @@ fn ask_tool() -> Tool {
         "ask",
         "Answer a natural-language question from the workspace's documents, with citations to the sources used.",
         arg_schema("The question to answer."),
+    )
+}
+
+fn research_tool() -> Tool {
+    Tool::new(
+        "research",
+        "Agentic multi-step research: the assistant runs its own searches over the workspace's documents, refining queries as needed, then answers with citations. Use for questions that need more than one lookup. Requires a configured AI provider.",
+        arg_schema("The research question."),
     )
 }
 
@@ -204,6 +221,75 @@ async fn format_answer(q: &str, chunks: &[Chunk]) -> String {
                 let _ = write!(out, "\n- {}", file.name);
             }
         }
+    }
+    out
+}
+
+/// The agentic `research` tool: an LLM-driven ReAct loop that issues its own
+/// permission-scoped searches, bound to the caller. Degrades to a clear message
+/// when no AI provider is configured (the loop needs a real model).
+struct ResearchTool {
+    state: HttpState,
+    user_id: String,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for ResearchTool {
+    async fn call(&self, arguments: Value) -> Result<ToolOutput, ToolError> {
+        let q = arguments
+            .get("q")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("`q` (non-empty string) is required".into())
+            })?;
+        let workspace_arg = arguments.get("workspace").and_then(Value::as_str);
+
+        let Some(chat) = crate::ai::chat_model() else {
+            return Ok(ToolOutput::text(
+                "The `research` tool needs a configured AI provider (set DOCHUB_AI_PROVIDER). \
+                 Use `semantic_search` or `ask` instead."
+                    .to_string(),
+            ));
+        };
+
+        let workspace = resolve_active_workspace(&self.state.db, &self.user_id, workspace_arg)
+            .await
+            .map_err(|e| ToolError::Execution(format!("workspace: {e:?}")))?;
+
+        let retriever = crate::agent_http::ChunkRetriever::new(
+            self.state.clone(),
+            self.user_id.clone(),
+            workspace,
+        );
+        let outcome = dochub_ai::Agent::new(chat.as_ref(), &retriever)
+            .run(q)
+            .await
+            .map_err(|e| ToolError::Execution(format!("agent failed: {e}")))?;
+
+        Ok(ToolOutput::text(format_research(&outcome)))
+    }
+}
+
+/// Render an agent outcome: the answer, the sources it cited, and the queries it
+/// ran (so the caller can see the agent's work).
+fn format_research(outcome: &dochub_ai::AgentOutcome) -> String {
+    if outcome.answer.trim().is_empty() {
+        return "The agent could not compose an answer from the documents.".into();
+    }
+    let mut out = outcome.answer.clone();
+    if !outcome.citations.is_empty() {
+        out.push_str("\n\nSources:");
+        for c in &outcome.citations {
+            if let Some(ctx) = outcome.contexts.get(c.context_index) {
+                let _ = write!(out, "\n- {}", ctx.title);
+            }
+        }
+    }
+    if !outcome.searches.is_empty() {
+        out.push_str("\n\nSearches run: ");
+        out.push_str(&outcome.searches.join("; "));
     }
     out
 }
