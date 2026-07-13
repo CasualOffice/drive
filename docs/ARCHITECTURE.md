@@ -94,6 +94,7 @@ One `<Editor>` component hosts each format via its sibling SDK. Team documents c
 - **Semantic search + RAG:** embeddings + cosine top-k alongside Tantivy exact/full-text results, feeding a cited answer (`GET /api/search/semantic`, `POST /api/search/ask`). Offline, an extractive answerer stands in — no network, invents nothing.
 - **Agentic research:** `POST /api/agent/ask` drives a bounded ReAct loop — the model runs its own permission-scoped searches, refines, then answers with citations + a search trace. Needs a configured provider; reports `available:false` otherwise.
 - **MCP:** `POST /api/mcp` (JSON-RPC 2.0) exposes `semantic_search` / `ask` / `research` as tools, authed by session **or** a bearer PAT. Read-only; every tool call is permission-filtered and rate-limited.
+- **PII detection:** `dochub_ai::pii` flags personal data (email, payment card via Luhn, US SSN, IPv4) in extracted text behind a pluggable `PiiDetector`; the offline `PatternPiiDetector` is deterministic, dependency-free, and high-precision. Findings carry a **masked** preview only (never the raw value) plus a byte span, so a scan result is not itself a leak. Detection is read-only — it suggests, a human acts (HTTP surface is a follow-up).
 - **Provider:** pluggable via `DOCHUB_AI_PROVIDER` — Claude (Anthropic Messages API), ChatGPT, or a local OpenAI-compatible server for air-gapped installs. AI never mutates documents or history.
 
 ## API error envelope
