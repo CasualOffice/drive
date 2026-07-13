@@ -11,7 +11,7 @@ use axum::{
 };
 use dochub_auth::{hash_password, AuthState};
 use dochub_core::{Backend, Config};
-use dochub_db::{Db, NewUser, UserRepo};
+use dochub_db::{AuditChainStatus, AuditRepo, Db, NewUser, UserRepo};
 use dochub_http::{router, HttpState};
 use dochub_storage::Storage;
 use dochub_wopi::WopiState;
@@ -273,6 +273,59 @@ async fn token_management_requires_a_session() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn token_lifecycle_is_audited() {
+    let state = fixture().await;
+    let app = router(state.clone());
+    let cookie = sign_in(&app).await;
+
+    let (_, created) = create_token(&app, &cookie, json!({"name":"audited"})).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // Revoke it.
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/tokens/{id}"))
+                .header("host", APP)
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+
+    // `emit` is fire-and-forget (spawned), so poll the append-only log for both
+    // credential events to land.
+    let audit = AuditRepo::new(&state.db);
+    let mut created_seen = false;
+    let mut revoked_seen = false;
+    for _ in 0..100 {
+        let events = audit.list(None, 200).await.unwrap();
+        created_seen = events
+            .iter()
+            .any(|e| e.action == "token.created" && e.target_id.as_deref() == Some(id.as_str()));
+        revoked_seen = events
+            .iter()
+            .any(|e| e.action == "token.revoked" && e.target_id.as_deref() == Some(id.as_str()));
+        if created_seen && revoked_seen {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(created_seen, "token.created should be on the audit log");
+    assert!(revoked_seen, "token.revoked should be on the audit log");
+
+    // The hash chain stays intact after appending the credential events.
+    assert_eq!(
+        audit.verify_audit_chain().await.unwrap(),
+        AuditChainStatus::Intact
+    );
 }
 
 #[tokio::test]

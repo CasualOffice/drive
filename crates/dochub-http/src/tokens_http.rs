@@ -17,7 +17,7 @@ use axum::{
     Json, Router,
 };
 use dochub_auth::{generate_api_token, AuthSession};
-use dochub_db::{ApiTokenRepo, NewApiToken};
+use dochub_db::{action, ApiTokenRepo, AuditRepo, NewApiToken, NewAuditEvent};
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 
@@ -94,7 +94,7 @@ pub(crate) async fn create_token(
     let (plaintext, token_hash) = generate_api_token();
     let created = ApiTokenRepo::new(&s.db)
         .insert(&NewApiToken {
-            user_id: session.user_id,
+            user_id: session.user_id.clone(),
             name: name.to_string(),
             token_hash,
             expires_at,
@@ -104,6 +104,21 @@ pub(crate) async fn create_token(
             tracing::error!(error = %e, "create token failed");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+
+    // Credential issued — record it on the append-only audit chain.
+    AuditRepo::emit(
+        &s.db,
+        NewAuditEvent {
+            actor_id: Some(session.user_id),
+            actor_username: Some(session.username),
+            action: action::TOKEN_CREATED.into(),
+            target_kind: Some("api_token".into()),
+            target_id: Some(created.id.clone()),
+            target_name: Some(created.name.clone()),
+            ip_address: None,
+            metadata: Some(format!(r#"{{"expires":{}}}"#, created.expires_at.is_some())),
+        },
+    );
 
     Ok((
         StatusCode::CREATED,
@@ -161,6 +176,20 @@ pub(crate) async fn revoke_token(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
     if revoked {
+        // Credential revoked — record it on the append-only audit chain.
+        AuditRepo::emit(
+            &s.db,
+            NewAuditEvent {
+                actor_id: Some(session.user_id),
+                actor_username: Some(session.username),
+                action: action::TOKEN_REVOKED.into(),
+                target_kind: Some("api_token".into()),
+                target_id: Some(token_id),
+                target_name: None,
+                ip_address: None,
+                metadata: None,
+            },
+        );
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(StatusCode::NOT_FOUND)

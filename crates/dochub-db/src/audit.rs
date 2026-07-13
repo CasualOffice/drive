@@ -69,6 +69,10 @@ pub mod action {
     pub const HOLD_RELEASED: &str = "hold.released";
     /// A workspace retention policy was set (P1.2 compliance).
     pub const RETENTION_SET: &str = "retention.set";
+    /// A personal access token was issued.
+    pub const TOKEN_CREATED: &str = "token.created";
+    /// A personal access token was revoked.
+    pub const TOKEN_REVOKED: &str = "token.revoked";
 }
 
 /// Outcome of [`AuditRepo::verify_audit_chain`].
