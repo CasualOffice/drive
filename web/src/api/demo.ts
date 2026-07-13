@@ -44,8 +44,20 @@ interface DemoState {
   events: DemoEvent[];
   notes?: DemoNote[];
   noteLinks?: DemoNoteLink[];
+  apiTokens?: DemoApiToken[];
   nextId: number;
   username?: string;
+}
+
+interface DemoApiToken {
+  id: string;
+  name: string;
+  /** Plaintext, kept in demo memory only — never a real credential. */
+  token: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
 }
 
 interface DemoNote {
@@ -859,6 +871,60 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
       });
     }
     return { available: true, answer, citations, searches } as unknown as T;
+  }
+  // Personal access tokens (demo). The plaintext is kept in memory only and is
+  // never a real credential — the demo has no server to authenticate against.
+  if (p === "/api/tokens" && method === "GET") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const now = nowIso();
+    const list = (state.apiTokens ?? []).map((t) => ({
+      id: t.id,
+      name: t.name,
+      created_at: t.created_at,
+      expires_at: t.expires_at,
+      last_used_at: t.last_used_at,
+      revoked_at: t.revoked_at,
+      active: t.revoked_at === null && (t.expires_at === null || t.expires_at > now),
+    }));
+    return list as unknown as T;
+  }
+  if (p === "/api/tokens" && method === "POST") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const name = ((init.json as { name?: string })?.name ?? "").trim();
+    if (!name || name.length > 100) throw makeError(422, "name is required");
+    const days = (init.json as { expires_in_days?: number })?.expires_in_days;
+    if (days !== undefined && days <= 0) throw makeError(422, "invalid expiry");
+    const created_at = nowIso();
+    const expires_at =
+      typeof days === "number" ? new Date(Date.now() + days * 86_400_000).toISOString() : null;
+    const row: DemoApiToken = {
+      id: nextId("tok"),
+      name,
+      token: `dh_pat_demo_${nextId("k")}`,
+      created_at,
+      expires_at,
+      last_used_at: null,
+      revoked_at: null,
+    };
+    (state.apiTokens ??= []).push(row);
+    persist();
+    return {
+      id: row.id,
+      name: row.name,
+      token: row.token,
+      created_at,
+      expires_at,
+    } as unknown as T;
+  }
+  const tokenRevokeMatch = p.match(/^\/api\/tokens\/([^/]+)$/);
+  if (tokenRevokeMatch && method === "DELETE") {
+    if (!state.signedIn) throw makeError(401, "not signed in");
+    const id = decodeURIComponent(tokenRevokeMatch[1]);
+    const row = (state.apiTokens ?? []).find((t) => t.id === id && t.revoked_at === null);
+    if (!row) throw makeError(404, "not found");
+    row.revoked_at = nowIso();
+    persist();
+    return undefined as unknown as T;
   }
   // Workspaces — demo has Personal + one seeded Team workspace ("Demo")
   // with the demo user as Owner of both. Create/rename/transfer are

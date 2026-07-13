@@ -26,6 +26,7 @@ import { AccountSection } from "./settings/AccountSection.tsx";
 import { DisplaySection } from "./settings/DisplaySection.tsx";
 import { EncryptionSection } from "./settings/EncryptionSection.tsx";
 import { MembersSection } from "./settings/MembersSection.tsx";
+import { TokensSection } from "./settings/TokensSection.tsx";
 
 type GroupId = "personal" | "workspace" | "compliance";
 
@@ -325,16 +326,6 @@ function renderSection(def: SectionDef): React.ReactNode {
         />
       );
     case "tokens":
-      return (
-        <ComingSoon
-          title="Tokens & sessions"
-          description="Issue personal API tokens for scripts, sync clients, and CI, and review the sessions signed in to your account. Each token is scoped + revocable."
-          bullets={[
-            "Per-token scope (read / write / admin) + expiry",
-            "Per-device session list with per-device revoke",
-            "Audit log entry on every issue / revoke",
-          ]}
-        />
-      );
+      return <TokensSection />;
   }
 }

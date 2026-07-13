@@ -1137,6 +1137,54 @@ export async function researchQuestion(
   });
 }
 
+// ─── Personal access tokens ───────────────────────────────────────────
+// Bearer credentials for headless agents to reach the MCP endpoint without a
+// browser session. The plaintext is returned once, on create; the server stores
+// only its hash. Management is session-authed (this SPA).
+
+export interface TokenInfo {
+  id: string;
+  name: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  /** True when neither revoked nor past expiry. */
+  active: boolean;
+}
+
+export interface CreatedToken {
+  id: string;
+  name: string;
+  /** Plaintext token — shown once, never recoverable. */
+  token: string;
+  created_at: string;
+  expires_at: string | null;
+}
+
+/** `GET /api/tokens` — the caller's tokens (metadata only, no secrets). */
+export async function listTokens(): Promise<TokenInfo[]> {
+  return request<TokenInfo[]>("/api/tokens");
+}
+
+/** `POST /api/tokens` — mint a token; the response carries the plaintext once. */
+export async function createToken(
+  name: string,
+  expiresInDays?: number,
+): Promise<CreatedToken> {
+  return request<CreatedToken>("/api/tokens", {
+    method: "POST",
+    json: { name, expires_in_days: expiresInDays },
+  });
+}
+
+/** `DELETE /api/tokens/{id}` — revoke a token (tombstone). */
+export async function revokeToken(id: string): Promise<void> {
+  await request<void>(`/api/tokens/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 // ─── Global search ────────────────────────────────────────────────────
 
 /** Lightweight shape used by the Cmd-K palette + back-compat callers. */
