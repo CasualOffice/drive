@@ -22,10 +22,12 @@ mod state;
 mod token;
 
 pub use error::AuthError;
-pub use extractor::{AuthSession, OptionalAuthSession};
+pub use extractor::{AuthIdentity, AuthSession, AuthVia, OptionalAuthSession};
 pub use handlers::build_session_cookie;
 pub use oidc::{OidcClaims, OidcError};
 pub use password::{hash_password, verify_password, OWASP_PARAMS};
 pub use router::router;
 pub use state::AuthState;
-pub use token::{generate_csrf_token, generate_session_id};
+pub use token::{
+    generate_api_token, generate_csrf_token, generate_session_id, hash_api_token, API_TOKEN_PREFIX,
+};

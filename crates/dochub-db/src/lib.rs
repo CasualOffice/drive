@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod acl;
+mod api_tokens;
 mod audit;
 mod embeddings;
 mod error;
@@ -35,6 +36,7 @@ mod workspace_storage;
 mod workspaces;
 
 pub use acl::{resource_kind, subject_kind, AclGrant, AclRepo, NewAclGrant};
+pub use api_tokens::{ApiToken, ApiTokenRepo, NewApiToken};
 pub use audit::{action, AuditChainStatus, AuditEvent, AuditRepo, NewAuditEvent};
 pub use embeddings::{EmbeddingRepo, NewEmbedding, StoredEmbedding};
 pub use error::DbError;

@@ -2,9 +2,9 @@
 //! comes online when CI gains a Postgres service.
 
 use dochub_db::{
-    Db, DbError, EmbeddingRepo, FileRepo, FolderRepo, JobsRepo, NewEmbedding, NewFile, NewFolder,
-    NewJob, NewSession, NewTag, NewUser, ProvenanceKeysRepo, SessionRepo, TagRepo, UserRepo,
-    WorkspaceDeks, WorkspaceKeysRepo, WorkspaceKind, WorkspaceRepo,
+    ApiTokenRepo, Db, DbError, EmbeddingRepo, FileRepo, FolderRepo, JobsRepo, NewApiToken,
+    NewEmbedding, NewFile, NewFolder, NewJob, NewSession, NewTag, NewUser, ProvenanceKeysRepo,
+    SessionRepo, TagRepo, UserRepo, WorkspaceDeks, WorkspaceKeysRepo, WorkspaceKind, WorkspaceRepo,
 };
 
 async fn fresh_db() -> Db {
@@ -948,4 +948,122 @@ async fn embeddings_reject_dim_mismatch_and_scope_by_workspace() {
         repo.list_for_workspace("wsA").await.unwrap()[0].file_id,
         "fa"
     );
+}
+
+async fn a_user(db: &Db) -> String {
+    UserRepo::new(db)
+        .insert(&NewUser {
+            username: "tokuser".into(),
+            password_hash: "$argon2id$dummy".into(),
+            is_admin: false,
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+#[tokio::test]
+async fn api_token_insert_find_active_and_touch() {
+    let db = fresh_db().await;
+    let user = a_user(&db).await;
+    let repo = ApiTokenRepo::new(&db);
+    let now = time::OffsetDateTime::now_utc();
+
+    let created = repo
+        .insert(&NewApiToken {
+            user_id: user.clone(),
+            name: "laptop".into(),
+            token_hash: "hash-abc".into(),
+            expires_at: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(created.name, "laptop");
+    assert!(created.last_used_at.is_none());
+
+    // Active lookup by hash resolves to the owning user.
+    let found = repo.find_active_by_hash("hash-abc", now).await.unwrap();
+    let found = found.expect("active token");
+    assert_eq!(found.user_id, user);
+    assert_eq!(found.id, created.id);
+
+    // Unknown hash → None.
+    assert!(repo
+        .find_active_by_hash("nope", now)
+        .await
+        .unwrap()
+        .is_none());
+
+    // Usage stamp lands.
+    repo.touch_last_used(&created.id, now).await.unwrap();
+    let listed = repo.list_for_user(&user).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].last_used_at.is_some());
+    assert!(listed[0].is_active(now));
+}
+
+#[tokio::test]
+async fn api_token_expiry_and_revocation_deactivate() {
+    let db = fresh_db().await;
+    let user = a_user(&db).await;
+    let repo = ApiTokenRepo::new(&db);
+    let now = time::OffsetDateTime::now_utc();
+
+    // An already-expired token never resolves as active.
+    repo.insert(&NewApiToken {
+        user_id: user.clone(),
+        name: "expired".into(),
+        token_hash: "hash-exp".into(),
+        expires_at: Some(now - time::Duration::hours(1)),
+    })
+    .await
+    .unwrap();
+    assert!(repo
+        .find_active_by_hash("hash-exp", now)
+        .await
+        .unwrap()
+        .is_none());
+
+    // A revoked token stops resolving, and re-revoking is a no-op.
+    let live = repo
+        .insert(&NewApiToken {
+            user_id: user.clone(),
+            name: "live".into(),
+            token_hash: "hash-live".into(),
+            expires_at: None,
+        })
+        .await
+        .unwrap();
+    assert!(repo
+        .find_active_by_hash("hash-live", now)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(repo.revoke(&live.id, &user).await.unwrap());
+    assert!(repo
+        .find_active_by_hash("hash-live", now)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(!repo.revoke(&live.id, &user).await.unwrap());
+
+    // One user can't revoke another's token.
+    let other = repo
+        .insert(&NewApiToken {
+            user_id: user.clone(),
+            name: "other".into(),
+            token_hash: "hash-other".into(),
+            expires_at: None,
+        })
+        .await
+        .unwrap();
+    assert!(!repo.revoke(&other.id, "someone-else").await.unwrap());
+    assert!(repo
+        .find_active_by_hash("hash-other", now)
+        .await
+        .unwrap()
+        .is_some());
+
+    // List shows all three (including revoked/expired), newest first.
+    assert_eq!(repo.list_for_user(&user).await.unwrap().len(), 3);
 }

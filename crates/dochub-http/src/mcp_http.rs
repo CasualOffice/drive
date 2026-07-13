@@ -14,8 +14,11 @@
 //! - `research` — agentic multi-step research (LLM-driven ReAct loop); the model
 //!   runs its own searches then answers. Needs a configured AI provider.
 //!
-//! Auth is the normal session ([`AuthSession`]); a bearer-token path for
-//! headless agents is a follow-up. Notifications (no `id`) get `204 No Content`.
+//! Auth accepts **either** a browser session **or** a personal access token via
+//! `Authorization: Bearer <token>` ([`AuthIdentity`]) — so a headless agent can
+//! reach the tools with a PAT (minted at `/api/tokens`) while the SPA keeps
+//! using its cookie. Either way the caller resolves to a user, and every tool
+//! is bound to that user's permissions. Notifications (no `id`) get `204`.
 
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -27,7 +30,7 @@ use axum::{
     Json,
 };
 use dochub_ai::AnswerContext;
-use dochub_auth::AuthSession;
+use dochub_auth::AuthIdentity;
 use dochub_mcp::{JsonRpcRequest, McpServer, ServerInfo, Tool, ToolError, ToolHandler, ToolOutput};
 use serde_json::{json, Value};
 
@@ -44,7 +47,7 @@ const MCP_MAX_CHUNKS: usize = 8;
 /// response (or `204` for a notification).
 pub(crate) async fn mcp_endpoint(
     State(s): State<HttpState>,
-    session: AuthSession,
+    identity: AuthIdentity,
     Json(req): Json<JsonRpcRequest>,
 ) -> Response {
     let server = McpServer::new(ServerInfo {
@@ -55,7 +58,7 @@ pub(crate) async fn mcp_endpoint(
         semantic_search_tool(),
         Arc::new(RetrievalTool {
             state: s.clone(),
-            user_id: session.user_id.clone(),
+            user_id: identity.user_id.clone(),
             mode: Mode::Search,
         }),
     )
@@ -63,7 +66,7 @@ pub(crate) async fn mcp_endpoint(
         ask_tool(),
         Arc::new(RetrievalTool {
             state: s.clone(),
-            user_id: session.user_id.clone(),
+            user_id: identity.user_id.clone(),
             mode: Mode::Ask,
         }),
     )
@@ -71,7 +74,7 @@ pub(crate) async fn mcp_endpoint(
         research_tool(),
         Arc::new(ResearchTool {
             state: s,
-            user_id: session.user_id,
+            user_id: identity.user_id,
         }),
     );
 

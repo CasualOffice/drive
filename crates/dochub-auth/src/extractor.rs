@@ -5,9 +5,9 @@ use axum::{
     extract::{FromRef, FromRequestParts},
     http::{header, request::Parts},
 };
-use dochub_db::{SessionRepo, UserRepo};
+use dochub_db::{ApiTokenRepo, SessionRepo, UserRepo};
 
-use crate::{handlers::cookie_name, state::AuthState, AuthError};
+use crate::{handlers::cookie_name, state::AuthState, token::hash_api_token, AuthError};
 
 /// A validated, currently-authenticated session.
 #[derive(Debug, Clone)]
@@ -73,6 +73,88 @@ where
             AuthSession::from_request_parts(parts, state).await.ok(),
         ))
     }
+}
+
+/// How a request authenticated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthVia {
+    /// Browser session cookie.
+    Session,
+    /// Bearer personal access token (headless agent).
+    ApiToken,
+}
+
+/// A validated principal from *either* a session cookie or a bearer API token.
+///
+/// Endpoints that headless agents must reach (the MCP endpoint) take this
+/// instead of [`AuthSession`], so an agent can present
+/// `Authorization: Bearer <token>` while a browser keeps using its cookie. A
+/// present-but-invalid bearer is rejected outright (no silent cookie fallback),
+/// so a bad token never masquerades as an anonymous request.
+#[derive(Debug, Clone)]
+pub struct AuthIdentity {
+    pub user_id: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub via: AuthVia,
+}
+
+impl<S> FromRequestParts<S> for AuthIdentity
+where
+    AuthState: axum::extract::FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = AuthError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        // A bearer token, when present, is authoritative — don't fall back to
+        // the cookie if it fails to validate.
+        if let Some(token) = bearer_token(&parts.headers) {
+            let auth_state = AuthState::from_ref(state);
+            let now = time::OffsetDateTime::now_utc();
+            let tokens = ApiTokenRepo::new(&auth_state.db);
+            let active = tokens
+                .find_active_by_hash(&hash_api_token(&token), now)
+                .await
+                .map_err(|_| AuthError::Unauthenticated)?
+                .ok_or(AuthError::Unauthenticated)?;
+
+            let user = UserRepo::new(&auth_state.db)
+                .find_by_id(&active.user_id)
+                .await
+                .map_err(|_| AuthError::Unauthenticated)?;
+
+            // Best-effort usage stamp; never fail the request on a write error.
+            let _ = tokens.touch_last_used(&active.id, now).await;
+
+            return Ok(Self {
+                user_id: user.id,
+                username: user.username,
+                is_admin: user.is_admin,
+                via: AuthVia::ApiToken,
+            });
+        }
+
+        // No bearer — require a valid session cookie.
+        let session = AuthSession::from_request_parts(parts, state).await?;
+        Ok(Self {
+            user_id: session.user_id,
+            username: session.username,
+            is_admin: session.is_admin,
+            via: AuthVia::Session,
+        })
+    }
+}
+
+/// Pull a bearer token from the `Authorization` header (`Bearer <token>`,
+/// scheme case-insensitive). `None` when absent or empty.
+fn bearer_token(headers: &axum::http::HeaderMap) -> Option<String> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let rest = value
+        .strip_prefix("Bearer ")
+        .or_else(|| value.strip_prefix("bearer "))?;
+    let token = rest.trim();
+    (!token.is_empty()).then(|| token.to_string())
 }
 
 fn extract_session_id(headers: &axum::http::HeaderMap, secure: bool) -> Option<String> {

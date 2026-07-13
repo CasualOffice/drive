@@ -66,8 +66,10 @@ file_versions(file_id, seq, storage_key, size, content_hash, prev_hash, author_i
 | Editor access token | per-launch, per-document editor auth `(user_id, file_id, perms, exp, jti)`, HMAC | short TTL |
 | Share-link token | one per share row, constant-time compared | until expiry/revoke |
 | Signed-URL token | fs/mem `/raw/{token}`, HMAC over `(key, exp, method)` | short TTL |
+| API token (PAT) | headless-agent bearer for `/api/mcp` (`Authorization: Bearer dh_pat_…`); minted at `/api/tokens`, SHA-256 hashed at rest, shown once | per-token (optional expiry), revocable |
 
-Never reuse one token for another's job.
+Never reuse one token for another's job. API tokens are managed session-only
+(a PAT can't mint more PATs) and revocation is a tombstone, never a delete.
 
 ## Embedded editing
 
