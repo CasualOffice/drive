@@ -51,7 +51,8 @@ import { EntryContextMenu, EntryKebab, type Entry as MenuEntry, type EntryMenuHa
 import { inferKind, type FileKind } from "../components/FileThumb.tsx";
 import { FileViewingDot } from "../components/FileViewingDot.tsx";
 import { NoResultsRecovery } from "../components/NoResultsRecovery.tsx";
-import { AskPanel } from "../components/AskPanel.tsx";
+import { AskPanel, isQuestionLike } from "../components/AskPanel.tsx";
+import { ResearchPanel } from "../components/ResearchPanel.tsx";
 import { SearchSnippet } from "../components/SearchSnippet.tsx";
 import { PreviewModal } from "../components/PreviewModal.tsx";
 import { RenameDialog } from "../components/RenameDialog.tsx";
@@ -1168,6 +1169,18 @@ export function Files({
             like a question. Renders nothing otherwise. */}
         {inSearchMode && (
           <AskPanel
+            query={query.trim()}
+            onOpenFile={(id) => {
+              window.dispatchEvent(
+                new CustomEvent<string>("cd:open-file", { detail: id }),
+              );
+            }}
+          />
+        )}
+        {/* Agentic research — a deliberate, multi-step escalation of the ask,
+            offered for the same question-like queries. Renders its own trigger. */}
+        {inSearchMode && isQuestionLike(query.trim()) && (
+          <ResearchPanel
             query={query.trim()}
             onOpenFile={(id) => {
               window.dispatchEvent(

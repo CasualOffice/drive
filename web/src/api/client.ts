@@ -1099,6 +1099,44 @@ export async function askQuestion(
   });
 }
 
+// ─── Agentic research (agent loop) ────────────────────────────────────
+// Deeper than `ask`: the configured LLM runs its own multi-step searches,
+// refining queries, then answers with citations. `searches` exposes the queries
+// it ran — a transparent trace of its reasoning. Needs a configured AI provider;
+// `available:false` means none is set (the caller shows a hint, not an error).
+
+export interface AgentCitation {
+  file_id: string;
+  title: string;
+  kind: string;
+  /** The cited passage text. */
+  snippet: string;
+}
+
+export interface AgentAskResponse {
+  /** False when no AI provider is configured; `answer` is then empty. */
+  available: boolean;
+  /** The agent's composed answer. */
+  answer: string;
+  /** Sources supporting the answer, in first-use order. */
+  citations: AgentCitation[];
+  /** The queries the agent issued, in order — its reasoning trace. */
+  searches: string[];
+}
+
+/** `POST /api/agent/ask` — agentic, multi-step research with citations and a
+ *  search trace. Cancelable via `signal`. */
+export async function researchQuestion(
+  question: string,
+  opts: { workspace?: string | null; signal?: AbortSignal } = {},
+): Promise<AgentAskResponse> {
+  return request<AgentAskResponse>("/api/agent/ask", {
+    method: "POST",
+    json: { q: question, workspace: opts.workspace ?? undefined },
+    signal: opts.signal,
+  });
+}
+
 // ─── Global search ────────────────────────────────────────────────────
 
 /** Lightweight shape used by the Cmd-K palette + back-compat callers. */
