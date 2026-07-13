@@ -127,7 +127,7 @@ impl<'a> EmbeddingRepo<'a> {
             "SELECT id, file_id, workspace_id, chunk_index, content_hash, dims, \
              vector, chunk_text, char_start, char_end \
              FROM embeddings WHERE workspace_id = ? \
-             ORDER BY created_at ASC, id ASC",
+             ORDER BY file_id ASC, chunk_index ASC",
         ))
         .bind(workspace_id)
         .fetch_all(self.db.pool())
