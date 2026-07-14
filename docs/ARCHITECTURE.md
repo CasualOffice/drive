@@ -120,7 +120,7 @@ The binary refuses to start unless: a master key/KMS is configured; the two orig
 
 Unauthenticated app-origin endpoints for orchestration + monitoring:
 - `GET /healthz` — **liveness**. Unconditional `200`; the process is up. A transient dependency blip must not fail this (it would trigger a needless restart).
-- `GET /readyz` — **readiness**. `200` when the critical dependency (the database) is reachable (`SELECT 1`), else `503` with `{ "ready": false, "checks": { "db": "error" } }`. Orchestrators stop routing to a not-ready instance without killing it.
+- `GET /readyz` — **readiness**. `200` when both critical dependencies are reachable — the database (`SELECT 1`) and the object store (a read-only sentinel `stat`, never a write) — else `503` with per-dependency status, e.g. `{ "ready": false, "checks": { "db": "ok", "storage": "error" } }`. Orchestrators stop routing to a not-ready instance without killing it.
 - `GET /metrics` — **Prometheus** exposition: HTTP responses by status class, in-flight gauge, uptime. Fed by the access-log middleware, so it reflects real served traffic. Only non-sensitive aggregates; restrict by network policy if needed.
 
 Per-request detail is emitted by the `access_log` middleware (method, redacted path, status, latency, user, workspace, client IP, request id) — `DOCHUB_LOG_FORMAT=json` for a JSON line per request. Shutdown is graceful: on SIGTERM/SIGINT the server drains in-flight requests before exiting.

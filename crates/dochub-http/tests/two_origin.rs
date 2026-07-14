@@ -118,6 +118,8 @@ async fn readyz_reports_ready_when_db_is_reachable() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["ready"], true);
     assert_eq!(json["checks"]["db"], "ok");
+    // Readiness also probes the object store (read-only reachability check).
+    assert_eq!(json["checks"]["storage"], "ok");
 }
 
 #[tokio::test]

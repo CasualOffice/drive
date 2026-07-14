@@ -100,6 +100,11 @@ impl std::fmt::Debug for Storage {
     }
 }
 
+/// Fixed sentinel key for [`Storage::check`]. ULID-shaped (26 chars, Crockford
+/// base32) so it's a well-formed storage key on every backend; it is never
+/// written, so a stat always returns `NotFound` on a healthy backend.
+const HEALTH_PROBE_KEY: &str = "00000000000000HEALTHZPROBE";
+
 impl Storage {
     pub fn new(op: opendal::Operator, sign_key: [u8; 32]) -> Self {
         Self {
@@ -208,6 +213,20 @@ impl Storage {
                 }),
             content_type: m.content_type().map(str::to_string),
         })
+    }
+
+    /// Read-only reachability probe for readiness checks. Stats a fixed sentinel
+    /// key: a `NotFound` proves the backend answered (reachable, credentials
+    /// valid) — the object simply doesn't exist — while a transport/auth error
+    /// means the backend can't serve traffic. Never writes and touches no real
+    /// object. Bypasses [`validate_key`] deliberately: this is our own constant
+    /// probe, not user input.
+    pub async fn check(&self) -> Result<(), StorageError> {
+        match self.op.stat(HEALTH_PROBE_KEY).await {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(StorageError::Backend(e)),
+        }
     }
 
     pub async fn delete(&self, key: &str) -> Result<(), StorageError> {

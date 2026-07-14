@@ -99,10 +99,16 @@ struct Readiness {
 /// an orchestrator stops routing to an instance that can't reach its DB without
 /// killing it (that's [`healthz`]'s job). Unauthenticated, like `healthz`.
 async fn readyz(State(s): State<HttpState>) -> impl IntoResponse {
+    // Both critical dependencies must be reachable to serve real traffic: the
+    // metadata DB and the object store (a read-only probe — never writes).
     let db_ok = s.db.ping().await.is_ok();
+    let storage_ok = s.storage.check().await.is_ok();
+    let ready = db_ok && storage_ok;
+
     let mut checks = std::collections::BTreeMap::new();
     checks.insert("db", if db_ok { "ok" } else { "error" });
-    let status = if db_ok {
+    checks.insert("storage", if storage_ok { "ok" } else { "error" });
+    let status = if ready {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
@@ -110,7 +116,7 @@ async fn readyz(State(s): State<HttpState>) -> impl IntoResponse {
     (
         status,
         axum::Json(Readiness {
-            ready: db_ok,
+            ready,
             checks,
             backend: format!("{:?}", s.config.backend),
         }),

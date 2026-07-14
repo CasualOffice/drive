@@ -50,6 +50,16 @@ async fn stat_then_delete(b: Backend) {
     ));
 }
 
+async fn check_reports_reachable(b: Backend) {
+    let s = make(&b);
+    // A fresh, empty backend is reachable: the sentinel probe stats a key that
+    // doesn't exist, which the check treats as healthy (not an error).
+    s.check().await.unwrap();
+    // Still healthy after real objects exist.
+    s.put("x", Bytes::from_static(b"y"), None).await.unwrap();
+    s.check().await.unwrap();
+}
+
 async fn copy_then_rename(b: Backend) {
     let s = make(&b);
     s.put("src.txt", Bytes::from_static(b"hi"), None)
@@ -162,4 +172,12 @@ async fn fs_invalid_keys() {
 #[tokio::test]
 async fn mem_invalid_keys() {
     invalid_keys_rejected(Backend::Memory).await;
+}
+#[tokio::test]
+async fn fs_check() {
+    check_reports_reachable(fs()).await;
+}
+#[tokio::test]
+async fn mem_check() {
+    check_reports_reachable(Backend::Memory).await;
 }
