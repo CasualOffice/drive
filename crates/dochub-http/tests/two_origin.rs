@@ -229,6 +229,10 @@ async fn raw_on_usercontent_returns_bytes_and_security_headers() {
         r.headers().get("cross-origin-resource-policy").unwrap(),
         "same-site"
     );
+    assert_eq!(
+        r.headers().get("cross-origin-opener-policy").unwrap(),
+        "same-origin"
+    );
     let cd = r
         .headers()
         .get("content-disposition")

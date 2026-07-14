@@ -26,4 +26,5 @@ pub const H_XCTO: HeaderName = HeaderName::from_static("x-content-type-options")
 pub const H_REF: HeaderName = HeaderName::from_static("referrer-policy");
 pub const H_PP: HeaderName = HeaderName::from_static("permissions-policy");
 pub const H_CORP: HeaderName = HeaderName::from_static("cross-origin-resource-policy");
+pub const H_COOP: HeaderName = HeaderName::from_static("cross-origin-opener-policy");
 pub const H_HSTS: HeaderName = HeaderName::from_static("strict-transport-security");

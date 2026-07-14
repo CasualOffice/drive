@@ -85,6 +85,14 @@ pub(crate) async fn raw_get(
         crate::headers::H_CORP,
         HeaderValue::from_static("same-site"),
     );
+    // COOP severs any window.opener relationship with the isolated content
+    // origin, so a share-link tab can't reach back into an opener context
+    // (docs/research/06-security.md §12.3). Belt-and-braces alongside the
+    // `sandbox` CSP and CORP.
+    h.insert(
+        crate::headers::H_COOP,
+        HeaderValue::from_static("same-origin"),
+    );
     Ok(r)
 }
 
