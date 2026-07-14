@@ -40,10 +40,22 @@ type LoadState =
   | { kind: "error"; message: string };
 
 export function InviteAccept({ token }: Props) {
-  const { refresh: refreshAuth } = useAuth();
+  const { status, refresh: refreshAuth } = useAuth();
   const setActive = useWorkspaceMutator();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [accepting, setAccepting] = useState(false);
+
+  // Send an anonymous visitor to sign-in, remembering the invite URL so we can
+  // bounce them back here to accept once they're authenticated.
+  function goSignIn() {
+    try {
+      sessionStorage.setItem("returnTo", window.location.pathname + window.location.search);
+    } catch {
+      /* private mode — sign-in still works, we just land on the app root */
+    }
+    window.history.pushState({}, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
 
   // Fetch the peek payload — anonymous-safe so we can run this
   // before knowing the visitor's auth state.
@@ -283,15 +295,27 @@ export function InviteAccept({ token }: Props) {
               >
                 Not now
               </button>
-              <button
-                type="button"
-                className="cd-dialog-btn cd-dialog-btn--primary"
-                onClick={onJoin}
-                disabled={accepting}
-              >
-                <UserPlus size={13} strokeWidth={1.8} />
-                &nbsp;{accepting ? "Joining…" : "Join workspace"}
-              </button>
+              {status.kind === "authed" ? (
+                <button
+                  type="button"
+                  className="cd-dialog-btn cd-dialog-btn--primary"
+                  onClick={onJoin}
+                  disabled={accepting}
+                >
+                  <UserPlus size={13} strokeWidth={1.8} />
+                  &nbsp;{accepting ? "Joining…" : "Join workspace"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="cd-dialog-btn cd-dialog-btn--primary"
+                  onClick={goSignIn}
+                  disabled={status.kind === "loading"}
+                >
+                  <UserPlus size={13} strokeWidth={1.8} />
+                  &nbsp;Sign in to join
+                </button>
+              )}
             </div>
           </>
         )}

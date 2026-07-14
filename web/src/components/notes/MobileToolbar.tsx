@@ -67,11 +67,22 @@ export function MobileToolbar({ editor, onLinkClick }: Props) {
     }
   };
 
-  // Slash button programmatically inserts `/` so the existing
-  // suggestion plugin opens the menu — no parallel keyboard wiring
-  // needed.
+  // Slash button programmatically inserts `/` so the existing suggestion
+  // plugin opens the menu. That plugin only triggers at block-start or right
+  // after whitespace, so if the caret sits after a non-space character we
+  // prepend a space — otherwise the tap just drops a literal "/" and the menu
+  // never opens.
   const openSlash = () => {
-    editor.chain().focus().insertContent("/").run();
+    const { $from, empty } = editor.state.selection;
+    const charBefore = empty
+      ? $from.parent.textBetween(Math.max(0, $from.parentOffset - 1), $from.parentOffset)
+      : "";
+    const needsSpace = charBefore !== "" && !/\s/.test(charBefore);
+    editor
+      .chain()
+      .focus()
+      .insertContent(needsSpace ? " /" : "/")
+      .run();
   };
 
   const headingLevel = editor.isActive("heading", { level: 1 })

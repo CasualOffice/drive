@@ -218,9 +218,24 @@ export function Files({
   const [uploading, setUploading] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Drag-to-move: which folder (or breadcrumb crumb) the pointer is over, and
+  // the entry ids being dragged. Ids live in a ref because dataTransfer can't
+  // be read during dragover (only on drop) in some browsers.
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const draggedIdsRef = useRef<string[]>([]);
 
   // Preview modal
-  const [previewIdx, setPreviewIdx] = useState<number | null>(null);
+  // Preview/details modal is identified by FILE ID, never a list index — an
+  // index goes stale the moment the list mutates (trash/rename/upload), which
+  // made "trash a file → the modal shows a DIFFERENT file". The index the
+  // modal needs is derived from this id at render time; if the id leaves the
+  // list, the modal closes instead of pointing at whatever shifted into place.
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  // A file opened from the palette / a search hit that isn't in the current
+  // pane. Held HERE rather than by overwriting the grid's `state` — clobbering
+  // `state` destroyed the folder/search listing and never restored it. When
+  // set, the preview renders from this singleton and the grid is untouched.
+  const [previewOverride, setPreviewOverride] = useState<FileDto | null>(null);
 
   // Rename dialog
   const [renaming, setRenaming] = useState<MenuEntry | null>(null);
@@ -429,22 +444,18 @@ export function Files({
       if (state.kind !== "ready") return;
       const idx = state.files.findIndex((f) => f.id === id);
       if (idx >= 0) {
-        setPreviewIdx(idx);
+        setPreviewId(id);
         return;
       }
-      // Not in the current pane — pull it as a singleton list so the
-      // preview modal has something to render.
+      // Not in the current pane — fetch its metadata and preview it as an
+      // OVERRIDE, leaving the grid's `state` (folder listing / search results)
+      // completely intact. Route through the api client so it works in demo
+      // mode (raw fetch bypasses the demo shim) and surfaces auth errors.
       void (async () => {
-        try {
-          const meta = await fetch(`/api/files/${encodeURIComponent(id)}`)
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null);
-          if (meta && typeof meta === "object" && "id" in meta) {
-            setState({ kind: "ready", folders: [], files: [meta as FileDto] });
-            setPreviewIdx(0);
-          }
-        } catch {
-          /* ignored — palette caller already toasted */
+        const meta = await api.getFile(id).catch(() => null);
+        if (meta) {
+          setPreviewOverride(meta);
+          setPreviewId(meta.id);
         }
       })();
     }
@@ -758,6 +769,90 @@ export function Files({
     setDragOver(false);
     if (e.dataTransfer.files.length > 0) void uploadAll(e.dataTransfer.files);
   }
+
+  // ─── Drag-to-move (files/folders → a folder or breadcrumb crumb) ────────
+  function beginEntryDrag(entry: Entry, e: React.DragEvent) {
+    const id = entryId(entry);
+    // Dragging a selected item moves the whole selection; otherwise just it.
+    const ids = selection.has(id) && selection.size > 0 ? Array.from(selection) : [id];
+    draggedIdsRef.current = ids;
+    e.dataTransfer.effectAllowed = "move";
+    // Marker so an OS-file drop (upload) is still distinguishable from an
+    // internal move — internal drags carry this custom type.
+    e.dataTransfer.setData("application/x-dochub-move", ids.join(","));
+    e.dataTransfer.setData("text/plain", ids.join(","));
+  }
+  function endEntryDrag() {
+    draggedIdsRef.current = [];
+    setDropTargetId(null);
+  }
+  // A move is in progress if we have dragged ids (internal drag), used to gate
+  // folder/crumb dragover highlighting so OS-file uploads don't light folders.
+  function isInternalMove(e: React.DragEvent) {
+    return (
+      draggedIdsRef.current.length > 0 ||
+      e.dataTransfer.types.includes("application/x-dochub-move")
+    );
+  }
+  async function moveDraggedInto(targetFolderId: string | null) {
+    // Never drop an item onto itself.
+    const ids = draggedIdsRef.current.filter((id) => id !== targetFolderId);
+    endEntryDrag();
+    if (ids.length === 0) return;
+    const byId = new Map<string, Entry>(filteredEntries.map((en) => [entryId(en), en]));
+    const results = await Promise.allSettled(
+      ids.map((id) => {
+        const en = byId.get(id);
+        if (!en) return Promise.resolve();
+        return en.kind === "folder"
+          ? api.moveFolder(en.folder.id, targetFolderId)
+          : api.moveFile(en.file.id, targetFolderId);
+      }),
+    );
+    const ok = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.length - ok;
+    if (ok > 0) {
+      toast.success(`Moved ${ok} item${ok === 1 ? "" : "s"}`);
+      setSelection(new Set());
+      void refresh();
+    }
+    if (failed > 0) toast.error(`Couldn't move ${failed} item${failed === 1 ? "" : "s"}`);
+  }
+
+  const dragProps: DragProps = {
+    onEntryDragStart: beginEntryDrag,
+    onEntryDragEnd: endEntryDrag,
+    onFolderDragOver: (folderId, e) => {
+      if (!isInternalMove(e)) return; // OS-file drags fall through to upload
+      const ids = draggedIdsRef.current;
+      if (ids.length === 1 && ids[0] === folderId) return; // can't drop onto self
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setDropTargetId(folderId);
+    },
+    onFolderDragLeave: (folderId) =>
+      setDropTargetId((cur) => (cur === folderId ? null : cur)),
+    onFolderDrop: (folderId, e) => {
+      e.preventDefault();
+      void moveDraggedInto(folderId);
+    },
+    onCrumbDragOver: (crumbId, e) => {
+      if (!isInternalMove(e)) return;
+      const key = crumbId ?? CRUMB_ROOT_KEY;
+      // Dropping onto the crumb of the folder you're already in is a no-op.
+      if (crumbId === (path[path.length - 1]?.id ?? null)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setDropTargetId(key);
+    },
+    onCrumbDragLeave: (crumbId) =>
+      setDropTargetId((cur) => (cur === (crumbId ?? CRUMB_ROOT_KEY) ? null : cur)),
+    onCrumbDrop: (crumbId, e) => {
+      e.preventDefault();
+      void moveDraggedInto(crumbId);
+    },
+    dropTargetId,
+  };
   function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.files) void uploadAll(e.target.files);
     e.target.value = "";
@@ -908,13 +1003,13 @@ export function Files({
     window.history.pushState({ file: entry.file }, "", url);
     window.dispatchEvent(new PopStateEvent("popstate"));
   }
-  function handleSingleOrDouble(_file: FileDto, idx: number) {
+  function handleSingleOrDouble(file: FileDto, _idx: number) {
     if (singleClickTimerRef.current !== null) {
       window.clearTimeout(singleClickTimerRef.current);
     }
     singleClickTimerRef.current = window.setTimeout(() => {
       singleClickTimerRef.current = null;
-      setPreviewIdx(idx);
+      setPreviewId(file.id);
     }, 250);
   }
 
@@ -929,8 +1024,7 @@ export function Files({
       window.dispatchEvent(new PopStateEvent("popstate"));
     };
     const preview = (id: string) => {
-      const i = fileList.findIndex((f) => f.id === id);
-      if (i >= 0) setPreviewIdx(i);
+      if (fileList.some((f) => f.id === id)) setPreviewId(id);
     };
     const open = (id: string) => {
       const target = fileList.find((f) => f.id === id);
@@ -996,6 +1090,11 @@ export function Files({
         return;
       }
       if (e.key === "Escape" && selection.size > 0) {
+        // Let an open dialog own Escape (Radix closes it); don't also wipe
+        // the selection out from under the user on the same keypress.
+        const dialogOpen =
+          renaming !== null || sharing !== null || newFolderOpen || previewId !== null;
+        if (dialogOpen) return;
         e.preventDefault();
         setSelection(new Set());
         return;
@@ -1007,7 +1106,7 @@ export function Files({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [path.length, selection.size, filteredEntries]);
+  }, [path.length, selection.size, filteredEntries, renaming, sharing, newFolderOpen, previewId]);
 
   // Selection always resets when the folder changes — carrying a selection
   // across folder boundaries is a v0.2 polish (would need bulk-move-by-id).
@@ -1140,6 +1239,7 @@ export function Files({
         sort={sort}
         onSortChange={changeSort}
         showSort={!inSearchMode && state.kind === "ready" && total > 0}
+        drag={dragProps}
       />
 
       {inSearchMode && (
@@ -1176,6 +1276,7 @@ export function Files({
         {inSearchMode && (
           <AskPanel
             query={query.trim()}
+            workspace={workspaceId}
             onOpenFile={(id) => {
               window.dispatchEvent(
                 new CustomEvent<string>("cd:open-file", { detail: id }),
@@ -1188,6 +1289,7 @@ export function Files({
         {inSearchMode && isQuestionLike(query.trim()) && (
           <ResearchPanel
             query={query.trim()}
+            workspace={workspaceId}
             onOpenFile={(id) => {
               window.dispatchEvent(
                 new CustomEvent<string>("cd:open-file", { detail: id }),
@@ -1333,6 +1435,7 @@ export function Files({
               }}
               onEntryDoubleClick={openInEditorRoute}
               handlersFor={handlersFor}
+              drag={dragProps}
             />
           ) : (
             <ListView
@@ -1361,6 +1464,7 @@ export function Files({
                 setSelectionAnchor(id);
               }}
               handlersFor={handlersFor}
+              drag={dragProps}
             />
           ))}
         {/* Content matches — text found INSIDE documents (Phase 3 §2).
@@ -1474,13 +1578,30 @@ export function Files({
         </div>
       )}
 
-      <PreviewModal
-        files={fileList}
-        index={previewIdx ?? 0}
-        open={previewIdx !== null}
-        onClose={() => setPreviewIdx(null)}
-        onChangeIndex={(i) => setPreviewIdx(i)}
-      />
+      {(() => {
+        // An out-of-pane override (palette / cross-folder open) previews from
+        // its own singleton so the grid stays put. Otherwise resolve the id to
+        // a live index in the grid each render — if the file was trashed the
+        // index is -1 and the modal closes rather than showing whichever file
+        // shifted into that slot.
+        const overrideActive =
+          previewOverride !== null && previewOverride.id === previewId;
+        const modalFiles = overrideActive ? [previewOverride] : fileList;
+        const previewIndex =
+          previewId === null ? -1 : modalFiles.findIndex((f) => f.id === previewId);
+        return (
+          <PreviewModal
+            files={modalFiles}
+            index={previewIndex < 0 ? 0 : previewIndex}
+            open={previewIndex >= 0}
+            onClose={() => {
+              setPreviewId(null);
+              setPreviewOverride(null);
+            }}
+            onChangeIndex={(i) => setPreviewId(modalFiles[i]?.id ?? null)}
+          />
+        );
+      })()}
 
       {renaming && (
         <RenameDialog
@@ -1877,6 +1998,7 @@ function Header({
   sort,
   onSortChange,
   showSort,
+  drag,
 }: {
   path: Crumb[];
   searching: boolean;
@@ -1892,6 +2014,7 @@ function Header({
   sort: { key: SortKey; dir: SortDir };
   onSortChange: (key: SortKey, dir: SortDir) => void;
   showSort: boolean;
+  drag?: DragProps;
 }) {
   const deep = path.length > 1;
   const current = path[path.length - 1];
@@ -1947,7 +2070,16 @@ function Header({
             }}
           >
             {path.slice(0, -1).map((c, i) => (
-              <CrumbButton key={i} label={c.name} onClick={() => onJumpTo(i)} sep />
+              <CrumbButton
+                key={i}
+                label={c.name}
+                onClick={() => onJumpTo(i)}
+                sep
+                dropActive={drag ? drag.dropTargetId === (c.id ?? CRUMB_ROOT_KEY) : false}
+                onDragOver={drag ? (e) => drag.onCrumbDragOver(c.id, e) : undefined}
+                onDragLeave={drag ? () => drag.onCrumbDragLeave(c.id) : undefined}
+                onDrop={drag ? (e) => drag.onCrumbDrop(c.id, e) : undefined}
+              />
             ))}
           </div>
         )}
@@ -2010,19 +2142,38 @@ function formatSearchTotals(
   return t && !t.exact ? `${body} (more)` : body;
 }
 
-function CrumbButton({ label, onClick, sep }: { label: string; onClick: () => void; sep?: boolean }) {
+function CrumbButton({
+  label,
+  onClick,
+  sep,
+  dropActive,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  label: string;
+  onClick: () => void;
+  sep?: boolean;
+  dropActive?: boolean;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragLeave?: () => void;
+  onDrop?: (e: React.DragEvent) => void;
+}) {
   return (
     <>
       <button
         type="button"
         onClick={onClick}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
         style={{
-          border: "none",
-          background: "transparent",
+          border: dropActive ? "1px solid var(--violet-500)" : "none",
+          background: dropActive ? "var(--bg-hover)" : "transparent",
           cursor: "pointer",
-          color: "var(--muted)",
+          color: dropActive ? "var(--ink)" : "var(--muted)",
           fontSize: "var(--text-sm)",
-          padding: "3px 5px",
+          padding: dropActive ? "2px 4px" : "3px 5px",
           borderRadius: 7,
           transition: "background 150ms, color 150ms",
         }}
@@ -2031,6 +2182,7 @@ function CrumbButton({ label, onClick, sep }: { label: string; onClick: () => vo
           e.currentTarget.style.color = "var(--ink)";
         }}
         onMouseOut={(e) => {
+          if (dropActive) return;
           e.currentTarget.style.background = "transparent";
           e.currentTarget.style.color = "var(--muted)";
         }}
@@ -2237,6 +2389,23 @@ function CardStatusPill({
 
 // ─── Views ───────────────────────────────────────────────────────────
 
+/** Sentinel `dropTargetId` for the root ("My Drive") breadcrumb — real folders
+ * carry ULIDs, so this never collides. */
+const CRUMB_ROOT_KEY = " crumb-root";
+
+type DragProps = {
+  onEntryDragStart: (entry: Entry, e: React.DragEvent) => void;
+  onEntryDragEnd: () => void;
+  onFolderDragOver: (folderId: string, e: React.DragEvent) => void;
+  onFolderDragLeave: (folderId: string) => void;
+  onFolderDrop: (folderId: string, e: React.DragEvent) => void;
+  /** Breadcrumb crumbs are move targets too — `null` id is the root. */
+  onCrumbDragOver: (crumbId: string | null, e: React.DragEvent) => void;
+  onCrumbDragLeave: (crumbId: string | null) => void;
+  onCrumbDrop: (crumbId: string | null, e: React.DragEvent) => void;
+  dropTargetId: string | null;
+};
+
 function GridView({
   entries,
   uploading,
@@ -2244,6 +2413,7 @@ function GridView({
   onEntryClick,
   onEntryDoubleClick,
   handlersFor,
+  drag,
 }: {
   entries: Entry[];
   uploading: string[];
@@ -2251,6 +2421,7 @@ function GridView({
   onEntryClick: (e: React.MouseEvent, entry: Entry) => void;
   onEntryDoubleClick?: (entry: Entry) => void;
   handlersFor: (entry: MenuEntry) => EntryMenuHandlers;
+  drag?: DragProps;
 }) {
   return (
     <div
@@ -2269,6 +2440,13 @@ function GridView({
             onClick={(ev) => onEntryClick(ev, e)}
             onDoubleClick={onEntryDoubleClick ? () => onEntryDoubleClick(e) : undefined}
             handlers={handlersFor(e)}
+            draggable={!!drag}
+            dropTarget={drag?.dropTargetId === e.folder.id}
+            onDragStart={drag ? (ev) => drag.onEntryDragStart(e, ev) : undefined}
+            onDragEnd={drag?.onEntryDragEnd}
+            onDragOver={drag ? (ev) => drag.onFolderDragOver(e.folder.id, ev) : undefined}
+            onDragLeave={drag ? () => drag.onFolderDragLeave(e.folder.id) : undefined}
+            onDrop={drag ? (ev) => drag.onFolderDrop(e.folder.id, ev) : undefined}
           />
         ) : (
           <FileCard
@@ -2278,6 +2456,9 @@ function GridView({
             onClick={(ev) => onEntryClick(ev, e)}
             onDoubleClick={onEntryDoubleClick ? () => onEntryDoubleClick(e) : undefined}
             handlers={handlersFor(e)}
+            draggable={!!drag}
+            onDragStart={drag ? (ev) => drag.onEntryDragStart(e, ev) : undefined}
+            onDragEnd={drag?.onEntryDragEnd}
           />
         ),
       )}
@@ -2294,12 +2475,26 @@ function FolderCard({
   onClick,
   onDoubleClick,
   handlers,
+  draggable,
+  dropTarget,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }: {
   folder: FolderDto;
   selected: boolean;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
   handlers: EntryMenuHandlers;
+  draggable?: boolean;
+  dropTarget?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragLeave?: () => void;
+  onDrop?: (e: React.DragEvent) => void;
 }) {
   return (
     <EntryContextMenu entry={{ kind: "folder", folder }} handlers={handlers}>
@@ -2308,6 +2503,17 @@ function FolderCard({
         onDoubleClick={onDoubleClick}
         folder
         selected={selected}
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        style={
+          dropTarget
+            ? { outline: "2px solid var(--violet-500)", outlineOffset: 2 }
+            : undefined
+        }
         kebab={<EntryKebab entry={{ kind: "folder", folder }} handlers={handlers} />}
       >
         <div
@@ -2331,12 +2537,18 @@ function FileCard({
   onClick,
   onDoubleClick,
   handlers,
+  draggable,
+  onDragStart,
+  onDragEnd,
 }: {
   file: FileDto;
   selected: boolean;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
   handlers: EntryMenuHandlers;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
 }) {
   const kind = inferKind(file.name, file.content_type);
   const version = file.version ?? null;
@@ -2352,6 +2564,9 @@ function FileCard({
         onDoubleClick={onDoubleClick}
         selected={selected}
         sealed={sealed}
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
         kebab={<EntryKebab entry={{ kind: "file", file }} handlers={handlers} />}
       >
         <div
@@ -2639,6 +2854,7 @@ function ListView({
   onEntryDoubleClick,
   onToggleSelect,
   handlersFor,
+  drag,
 }: {
   entries: Entry[];
   uploading: string[];
@@ -2647,6 +2863,7 @@ function ListView({
   onEntryDoubleClick?: (entry: Entry) => void;
   onToggleSelect: (entry: Entry) => void;
   handlersFor: (entry: MenuEntry) => EntryMenuHandlers;
+  drag?: DragProps;
 }) {
   return (
     <div
@@ -2676,6 +2893,13 @@ function ListView({
                 onDoubleClick={onEntryDoubleClick ? () => onEntryDoubleClick(e) : undefined}
                 onToggle={() => onToggleSelect(e)}
                 kebab={<EntryKebab entry={entry} handlers={handlers} />}
+                draggable={!!drag}
+                dropActive={drag?.dropTargetId === e.folder.id}
+                onDragStart={drag ? (ev) => drag.onEntryDragStart(e, ev) : undefined}
+                onDragEnd={drag?.onEntryDragEnd}
+                onDragOver={drag ? (ev) => drag.onFolderDragOver(e.folder.id, ev) : undefined}
+                onDragLeave={drag ? () => drag.onFolderDragLeave(e.folder.id) : undefined}
+                onDrop={drag ? (ev) => drag.onFolderDrop(e.folder.id, ev) : undefined}
               />
             </EntryContextMenu>
           );
@@ -2700,6 +2924,9 @@ function ListView({
               onToggle={() => onToggleSelect(e)}
               last={last}
               kebab={<EntryKebab entry={entry} handlers={handlers} />}
+              draggable={!!drag}
+              onDragStart={drag ? (ev) => drag.onEntryDragStart(e, ev) : undefined}
+              onDragEnd={drag?.onEntryDragEnd}
             />
           </EntryContextMenu>
         );
@@ -2794,6 +3021,8 @@ const VaultRow = React.forwardRef<
     ghost?: boolean;
     kebab?: React.ReactNode;
     selected?: boolean;
+    /** Folder rows only — lit while a dragged entry hovers as a move target. */
+    dropActive?: boolean;
   } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "onDoubleClick">
 >(function VaultRow(
   {
@@ -2812,6 +3041,7 @@ const VaultRow = React.forwardRef<
     ghost,
     kebab,
     selected,
+    dropActive,
     ...rest
   },
   ref,
@@ -2862,6 +3092,7 @@ const VaultRow = React.forwardRef<
         background: selected ? "var(--bg-selected)" : undefined,
         boxShadow: selected ? "inset 2px 0 0 var(--accent)" : "none",
         userSelect: "none",
+        outline: dropActive ? "2px solid var(--violet-500)" : undefined,
         outlineOffset: -2,
       }}
     >

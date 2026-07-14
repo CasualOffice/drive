@@ -40,17 +40,20 @@ import { useActiveWorkspaceId } from "../state/WorkspaceContext.tsx";
 
 const DRAFT_KEY_PREFIX = "cd-note-draft-v1:";
 
-export function Notes() {
+export function Notes({ initialNoteId }: { initialNoteId?: string | null } = {}) {
   const workspaceId = useActiveWorkspaceId();
   const [tree, setTree] = useState<NoteNode[]>([]);
   const [trashed, setTrashed] = useState<NoteNode[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Seed from the deep-link note id so a `?note=<id>` open is deterministic —
+  // it doesn't depend on the lazy chunk mounting before a timer fires.
+  const [openId, setOpenId] = useState<string | null>(initialNoteId ?? null);
   const [open, setOpen] = useState<Note | null>(null);
   const [loading, setLoading] = useState(true);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [searchQ, setSearchQ] = useState("");
   const [searchResults, setSearchResults] = useState<NoteNode[]>([]);
+  const [searching, setSearching] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
 
   // Refresh tree when workspace changes.
@@ -220,6 +223,20 @@ export function Notes() {
     }
   }
 
+  // Create-from-`+`-link: make the note and return it so the editor can insert
+  // a link to it, but STAY in the current note (no setOpenId) — the author was
+  // mid-sentence linking, not navigating away.
+  async function onCreateNoteLink(title: string): Promise<{ id: string; title: string } | null> {
+    try {
+      const n = await noteCreate(title, null, workspaceId);
+      await refreshTree();
+      return { id: n.id, title: n.title ?? title };
+    } catch {
+      toast.error("Couldn't create note");
+      return null;
+    }
+  }
+
   async function onTrash(id: string) {
     try {
       await noteTrash(id);
@@ -261,15 +278,22 @@ export function Notes() {
     const q = searchQ.trim();
     if (q.length < 2) {
       setSearchResults([]);
+      setSearching(false);
       return;
     }
+    // Mark searching so the panel shows a loading hint instead of flashing
+    // "No matches." over the previous/empty results while the fetch is pending.
+    setSearching(true);
     const controller = new AbortController();
     const t = window.setTimeout(async () => {
       try {
         const rows = await notesSearch(q, workspaceId, controller.signal);
         setSearchResults(rows);
+        setSearching(false);
       } catch {
-        /* user kept typing; the next call will succeed */
+        // Aborted (user kept typing) → a newer run owns the state, leave
+        // `searching` for it. Only a real failure clears the spinner.
+        if (!controller.signal.aborted) setSearching(false);
       }
     }, 200);
     return () => {
@@ -307,6 +331,7 @@ export function Notes() {
           ) : searchQ.trim().length >= 2 ? (
             <SearchResults
               results={searchResults}
+              searching={searching}
               activeId={openId}
               onPick={(id) => setOpenId(id)}
             />
@@ -420,7 +445,7 @@ export function Notes() {
             }
             onNavigateBacklink={(id) => setOpenId(id)}
             onTrash={() => open && void onTrash(open.id)}
-            onCreateNote={(title) => void onCreate(null, title)}
+            onCreateNote={onCreateNoteLink}
           />
         )}
       </section>
@@ -519,17 +544,19 @@ function TreeView({
 
 function SearchResults({
   results,
+  searching,
   activeId,
   onPick,
 }: {
   results: NoteNode[];
+  searching: boolean;
   activeId: string | null;
   onPick: (id: string) => void;
 }) {
   if (results.length === 0) {
     return (
       <div className="notes-tree-empty">
-        <span>No matches.</span>
+        <span>{searching ? "Searching…" : "No matches."}</span>
       </div>
     );
   }
@@ -607,7 +634,7 @@ function NoteEditor({
   onBodyChange: (body: string) => void;
   onNavigateBacklink: (id: string) => void;
   onTrash: () => void;
-  onCreateNote: (title: string) => void;
+  onCreateNote: (title: string) => Promise<{ id: string; title: string } | null>;
 }) {
   return (
     <div className="notes-editor">

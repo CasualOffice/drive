@@ -159,6 +159,11 @@ export function CodeTextEditor({ file, onSaveStatus, onSaved, collab }: CodeText
       // Our own edits already show in the textarea — don't reset the
       // caret. Only remote edits reconcile the DOM value + selection.
       if (event.transaction.origin === LOCAL_ORIGIN) return;
+      // A peer's merged edit changes the shared document relative to what we
+      // last committed to Doc-Hub. Reflect that in `dirty` so Save enables,
+      // the status label stops falsely reading "All changes saved", and the
+      // beforeunload guard arms for the merged content.
+      if (load.kind === "ready") setDirty(nextText !== load.text);
       const ta = taRef.current;
       if (!ta || ta.value === nextText) return;
       const { index, removed, insert } = diffSplice(ta.value, nextText);

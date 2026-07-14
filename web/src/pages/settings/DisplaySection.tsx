@@ -31,6 +31,9 @@ function write(key: string, value: string) {
   } catch {
     /* private mode — silent */
   }
+  // Tell the live Shell to re-read view/density immediately — the `storage`
+  // event only fires in OTHER tabs, so a same-tab change needs this nudge.
+  window.dispatchEvent(new CustomEvent("cd:display"));
 }
 
 export function DisplaySection() {

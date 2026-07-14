@@ -28,9 +28,11 @@ type State =
 
 export function AskPanel({
   query,
+  workspace,
   onOpenFile,
 }: {
   query: string;
+  workspace: string | null;
   onOpenFile: (fileId: string) => void;
 }) {
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -45,7 +47,7 @@ export function AskPanel({
     const handle = setTimeout(async () => {
       setState({ kind: "loading" });
       try {
-        const res = await askQuestion(q, { signal: controller.signal });
+        const res = await askQuestion(q, { workspace, signal: controller.signal });
         if (controller.signal.aborted) return;
         setState(
           res.answer.trim()
@@ -60,7 +62,7 @@ export function AskPanel({
       clearTimeout(handle);
       controller.abort();
     };
-  }, [query]);
+  }, [query, workspace]);
 
   if (state.kind === "idle" || state.kind === "empty") return null;
 

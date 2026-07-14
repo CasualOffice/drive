@@ -994,6 +994,75 @@ async fn put_content_save_bumps_the_chain_and_reads_back() {
     assert_eq!(bytes.as_ref(), b"v2 body!!");
 }
 
+/// Optimistic concurrency: a content PUT carrying a stale `If-Match` version
+/// (the head moved on since it was read) is refused with 409 instead of
+/// silently clobbering the newer committed version. The current version still
+/// saves fine.
+#[tokio::test]
+async fn put_content_rejects_stale_if_match_with_409() {
+    let state = fixture().await;
+    let app = router(state.clone());
+    let cookie = sign_in(&app).await;
+
+    let boundary = "----ifmatch";
+    let body = build_multipart(
+        boundary,
+        &[MultipartField::File(
+            "file",
+            "note.txt",
+            "text/plain",
+            b"v1",
+        )],
+    );
+    let created = json_body(
+        app.clone()
+            .oneshot(auth_req(
+                "POST",
+                "/api/files",
+                &cookie,
+                Some(&format!("multipart/form-data; boundary={boundary}")),
+                Body::from(body),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["version"], 1);
+
+    let put = |if_match: &str, payload: &'static str| {
+        app.clone().oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/files/{id}/content"))
+                .header("host", APP)
+                .header("cookie", &cookie)
+                .header("content-type", "application/octet-stream")
+                .header("if-match", if_match)
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+    };
+
+    // Correct base version (1) → saved, head advances to 2.
+    assert_eq!(put("1", "v2").await.unwrap().status(), StatusCode::OK);
+    // Stale base version (still 1) → 409, no clobber.
+    assert_eq!(
+        put("1", "v3-stale").await.unwrap().status(),
+        StatusCode::CONFLICT
+    );
+    // Current base version (2) → saved.
+    assert_eq!(put("2", "v3").await.unwrap().status(), StatusCode::OK);
+
+    // The stale write never landed: head is 3 (v1 upload, v2, v3), not 4.
+    let head = FileVersionsRepo::new(&state.db)
+        .head(&id)
+        .await
+        .unwrap()
+        .expect("head exists");
+    assert_eq!(head.seq, 3);
+}
+
 /// A pre-existing legacy file (a file row + a plaintext blob, no version row)
 /// backfills v1 on first read and serves those bytes; a second read reuses the
 /// existing v1 with no duplicate backfill.

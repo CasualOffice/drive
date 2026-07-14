@@ -26,10 +26,10 @@ interface RenderedState {
 }
 
 interface Props {
-  /** Optional handler when the user picks "Create page «query»".
-   * Receives the typed title; the parent creates the note + the
-   * extension inserts the wiki-link with that title. */
-  onCreateNote?: (title: string) => void;
+  /** Handler when the user picks "Create page «query»". Creates the note and
+   * resolves to the new note's {id,title} WITHOUT navigating away — the popover
+   * then inserts a real link to it at the caret. Resolves null on failure. */
+  onCreateNote?: (title: string) => Promise<NoteLinkItem | null>;
 }
 
 export const NoteLinkPopover = forwardRef<NoteLinkPopoverHandle, Props>(
@@ -61,12 +61,19 @@ export const NoteLinkPopover = forwardRef<NoteLinkPopoverHandle, Props>(
         if (index < state.items.length) {
           state.command(state.items[index]);
         } else if (state.createDraft) {
-          // Delegate to the parent — it creates the note then we
-          // let the extension insert `[[Title]]`.
-          onCreateNote?.(state.createDraft);
-          // Also hide locally so we don't re-fire on subsequent
-          // updates from the extension.
+          // Create the note, then insert a real link to it via the same
+          // extension command used for existing notes (it deletes the typed
+          // `+query` trigger and inserts the link mark). The editor content is
+          // unchanged during creation, so the captured range stays valid. On
+          // failure we still run `create` to clean up the stray `+query` text.
+          const draft = state.createDraft;
+          const cmd = state.command;
           setState(null);
+          void (async () => {
+            const created = await onCreateNote?.(draft);
+            if (created) cmd(created);
+            else cmd("create");
+          })();
         }
       },
       [state, onCreateNote],

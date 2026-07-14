@@ -460,6 +460,24 @@ export async function renameFolder(id: string, name: string): Promise<FolderDto>
   });
 }
 
+/** Move a file into `parentId` (a folder id), or to the workspace root when
+ *  null. PATCHes the `parent_id`; the server rejects a move the caller can't
+ *  perform. */
+export async function moveFile(id: string, parentId: string | null): Promise<FileDto> {
+  return request<FileDto>(`/api/files/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    json: { parent_id: parentId },
+  });
+}
+
+/** Move a folder (and its subtree) into `parentId`, or to root when null. */
+export async function moveFolder(id: string, parentId: string | null): Promise<FolderDto> {
+  return request<FolderDto>(`/api/folders/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    json: { parent_id: parentId },
+  });
+}
+
 export async function trashFile(id: string): Promise<void> {
   return request<void>(`/api/files/${encodeURIComponent(id)}/trash`, {
     method: "POST",

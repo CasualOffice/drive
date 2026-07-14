@@ -61,10 +61,10 @@ interface Props {
    * picker. The parent already holds this list for the tree view; we
    * pass it through as a read-only reference. */
   notesTree?: NoteNode[];
-  /** Called when the user picks "Create page «query»" in the `+`
-   * popover. Parent creates the note + the wiki-link inserts the
-   * title verbatim. */
-  onCreateNote?: (title: string) => void;
+  /** Called when the user picks "Create page «query»" in the `+` popover.
+   * Creates the note and resolves to its {id,title} (without navigating away)
+   * so the popover can insert a link to it; resolves null on failure. */
+  onCreateNote?: (title: string) => Promise<{ id: string; title: string } | null>;
 }
 
 export function MarkdownEditor({

@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <!--
+      Theme bootstrap — MUST run before first paint. Without it, the page
+      renders with the OS/system palette and then flips to the user's stored
+      choice once React mounts ThemeToggle's effect (a jarring light↔dark
+      flash on every load/navigation). This synchronous script sets
+      `data-theme` up front, exactly matching ThemeToggle: explicit
+      light/dark win; "system"/absent leave the attribute off so the
+      `@media (prefers-color-scheme)` rules in tokens.css drive the palette.
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          if (t === "light" || t === "dark") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {
+          /* private mode / storage disabled — fall through to system */
+        }
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!--
       Material Symbols Outlined — the icon font the embedded sheet editor's

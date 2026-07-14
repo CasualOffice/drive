@@ -70,6 +70,12 @@ function Router() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  // Rules of Hooks: useAuth() MUST run on every render, before any early
+  // return. Previously it sat below the share/invite token returns, so a
+  // popstate transition between a token route (hook skipped) and a normal
+  // route (hook called) changed the hook count and crashed React.
+  const { status } = useAuth();
+
   const token = shareToken();
   if (token) return <Recipient token={token} />;
 
@@ -79,7 +85,6 @@ function Router() {
   const inviteTok = inviteToken();
   if (inviteTok) return <InviteAccept token={inviteTok} />;
 
-  const { status } = useAuth();
   if (status.kind === "loading") {
     return (
       <div

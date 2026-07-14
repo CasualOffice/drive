@@ -131,13 +131,13 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
     return { kind: "loading" };
   });
 
-  // Cold-load path. When the user lands here via refresh / shared
-  // URL / bookmark, history.state is empty; resolve via the new
-  // `GET /api/files/{id}` endpoint. Hot loads (open-from-Files
-  // through PreviewModal) skip this entirely because the seeded
-  // state above already produced `ready`.
+  // Always reconcile against the server on mount. The `history.state` seed
+  // gives an instant first paint, but it can be STALE — e.g. the user restored
+  // an older version on the `/history` route (bumping the head) and navigated
+  // back here; the seed still holds the pre-restore version. Refetching keeps
+  // the version chip + details proof line honest, and also covers the cold
+  // load (refresh / shared URL / bookmark) where there's no seed at all.
   useEffect(() => {
-    if (state.kind !== "loading") return;
     let cancelled = false;
     (async () => {
       try {
@@ -146,8 +146,13 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
         setState({ kind: "ready", file });
       } catch (err) {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
-        setState({ kind: "error", message });
+        // Keep a seeded view on a transient refetch failure; only surface an
+        // error when we have nothing to show.
+        setState((prev) =>
+          prev.kind === "ready"
+            ? prev
+            : { kind: "error", message: err instanceof Error ? err.message : String(err) },
+        );
       }
     })();
     return () => {

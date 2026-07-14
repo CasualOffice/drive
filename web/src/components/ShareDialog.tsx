@@ -66,7 +66,11 @@ export function ShareDialog({
     void listShares(file.id)
       .then((r) => setShares(r.shares))
       .catch((e) => setLoadErr((e as ApiError).message ?? "Couldn't load existing links."));
-  }, [open, file]);
+    // Key on the stable id, not the object identity — a parent re-render that
+    // hands over a freshly-mapped FileDto for the SAME file must not wipe the
+    // dialog's state (password/expiry) and re-flash the shares list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, file?.id]);
 
   async function mint() {
     if (!file) return;
@@ -81,10 +85,17 @@ export function ShareDialog({
       setShares((prev) => (prev ? [link, ...prev] : [link]));
       setPassword("");
       setOptionsOpen(false);
-      // Auto-copy newly-minted link to clipboard — the modal still stays
-      // open so the user can hand-tweak options or revoke prior links.
-      void navigator.clipboard?.writeText(link.url);
-      toast.success("Link copied to clipboard");
+      // Auto-copy the newly-minted link — the modal stays open so the user
+      // can tweak options or revoke prior links. Only claim "copied" when the
+      // write actually succeeds; otherwise say it was created (the row below
+      // has a manual copy button), so we never promise an empty clipboard.
+      try {
+        if (!navigator.clipboard) throw new Error("clipboard unavailable");
+        await navigator.clipboard.writeText(link.url);
+        toast.success("Link copied to clipboard");
+      } catch {
+        toast.success("Link created — copy it from the list below");
+      }
     } catch (err) {
       const e = err as ApiError;
       const body = e.body as { error?: string } | null;

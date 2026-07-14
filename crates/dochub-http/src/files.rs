@@ -1449,6 +1449,7 @@ async fn put_content(
     State(s): State<HttpState>,
     session: AuthSession,
     Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
     body: Bytes,
 ) -> Result<Json<FileDto>, FilesError> {
     let files = FileRepo::new(&s.db);
@@ -1463,6 +1464,23 @@ async fn put_content(
         Permission::Edit,
     )
     .await?;
+
+    // Optimistic concurrency: the editor sends the version it loaded as
+    // `If-Match`. If the chain head has advanced since (another tab or user
+    // committed a version in the meantime), reject with 409 rather than
+    // silently overwriting their work — the caller reloads the latest first.
+    // Absent header keeps the legacy last-writer-wins behaviour for callers
+    // that don't participate.
+    if let Some(expected) = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()) {
+        if let Ok(expected_ver) = expected.trim().trim_matches('"').parse::<u32>() {
+            if expected_ver != file.version {
+                return Err(FilesError::Conflict(format!(
+                    "file changed since you opened it (your version {expected_ver}, current {})",
+                    file.version
+                )));
+            }
+        }
+    }
 
     // Registry write path: a save commits an immutable, hash-chained version
     // (build spec §5) — the *sole* write path for document bytes. No plaintext

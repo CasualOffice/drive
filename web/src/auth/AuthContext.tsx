@@ -48,11 +48,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void bootstrap();
   }, [bootstrap]);
 
-  const signIn = useCallback(async (username: string, password: string) => {
-    await api.signIn(username, password);
-    const me = await api.me();
-    setStatus({ kind: "authed", me });
-  }, []);
+  const signIn = useCallback(
+    async (username: string, password: string) => {
+      // Only this call validates credentials — let it throw so the sign-in
+      // form shows "wrong username or password". Once it resolves the session
+      // cookie is set and we ARE authenticated.
+      await api.signIn(username, password);
+      try {
+        const me = await api.me();
+        setStatus({ kind: "authed", me });
+      } catch {
+        // Session is live but the profile fetch blipped (network/500). Do NOT
+        // report a sign-in failure — re-derive status instead of throwing.
+        await bootstrap();
+      }
+    },
+    [bootstrap],
+  );
 
   const signOut = useCallback(async () => {
     try {

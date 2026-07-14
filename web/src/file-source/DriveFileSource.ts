@@ -34,9 +34,11 @@ const NO_OP_UNSUBSCRIBE = () => {};
 
 /**
  * The editor wraps `save()`'s return type around `{ id, etag }`. Drive's
- * FileDto carries `version: number` which we surface as the etag string
- * — every save bumps it, the editor uses it for optimistic-write
- * protection on the next save.
+ * FileDto carries `version: number` which we surface as the etag string —
+ * every save bumps it. On the next save we send it back as `If-Match`, and
+ * the server rejects the write with 409 if the head has advanced since (a
+ * second tab/user committed a version), so a stale save can't silently
+ * clobber someone else's committed version.
  */
 export class DriveFileSource implements FileSource {
   readonly kind = "personal" as const;
@@ -88,7 +90,7 @@ export class DriveFileSource implements FileSource {
   async save(
     id: string | null,
     bytes: ArrayBuffer,
-    _opts?: { etag?: string; name?: string },
+    opts?: { etag?: string; name?: string },
   ): Promise<{ id: string; etag: string }> {
     if (id === null) {
       throw new Error(
@@ -101,8 +103,13 @@ export class DriveFileSource implements FileSource {
       );
     }
     const csrf = getCsrfToken();
+    // If-Match carries the version we're replacing (the SDK-supplied etag, or
+    // the last version we know). The server 409s if the head moved on since,
+    // so a stale editor can't overwrite a newer committed version.
+    const ifMatch = opts?.etag ?? String(this.file.version);
     const headers = {
       "Content-Type": this.file.content_type ?? "application/octet-stream",
+      "If-Match": ifMatch,
       ...(csrf ? { "X-CSRF-Token": csrf } : {}),
     };
     const updated: FileDto = DEMO_MODE

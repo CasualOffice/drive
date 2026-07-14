@@ -37,11 +37,13 @@ export function NotificationsBell() {
     const my = ++seqRef.current;
     try {
       const page = await getActivity(null, 20);
-      if (seqRef.current !== my) return;
+      if (seqRef.current !== my) return null;
       const filtered = page.events.filter((e) => NOTIFIABLE.has(e.action)).slice(0, 10);
       setEvents(filtered);
+      return filtered;
     } catch {
       // Best-effort — keep the previous list rather than nuke it.
+      return null;
     }
   }, []);
 
@@ -67,20 +69,24 @@ export function NotificationsBell() {
     };
   }, [refresh]);
 
-  // Mark seen on open.
+  // Mark seen on open. Stamp `seenAt` from the FRESHLY fetched list, not the
+  // pre-open closure — otherwise a newer event that arrives with this very
+  // refresh has created_at > seenAt and the badge pops right back after open.
   function onOpenChange(next: boolean) {
     setOpen(next);
     if (next) {
-      void refresh();
-      const newest = events[0]?.created_at;
-      if (newest && newest > seenAt) {
-        setSeenAt(newest);
-        try {
-          window.localStorage.setItem(SEEN_KEY, newest);
-        } catch {
-          /* ignored */
+      void (async () => {
+        const fresh = (await refresh()) ?? events;
+        const newest = fresh[0]?.created_at;
+        if (newest && newest > seenAt) {
+          setSeenAt(newest);
+          try {
+            window.localStorage.setItem(SEEN_KEY, newest);
+          } catch {
+            /* ignored */
+          }
         }
-      }
+      })();
     }
   }
 

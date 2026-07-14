@@ -982,7 +982,11 @@
   display: none;
 }
 
-@media (max-width: 1023.9px) {
+/* Narrow screens OR wide touch screens (≥1024 but coarse/no-hover, e.g. a
+   Surface or iPad Pro in landscape). The fixed toolbar needs `hover: hover`,
+   so without this second clause a wide touch device would get NEITHER toolbar
+   and the editor looked featureless. Exactly one toolbar shows in every case. */
+@media (max-width: 1023.9px), (min-width: 1024px) and (hover: none) {
   .cd-mobile-toolbar {
     position: fixed;
     left: 0;

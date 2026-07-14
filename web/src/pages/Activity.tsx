@@ -48,7 +48,6 @@ export function Activity() {
   const [cursor, setCursor] = useState<string | null | undefined>(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
   const [chainVerified, setChainVerified] = useState(true);
-  const [brokenAt, setBrokenAt] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async (before?: string | null) => {
@@ -59,8 +58,11 @@ export function Activity() {
       // `chain_verified` is absent on older servers — treat undefined as
       // the calm verified default; only alarm on an explicit false.
       if (page.chain_verified === false) {
+        // The server reports pass/fail over a WINDOW, not the offending link.
+        // Anchoring to `page.events[0]` pointed at a different event depending
+        // on which page reported the break — a false, pagination-dependent
+        // location. Raise the alarm without asserting where.
         setChainVerified(false);
-        setBrokenAt(page.events[0]?.id ?? null);
       }
     } catch (e) {
       setErr((e as ApiError).message ?? "Couldn't load activity.");
@@ -90,7 +92,7 @@ export function Activity() {
           }}
         />
 
-        {!chainVerified && <TamperAlarm eventId={brokenAt} />}
+        {!chainVerified && <TamperAlarm eventId={null} />}
 
         {err && (
           <div role="alert" style={errBox}>

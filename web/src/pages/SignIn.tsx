@@ -53,6 +53,18 @@ export function SignIn() {
     setError(null);
     try {
       await signIn(username.trim(), password);
+      // Honor a return path stashed by an invite/share page that bounced an
+      // anonymous visitor here — send them back to finish what they started.
+      try {
+        const returnTo = sessionStorage.getItem("returnTo");
+        if (returnTo && returnTo !== "/") {
+          sessionStorage.removeItem("returnTo");
+          window.history.pushState({}, "", returnTo);
+          window.dispatchEvent(new PopStateEvent("popstate"));
+        }
+      } catch {
+        /* storage disabled — land on the app root, still signed in */
+      }
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -249,7 +261,10 @@ export function SignIn() {
             disabled={busy}
             invalid={error !== null}
             value={username}
-            onChange={(v) => setUsername(v)}
+            onChange={(v) => {
+              setUsername(v);
+              if (error) setError(null);
+            }}
           />
           <Input
             type="password"
@@ -259,7 +274,10 @@ export function SignIn() {
             disabled={busy}
             invalid={error !== null}
             value={password}
-            onChange={(v) => setPassword(v)}
+            onChange={(v) => {
+              setPassword(v);
+              if (error) setError(null);
+            }}
             onCapsLockChange={setCapsOn}
           />
           {capsOn && (

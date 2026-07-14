@@ -184,6 +184,10 @@ export function CommandPalette({
         }
         if (noteRes.status === "fulfilled") {
           setNotes(noteRes.value.slice(0, 8));
+        } else {
+          // Clear like files/content do — otherwise a note-search failure
+          // leaves the previous query's notes rendered under the new query.
+          setNotes([]);
         }
         // Content matches minus anything already shown as a name match.
         if (contentRes.status === "fulfilled") {

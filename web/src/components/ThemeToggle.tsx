@@ -36,6 +36,18 @@ function resolveSystem(): "light" | "dark" {
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(readStored);
+  const [, forceTick] = useState(0);
+
+  // In "system" mode the OS drives the palette via CSS; re-render when it
+  // flips so the tooltip/aria-label (which report the resolved theme) don't
+  // freeze at a stale "currently light/dark".
+  useEffect(() => {
+    if (theme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => forceTick((t) => t + 1);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [theme]);
 
   useEffect(() => {
     if (theme === "system") {

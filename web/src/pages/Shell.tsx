@@ -28,18 +28,26 @@ export function Shell() {
   // UI-M6: the view + density toggles left the top bar; the shared state
   // stays here (Files still consumes it) with defaults, pending the
   // Settings › Display controls (bucket C).
-  const [view] = useState<ViewMode>("grid");
-  // SR4 — result density. Persisted per-user in localStorage so the
-  // choice survives page reloads. SSR-safe (typeof check) for the rare
-  // case the SPA is prerendered. Doesn't affect page size.
-  const [density] = useState<Density>(() => readDensity());
+  // View + density live in Settings › Display now. Shell is the single source
+  // of truth Files consumes; it seeds from the persisted `cd:files:*` keys and
+  // reconciles live — Settings dispatches `cd:display` after writing, and the
+  // `storage` event covers changes from another tab. Previously `view` was
+  // hardcoded "grid" (so the Default-view setting did nothing) and `density`
+  // was read once, needing a full reload to take effect.
+  const [view, setView] = useState<ViewMode>(() => readView());
+  const [density, setDensity] = useState<Density>(() => readDensity());
   useEffect(() => {
-    try {
-      window.localStorage.setItem(DENSITY_STORAGE_KEY, density);
-    } catch {
-      /* localStorage can throw in Safari private mode — silent. */
-    }
-  }, [density]);
+    const sync = () => {
+      setView(readView());
+      setDensity(readDensity());
+    };
+    window.addEventListener("cd:display", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("cd:display", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
   // SR6 — seed query from `?q=…` on mount so deep-links and reloads
   // restore the search bar. Filters/sort restore themselves inside
   // Files.tsx (it owns that state).
@@ -61,26 +69,18 @@ export function Shell() {
     if (!isMobile) setDrawerOpen(false);
   }, [isMobile]);
 
-  // SR7 — `?note=<id>` deep-link from a copied note search-result.
-  // Routes to the Notes tab + fires `cd:open-note` once Notes has had
-  // a chance to mount; matches the path the CommandPalette uses.
-  // Runs ONCE on mount via the empty dep array; subsequent navigation
-  // is event-driven so we don't re-route every render.
+  // SR7 — `?note=<id>` deep-link from a copied note search-result. Route to the
+  // Notes tab and hand the id to <Notes> as a prop it opens on mount. This is
+  // deterministic: no 200ms timer racing the lazy Tiptap chunk's load (which
+  // dropped the deep-link on cold/slow loads). Runtime navigation still uses
+  // the `cd:open-note` event once Notes is mounted.
+  const [pendingNote] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("note");
+  });
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const noteId = params.get("note");
-    if (!noteId) return;
-    setNav("notes");
-    // Defer the open event so the lazy <Notes> chunk has its
-    // listener attached before the event fires.
-    const handle = window.setTimeout(() => {
-      window.dispatchEvent(
-        new CustomEvent<string>("cd:open-note", { detail: noteId }),
-      );
-    }, 200);
-    return () => window.clearTimeout(handle);
-  }, []);
+    if (pendingNote) setNav("notes");
+  }, [pendingNote]);
 
   // `?` opens the help modal when the user isn't typing. Listen to the
   // bell's "View all activity →" deep-link too so a click in the dropdown
@@ -193,7 +193,7 @@ export function Shell() {
                 </CenteredPane>
               }
             >
-              <Notes />
+              <Notes initialNoteId={pendingNote} />
             </Suspense>
           )}
           {nav === "activity" && <Activity />}
@@ -253,6 +253,16 @@ export function Shell() {
 }
 
 const DENSITY_STORAGE_KEY = "cd:files:density";
+const VIEW_STORAGE_KEY = "cd:files:view";
+
+function readView(): ViewMode {
+  if (typeof window === "undefined") return "grid";
+  try {
+    return window.localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "grid";
+  } catch {
+    return "grid";
+  }
+}
 
 function readQueryFromUrl(): string {
   if (typeof window === "undefined") return "";

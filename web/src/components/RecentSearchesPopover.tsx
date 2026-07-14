@@ -48,7 +48,10 @@ export function RecentSearchesPopover({
   onActiveOptionChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [activeIdx, setActiveIdx] = useState(0);
+  // -1 = nothing pre-highlighted. Enter only picks a recent once the user has
+  // actually arrowed into the list; a bare Enter on freshly-typed text falls
+  // through to the input's own commit instead of hijacking to recents[0].
+  const [activeIdx, setActiveIdx] = useState(-1);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -56,9 +59,9 @@ export function RecentSearchesPopover({
     return recents.filter((r) => r.query.toLowerCase().includes(q));
   }, [recents, query]);
 
-  // Reset highlight when the list changes.
+  // Reset highlight when the list changes — back to "nothing selected".
   useEffect(() => {
-    setActiveIdx(0);
+    setActiveIdx(-1);
   }, [filtered.length]);
 
   // Echo the highlighted option's DOM id to the caller so the input
@@ -66,7 +69,7 @@ export function RecentSearchesPopover({
   // announce the highlighted item as the user arrows through.
   useEffect(() => {
     if (!onActiveOptionChange) return;
-    if (!open || filtered.length === 0) {
+    if (!open || filtered.length === 0 || activeIdx < 0) {
       onActiveOptionChange(null);
       return;
     }
@@ -81,15 +84,16 @@ export function RecentSearchesPopover({
       if (filtered.length === 0 && e.key !== "Escape") return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setActiveIdx((i) => (i + 1) % filtered.length);
+        setActiveIdx((i) => (i < 0 ? 0 : (i + 1) % filtered.length));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setActiveIdx((i) => (i - 1 + filtered.length) % filtered.length);
+        setActiveIdx((i) => (i < 0 ? filtered.length - 1 : (i - 1 + filtered.length) % filtered.length));
       } else if (e.key === "Enter") {
+        // Only hijack Enter when the user has arrowed onto a recent. With
+        // nothing highlighted, let the input commit the text they just typed.
+        if (activeIdx < 0) return;
         const picked = filtered[activeIdx];
         if (picked) {
-          // Prevent the input's onKeyDown from also firing a "commit"
-          // for the bare current query.
           e.preventDefault();
           onPick(picked);
         }

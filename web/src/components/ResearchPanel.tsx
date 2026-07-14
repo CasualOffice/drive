@@ -7,7 +7,7 @@
 // reasoning is transparent. When no provider is configured the backend reports
 // `available:false` and this shows a quiet hint, never an error.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Telescope, Search } from "lucide-react";
 import { researchQuestion, type AgentCitation } from "../api/client.ts";
 
@@ -36,24 +36,39 @@ const LABEL_STYLE: React.CSSProperties = {
 
 export function ResearchPanel({
   query,
+  workspace,
   onOpenFile,
 }: {
   query: string;
+  workspace: string | null;
   onOpenFile: (fileId: string) => void;
 }) {
   const [state, setState] = useState<State>({ kind: "idle" });
+  const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
 
-  // A new query invalidates any prior result — reset to the trigger.
+  // A new query invalidates any prior result AND cancels an in-flight run —
+  // otherwise a slow answer for the old question lands under the new query.
   useEffect(() => {
     setState({ kind: "idle" });
+    abortRef.current?.abort();
   }, [query]);
+
+  // Cancel on unmount too.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const run = async () => {
     const q = query.trim();
     if (!q) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const myRun = ++runIdRef.current;
     setState({ kind: "loading" });
     try {
-      const res = await researchQuestion(q);
+      const res = await researchQuestion(q, { workspace, signal: controller.signal });
+      // Ignore a result the user has already moved past.
+      if (controller.signal.aborted || myRun !== runIdRef.current) return;
       if (!res.available) {
         setState({ kind: "unavailable" });
         return;
@@ -65,7 +80,7 @@ export function ResearchPanel({
         searches: res.searches,
       });
     } catch {
-      setState({ kind: "error" });
+      if (!controller.signal.aborted) setState({ kind: "error" });
     }
   };
 
