@@ -1,4 +1,4 @@
-//! `drive` — the Casual Drive binary entry point.
+//! `dochub` — the Doc-Hub binary entry point.
 
 #![forbid(unsafe_code)]
 
@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
         backend = ?cfg.backend,
         db_url_scheme = %cfg.db_url.split(':').next().unwrap_or("?"),
         is_prod = cfg.is_prod,
-        "starting Casual Drive",
+        "starting Doc-Hub",
     );
 
     let db = Db::connect(&cfg.db_url).await?;

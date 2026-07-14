@@ -21,6 +21,27 @@ test("signing in lands on the shell with the seeded items visible", async ({ pag
   await expect(page.getByText(/^8 items$/)).toBeVisible();
 });
 
+test("operator-locked sign-in names the correct env var", async ({ page }) => {
+  // Runs after resetDemoState's clear-init-script, so the flag survives the
+  // wipe and the oidc/metadata demo handler reports password auth off.
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("cd-demo-auth-disabled", "1");
+    } catch {
+      /* ignored */
+    }
+  });
+  await page.goto("/");
+  // The message must name the backend's real env var — an operator who copies
+  // it must actually unlock sign-in. Regression guard for DRIVE_→DOCHUB_ drift.
+  await expect(page.getByText(/DOCHUB_ALLOW_PASSWORD_AUTH=true/)).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.getByText(/DRIVE_ALLOW_PASSWORD_AUTH/)).toHaveCount(0);
+  // Password fields are gone in the locked state.
+  await expect(page.getByPlaceholder("Password")).toHaveCount(0);
+});
+
 test("sign-out returns to the sign-in card", async ({ page }) => {
   await signInDemo(page);
   // No avatar dropdown in v0 — flip the demo's persisted state directly

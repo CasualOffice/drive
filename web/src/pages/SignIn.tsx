@@ -377,7 +377,7 @@ export function SignIn() {
             }}
           >
             Sign-in is disabled. Ask the operator to set
-            {" "}<code style={kbdStyle()}>DRIVE_ALLOW_PASSWORD_AUTH=true</code>{" "}
+            {" "}<code style={kbdStyle()}>DOCHUB_ALLOW_PASSWORD_AUTH=true</code>{" "}
             or configure an OIDC provider.
           </div>
         )}

@@ -1,4 +1,4 @@
-//! HTTP layer for Casual Drive. Assembles the Axum router that serves both
+//! HTTP layer for Doc-Hub. Assembles the Axum router that serves both
 //! the app origin (`drive.<host>`) and the user-content origin
 //! (`usercontent-drive.<host>`) from one binary.
 //!

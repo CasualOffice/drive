@@ -37,7 +37,7 @@ fn serve_path(path: &str) -> Response {
     }
     // No index.html means the SPA hasn't been built yet — return a small
     // placeholder so dev clicks don't 404 silently.
-    let placeholder = b"<!doctype html><meta charset=utf-8><title>Casual Drive</title>\
+    let placeholder = b"<!doctype html><meta charset=utf-8><title>Doc-Hub</title>\
         <p style=\"font-family:system-ui;color:#666;padding:32px;\">\
         SPA is not built. Run <code>pnpm --filter casual-drive-web build</code> first.</p>";
     let mut r: Response = (StatusCode::OK, placeholder.as_ref()).into_response();

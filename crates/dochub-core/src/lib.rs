@@ -1,5 +1,5 @@
 //! Domain types, errors, IDs, and runtime configuration shared across the
-//! Casual Drive workspace.
+//! Doc-Hub workspace.
 //!
 //! This crate depends only on `dochub-crypto` — the leaf crypto crate, which
 //! itself has no workspace dependencies — so `Config` can hold the master KEK

@@ -568,8 +568,8 @@ function primaryAction(
 // `handoffToEditor` (WOPI new-tab path via `openInEditor`) used to be
 // the primary action for `.docx` / `.xlsx`. Replaced by the in-Drive
 // fullscreen route in ED1 gap (a) — `openInFullscreen` above. The
-// WOPI path stays in `crates/drive-wopi` for third-party / cross-
-// origin clients; Drive's own SPA no longer reaches for it.
+// WOPI path stays in `crates/dochub-wopi` for third-party / cross-
+// origin clients; Doc-Hub's own SPA no longer reaches for it.
 
 function labelForKind(k: ReturnType<typeof inferKind>): string {
   switch (k) {

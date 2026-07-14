@@ -656,6 +656,18 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     });
     return { csrf_token: "demo-csrf" } as unknown as T;
   }
+  if (p === "/api/auth/oidc/metadata" && method === "GET") {
+    // Password auth is on by default so the demo's sign-in card works. Setting
+    // `cd-demo-auth-disabled=1` flips it off to preview the operator-locked
+    // state (guards the DOCHUB_ALLOW_PASSWORD_AUTH copy in SignIn).
+    let disabled = false;
+    try {
+      disabled = window.localStorage.getItem("cd-demo-auth-disabled") === "1";
+    } catch {
+      /* storage blocked — default to enabled */
+    }
+    return { enabled: false, allow_password_auth: !disabled } as unknown as T;
+  }
   if (p === "/api/auth/change-password" && method === "POST") {
     const body = init.json as { old_password: string; new_password: string };
     if (!body?.new_password || body.new_password.length < 12) {
