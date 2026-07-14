@@ -38,6 +38,12 @@ interface Props {
   resetKey?: unknown;
   /** Names the surface in the console log — eases triage. */
   surface?: string;
+  /** When set, the fallback shows an escape button that hard-navigates here.
+   * Use on full-screen routes (e.g. the editor) where "reload" alone strands
+   * the user — a broken editor chunk needs a way back to the Drive. */
+  homeHref?: string;
+  /** Label for the `homeHref` button. Defaults to "Back to Drive". */
+  homeLabel?: string;
 }
 
 interface State {
@@ -52,6 +58,7 @@ export class ErrorBoundary extends Component<Props, State> {
     this.state = { error: null, resetKey: props.resetKey };
     this.retry = this.retry.bind(this);
     this.reload = this.reload.bind(this);
+    this.goHome = this.goHome.bind(this);
   }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
@@ -82,6 +89,13 @@ export class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   }
 
+  goHome() {
+    // Hard navigation, not SPA push: a broken lazy chunk needs a fresh
+    // document load to fetch the current manifest, and the boundary has no
+    // router handle anyway.
+    window.location.assign(this.props.homeHref ?? "/");
+  }
+
   render() {
     const { error } = this.state;
     if (!error) return this.props.children;
@@ -98,7 +112,12 @@ export class ErrorBoundary extends Component<Props, State> {
           <h2 style={titleStyle}>{title}</h2>
           <p style={bodyStyle}>{body}</p>
           <div style={actionsStyle}>
-            {!chunk && (
+            {this.props.homeHref && (
+              <button type="button" onClick={this.goHome} style={secondaryBtn}>
+                {this.props.homeLabel ?? "Back to Drive"}
+              </button>
+            )}
+            {!chunk && !this.props.homeHref && (
               <button type="button" onClick={this.retry} style={secondaryBtn}>
                 Try again
               </button>

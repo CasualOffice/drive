@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Toaster } from "sonner";
 
 import { AmbientGround } from "./components/AmbientGround.tsx";
+import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { AuthProvider, useAuth } from "./auth/AuthContext.tsx";
 import { FileFullscreen } from "./pages/FileFullscreen.tsx";
 import { InviteAccept } from "./pages/InviteAccept.tsx";
@@ -95,14 +96,30 @@ function Router() {
   }
   if (status.kind === "needs-setup") return <Setup />;
   if (status.kind !== "authed") return <SignIn />;
-  // Authed paths.
+  // Authed full-screen routes. These sit OUTSIDE the Shell (no sidebar to
+  // preserve) and lazy-load the heaviest chunks in the app (~2.5 MB editor
+  // bundles) — the single most likely lazy-load to fail on a flaky network or
+  // after a redeploy. Wrap each so a chunk failure offers a targeted "Back to
+  // Drive" escape instead of stranding the user on a broken editor. `resetKey`
+  // is the pathname so opening a different document clears a prior crash.
+  const path = window.location.pathname;
   const historyId = historyRouteId();
-  if (historyId) return <VersionHistoryPage fileId={historyId} />;
+  if (historyId) return editorRoute(<VersionHistoryPage fileId={historyId} />, path);
   const editId = editRouteId();
-  if (editId) return <FileFullscreen fileId={editId} />;
+  if (editId) return editorRoute(<FileFullscreen fileId={editId} />, path);
   const fileId = fileRouteId();
-  if (fileId) return <FileFullscreen fileId={fileId} />;
+  if (fileId) return editorRoute(<FileFullscreen fileId={fileId} />, path);
   return <Shell />;
+}
+
+/** Wrap a full-screen editor/history route in an error boundary with a
+ * back-to-Drive escape (see the call sites for why). */
+function editorRoute(el: ReactNode, path: string) {
+  return (
+    <ErrorBoundary surface="editor" resetKey={path} homeHref="/" homeLabel="Back to Drive">
+      {el}
+    </ErrorBoundary>
+  );
 }
 
 export function App() {
