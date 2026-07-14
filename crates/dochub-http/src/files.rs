@@ -816,23 +816,7 @@ async fn upload_file(
 
     let size = bytes.len() as u64;
 
-    // Quota check — only when the caller's user row carries one (None
-    // means unlimited, the v0 default for the seeded admin).
-    let users = dochub_db::UserRepo::new(&s.db);
-    let me = users
-        .find_by_id(&session.user_id)
-        .await
-        .map_err(|e| FilesError::Internal(e.to_string()))?;
-    if let Some(quota) = me.quota_bytes {
-        let used = users
-            .used_bytes(&session.user_id)
-            .await
-            .map_err(|e| FilesError::Internal(e.to_string()))?;
-        if used + size > quota {
-            return Err(FilesError::QuotaExceeded { used, quota });
-        }
-    }
-
+    // Resolve the destination workspace first — the quota is scoped to it.
     let workspace_id = crate::workspaces::resolve_active_workspace(
         &s.db,
         &session.user_id,
@@ -840,6 +824,26 @@ async fn upload_file(
     )
     .await
     .map_err(|e| FilesError::Internal(format!("workspace: {e:?}")))?;
+
+    // Quota check — per-workspace storage cap (§12). Count the WORKSPACE's
+    // total usage (all members' files), not just this uploader's, so the
+    // proxy path enforces the same accounting as the direct-upload path and
+    // the two can't diverge. Only applies when the user row carries a quota
+    // (None = unlimited, the v0 default for the seeded admin).
+    let users = dochub_db::UserRepo::new(&s.db);
+    let me = users
+        .find_by_id(&session.user_id)
+        .await
+        .map_err(|e| FilesError::Internal(e.to_string()))?;
+    if let Some(quota) = me.quota_bytes {
+        let used = FileRepo::new(&s.db)
+            .workspace_used_bytes(&workspace_id)
+            .await
+            .map_err(|e| FilesError::Internal(e.to_string()))?;
+        if used + size > quota {
+            return Err(FilesError::QuotaExceeded { used, quota });
+        }
+    }
 
     // Root uploads (no parent folder) need create on the workspace itself.
     if parent_id.is_none() {

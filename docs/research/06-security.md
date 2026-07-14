@@ -106,6 +106,8 @@ Each H2 carries **Rule / Why / How / Phase**. The threat model, OWASP walkthroug
 
 **How.** Per-request body limit via Axum `RequestBodyLimitLayer` (default 100 MiB, configurable — documents don't need gigabytes). Per-workspace quota checked pre-write and on stream completion. Per-IP rate limit via [`tower_governor`](https://crates.io/crates/tower_governor) (GCRA): auth 10/min/IP, upload 30/min/IP, download 300/min/IP, search 120/min/IP.
 
+**Quota accounting (both upload paths, identical).** The cap is the acting user's `users.quota_bytes`; the *usage* counted against it is the destination **workspace's** total (`FileRepo::workspace_used_bytes`, which counts in-flight `uploading` rows via `expected_size`), never the uploader's per-user file sum. Enforced on the proxy multipart path (pre-write, `files::upload_file`) and the direct-to-storage path (presign pre-check + authoritative re-check at `complete`, §10-direct-upload). The two paths share this accounting so they can't diverge — a past bug where the proxy path counted per-user (`used_bytes`) while direct counted per-workspace let the same operation be enforced two different ways. *Residual:* the admin panel (`GET /api/admin/users`) still displays per-user `used_bytes`; aligning that read-only view to per-workspace-owned usage is a tracked follow-up (display only, no enforcement impact).
+
 **Phase.** v0 must-have.
 
 ---

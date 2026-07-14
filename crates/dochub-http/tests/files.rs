@@ -515,6 +515,77 @@ async fn upload_rejects_when_over_quota() {
 }
 
 #[tokio::test]
+async fn upload_quota_is_scoped_per_workspace_not_per_user() {
+    // Quota is per-workspace (§12): the SAME user's usage in one workspace
+    // must not count against their upload to a DIFFERENT workspace, and the
+    // proxy path must accumulate the whole workspace's usage (not just this
+    // uploader's files) — the same accounting the direct-upload path uses.
+    // Under the old per-user accounting the second upload here would be
+    // refused.
+    let state = fixture().await;
+    let user = UserRepo::new(&state.db)
+        .find_by_username("admin")
+        .await
+        .unwrap();
+    UserRepo::new(&state.db)
+        .set_quota(&user.id, Some(150))
+        .await
+        .unwrap();
+    // A second workspace the admin owns.
+    let ws2 = WorkspaceRepo::new(&state.db)
+        .insert("Team", WorkspaceKind::Team, &user.id)
+        .await
+        .unwrap();
+
+    let app = router(state);
+    let cookie = sign_in(&app).await;
+    let payload = vec![b'x'; 100];
+    let boundary = "----wsquota";
+
+    let upload_to = |ws: Option<&str>| {
+        let mut fields = vec![
+            MultipartField::Text("parent_id", ""),
+            MultipartField::File("file", "a.txt", "text/plain", &payload),
+        ];
+        if let Some(id) = ws {
+            fields.insert(1, MultipartField::Text("workspace_id", id));
+        }
+        let body = build_multipart(boundary, &fields);
+        app.clone().oneshot(auth_req(
+            "POST",
+            "/api/files",
+            &cookie,
+            Some(&format!("multipart/form-data; boundary={boundary}")),
+            Body::from(body),
+        ))
+    };
+
+    // 100 of 150 bytes in the default (personal) workspace.
+    assert!(
+        upload_to(None).await.unwrap().status().is_success(),
+        "personal-workspace upload within quota"
+    );
+
+    // Global usage is now 100, but workspace 2 is empty. Per-user accounting
+    // (100 + 100 > 150) would reject; per-workspace accepts.
+    assert!(
+        upload_to(Some(&ws2.id))
+            .await
+            .unwrap()
+            .status()
+            .is_success(),
+        "an empty second workspace must accept the upload under per-workspace quota"
+    );
+
+    // The workspace's OWN total is still capped: ws2 now holds 100, +100 > 150.
+    assert_eq!(
+        upload_to(Some(&ws2.id)).await.unwrap().status(),
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "the per-workspace cap still applies within a workspace"
+    );
+}
+
+#[tokio::test]
 async fn upload_throttles_burst_with_429_and_retry_after() {
     use dochub_http::{RateLimitConfig, RateLimiter};
     use std::sync::Arc;
