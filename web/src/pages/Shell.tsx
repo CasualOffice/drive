@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext.tsx";
 import { CommandPalette } from "../components/CommandPalette.tsx";
 import { DemoBanner } from "../components/DemoBanner.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
+import { ErrorBoundary } from "../components/ErrorBoundary.tsx";
 import { HelpModal } from "../components/HelpModal.tsx";
 import { Logo, Wordmark } from "../components/Logo.tsx";
 import { Sidebar, type NavId } from "../components/Sidebar.tsx";
@@ -162,6 +163,10 @@ export function Shell() {
           </div>
         )}
         <main style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          {/* One crashing surface (or a stale lazy-chunk after a redeploy)
+              must not take down the sidebar/topbar. Keyed by `nav` so
+              switching tabs clears a caught error and remounts cleanly. */}
+          <ErrorBoundary resetKey={nav} surface={nav}>
           {nav === "home" && (
             <Files
               view={view}
@@ -199,6 +204,7 @@ export function Shell() {
           {nav === "activity" && <Activity />}
           {nav === "admin" && <Admin onNavigate={(t) => setNav(t)} />}
           {nav === "settings" && <Settings />}
+          </ErrorBoundary>
         </main>
       </div>
       </div>
