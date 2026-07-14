@@ -184,7 +184,7 @@ Each H2 carries **Rule / Why / How / Phase**. The threat model, OWASP walkthroug
 
 **The framing catch.** Embedded editors run inside the SPA on the app origin (same-origin iframes) — `frame-ancestors 'self'` covers them. Only the **optional** WOPI interop path needs an editor-owned iframe; those interop routes get a configurable `frame-ancestors <editor origins>` override. The user-content origin allows `frame-ancestors 'self' <editor origins>` for inline previews.
 
-**How.** `tower-http::set_header` stack + per-route overrides for the WOPI interop routes.
+**How.** `tower-http::set_header` stack (`SetResponseHeaderLayer`) on the app-origin router in `crates/dochub-http/src/lib.rs`, header values in `crates/dochub-http/src/headers.rs`, + per-route overrides for the WOPI interop routes. HSTS is **production-gated** (`config.is_prod`): the layer's make returns `None` outside prod, so a plain-http dev/test server never emits it and can't wedge a browser onto a non-existent localhost TLS endpoint. Covered by `tests/two_origin.rs` (`app_origin_sets_hsts_in_production`, `app_origin_omits_hsts_outside_production`).
 
 **Phase.** v0 must-have.
 

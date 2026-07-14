@@ -69,7 +69,10 @@ use dochub_wopi::WopiAppState;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::{
-    headers::{APP_CSP, H_CSP, H_PP, H_REF, H_XCTO, PERMISSIONS_POLICY, REFERRER_POLICY, UCN_CSP},
+    headers::{
+        APP_CSP, HSTS, H_CSP, H_HSTS, H_PP, H_REF, H_XCTO, PERMISSIONS_POLICY, REFERRER_POLICY,
+        UCN_CSP,
+    },
     host_dispatch::{host_dispatch, Origin},
 };
 
@@ -272,6 +275,13 @@ fn app_origin_router(state: HttpState) -> Router {
         .layer(SetResponseHeaderLayer::overriding(
             H_PP,
             HeaderValue::from_static(PERMISSIONS_POLICY),
+        ))
+        // HSTS — production only. `None` makes the layer a no-op so the dev/test
+        // http server never pins localhost to HTTPS. `overriding` with an
+        // `Option` keeps the layer-stack type identical to the prod branch.
+        .layer(SetResponseHeaderLayer::overriding(
+            H_HSTS,
+            state.config.is_prod.then(|| HeaderValue::from_static(HSTS)),
         ))
         // Host-header dispatch (421 on wrong origin) — outermost so even
         // wrong-host requests get rejected before any other middleware fires.

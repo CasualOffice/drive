@@ -15,8 +15,15 @@ pub const UCN_CSP: &str = "sandbox; default-src 'none'";
 pub const REFERRER_POLICY: &str = "strict-origin-when-cross-origin";
 pub const PERMISSIONS_POLICY: &str = "camera=(), microphone=(), geolocation=(), interest-cohort=()";
 
+/// HSTS for the app origin — two years, subdomains, preload-eligible (docs/
+/// research/06-security.md §11). Emitted **only in production**: it pins HTTPS,
+/// so sending it in a local http dev session would wedge the browser onto a
+/// non-existent localhost TLS endpoint.
+pub const HSTS: &str = "max-age=63072000; includeSubDomains; preload";
+
 pub const H_CSP: HeaderName = HeaderName::from_static("content-security-policy");
 pub const H_XCTO: HeaderName = HeaderName::from_static("x-content-type-options");
 pub const H_REF: HeaderName = HeaderName::from_static("referrer-policy");
 pub const H_PP: HeaderName = HeaderName::from_static("permissions-policy");
 pub const H_CORP: HeaderName = HeaderName::from_static("cross-origin-resource-policy");
+pub const H_HSTS: HeaderName = HeaderName::from_static("strict-transport-security");

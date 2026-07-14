@@ -22,6 +22,10 @@ const APP: &str = "drive.test";
 const UCN: &str = "usercontent-drive.test";
 
 async fn fixture() -> HttpState {
+    fixture_with(false).await
+}
+
+async fn fixture_with(is_prod: bool) -> HttpState {
     let storage = Storage::memory([1u8; 32]).unwrap();
     storage
         .put("foo/bar.txt", Bytes::from_static(b"hello two-origin"), None)
@@ -59,7 +63,7 @@ async fn fixture() -> HttpState {
         admin_user: "admin".into(),
         admin_password_hash: "$argon2id$test".into(),
         recipient_footer: true,
-        is_prod: false,
+        is_prod,
         sheet_origin: None,
         document_origin: None,
         collab_url: None,
@@ -328,4 +332,54 @@ async fn app_origin_carries_strict_csp() {
         .unwrap();
     assert!(csp.contains("frame-ancestors 'none'"));
     assert!(csp.contains("default-src 'self'"));
+}
+
+#[tokio::test]
+async fn app_origin_sets_hsts_in_production() {
+    // In prod, every app-origin response pins HTTPS (docs/research/06-security.md
+    // §11). Checked on an unauthenticated route so it's known to apply globally.
+    let app = router(fixture_with(true).await);
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(
+        r.headers()
+            .get("strict-transport-security")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "max-age=63072000; includeSubDomains; preload"
+    );
+}
+
+#[tokio::test]
+async fn app_origin_omits_hsts_outside_production() {
+    // Dev/test runs over plain http; sending HSTS would wedge a browser onto a
+    // non-existent localhost TLS endpoint, so it must be absent.
+    let app = router(fixture().await);
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert!(
+        r.headers().get("strict-transport-security").is_none(),
+        "HSTS must not be emitted outside production"
+    );
 }
