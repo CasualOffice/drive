@@ -35,7 +35,9 @@ pub async fn access_log(req: Request, next: Next) -> Response {
     let method = req.method().clone();
     let uri = req.uri().clone();
     let request_id = request_id(req.headers());
-    let client_ip = client_ip(req.headers());
+    // Same extractor the auth handlers use for audit source IPs — one source
+    // of truth for "who is the client" (see dochub_auth::client_ip).
+    let client_ip = dochub_auth::client_ip(req.headers());
 
     // Pull the AuthSession out of extensions *after* the handler has
     // run, so we capture the resolved user_id even if auth middleware
@@ -97,25 +99,6 @@ pub async fn access_log(req: Request, next: Next) -> Response {
     }
 
     resp
-}
-
-/// Pull the first non-empty `X-Forwarded-For` hop, else `X-Real-IP`,
-/// else nothing. We don't read the connection-level peer address
-/// because the SPA terminates at a reverse proxy in every realistic
-/// deployment and the connection's peer is the proxy.
-fn client_ip(headers: &HeaderMap) -> Option<String> {
-    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(first) = xff.split(',').next() {
-            let trimmed = first.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-    headers
-        .get("x-real-ip")
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_string)
 }
 
 /// Use the upstream `X-Request-Id` if the reverse proxy sets one

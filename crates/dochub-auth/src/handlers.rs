@@ -33,8 +33,13 @@ pub(crate) struct SignInResp {
 
 pub(crate) async fn sign_in(
     State(state): State<AuthState>,
+    headers: HeaderMap,
     Json(body): Json<SignInBody>,
 ) -> Result<Response, AuthError> {
+    // Source IP for the audit trail — a failed-login investigation is useless
+    // without it. Captured once; recorded on every branch below.
+    let ip = crate::client_ip(&headers);
+
     // Phase 3 §12 — password sign-in can be disabled deployment-wide
     // once OIDC is the only sanctioned path. We return 404 (not 403) so
     // scrapers can't tell the difference between a hidden route and a
@@ -58,7 +63,7 @@ pub(crate) async fn sign_in(
                 target_kind: Some("user".into()),
                 target_id: None,
                 target_name: Some(body.username.clone()),
-                ip_address: None,
+                ip_address: ip.clone(),
                 metadata: None,
             },
         );
@@ -90,7 +95,7 @@ pub(crate) async fn sign_in(
                     target_kind: Some("user".into()),
                     target_id: None,
                     target_name: Some(body.username.clone()),
-                    ip_address: None,
+                    ip_address: ip.clone(),
                     metadata: None,
                 },
             );
@@ -127,7 +132,7 @@ pub(crate) async fn sign_in(
             target_kind: Some("session".into()),
             target_id: Some(sid.clone()),
             target_name: None,
-            ip_address: None,
+            ip_address: ip,
             metadata: None,
         },
     );
@@ -171,6 +176,7 @@ pub(crate) struct SetupAdminBody {
 /// Once the first admin exists, this endpoint returns 409 forever.
 pub(crate) async fn setup_admin(
     State(state): State<AuthState>,
+    headers: HeaderMap,
     Json(body): Json<SetupAdminBody>,
 ) -> Result<Response, AuthError> {
     let username = body.username.trim();
@@ -236,7 +242,7 @@ pub(crate) async fn setup_admin(
             target_kind: Some("user".into()),
             target_id: Some(user.id.clone()),
             target_name: Some(user.username.clone()),
-            ip_address: None,
+            ip_address: crate::client_ip(&headers),
             metadata: None,
         },
     );
@@ -262,6 +268,7 @@ pub(crate) struct ChangePasswordBody {
 pub(crate) async fn change_password(
     State(state): State<AuthState>,
     session: AuthSession,
+    headers: HeaderMap,
     Json(body): Json<ChangePasswordBody>,
 ) -> Result<Response, AuthError> {
     // Minimum-viable password policy. Tightening this to NIST 800-63 happens
@@ -308,7 +315,7 @@ pub(crate) async fn change_password(
             target_kind: Some("user".into()),
             target_id: Some(user.id),
             target_name: Some(user.username),
-            ip_address: None,
+            ip_address: crate::client_ip(&headers),
             metadata: None,
         },
     );
@@ -321,7 +328,9 @@ pub(crate) async fn sign_out(
     session: AuthSession,
     headers: HeaderMap,
 ) -> Result<Response, AuthError> {
-    let _ = &headers; // CSRF check is enforced by the router middleware in dochub-http.
+    // CSRF is enforced by the router middleware in dochub-http; here we only
+    // read the forwarding headers for the audit source IP.
+    let ip = crate::client_ip(&headers);
     let sessions = SessionRepo::new(&state.db);
     sessions
         .delete(&session.session_id)
@@ -336,7 +345,7 @@ pub(crate) async fn sign_out(
             target_kind: Some("session".into()),
             target_id: Some(session.session_id),
             target_name: None,
-            ip_address: None,
+            ip_address: ip,
             metadata: None,
         },
     );

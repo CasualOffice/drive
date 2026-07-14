@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+mod client_addr;
 mod error;
 mod extractor;
 mod handlers;
@@ -22,6 +23,7 @@ mod state;
 mod throttle;
 mod token;
 
+pub use client_addr::client_ip;
 pub use error::AuthError;
 pub use extractor::{AuthIdentity, AuthSession, AuthVia, OptionalAuthSession};
 pub use handlers::build_session_cookie;

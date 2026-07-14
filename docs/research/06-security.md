@@ -172,6 +172,8 @@ Each H2 carries **Rule / Why / How / Phase**. The threat model, OWASP walkthroug
 
 **How.** Each audit row stores `prev_hash` = previous row's `content_hash`; `verify_chain` over the audit log detects any insertion/edit/deletion. Redact `Authorization`, `Cookie`, editor/WOPI tokens, `?access_token=` at the HTTP layer (`tower-http` `SetSensitiveHeadersLayer` + URL redactor). Body logging disabled; debug body logging refuses to start in prod. Schema: `{ts, actor_id, action, file_id?, version_seq?, ip, user_agent, result, prev_hash, content_hash}`. Exportable, offline-verifiable reports (§compliance).
 
+**Source IP.** Auth events (`auth.sign_in`, `auth.sign_in_failed`, `auth.sign_in_throttled`, `auth.sign_out`, `auth.password_changed`, `setup.admin_created`) record the client IP — a brute-force investigation is useless without it. The IP is the first `X-Forwarded-For` hop (else `X-Real-IP`) via the single shared extractor `dochub_auth::client_ip`, the same one the access log uses. **Trust model:** these headers are only as trustworthy as the reverse proxy that sets them; a deployment exposing the app directly (no proxy stripping inbound `X-Forwarded-For`) lets a client spoof the recorded IP — an operator deployment note, not a code defect. Covered by `tests/auth_ip.rs`.
+
 **Phase.** Append-only audit log = v0 (inherited). Hash-chaining the audit log = Phase 0. Exportable verifiable reports = Phase 4.
 
 ---
