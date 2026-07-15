@@ -13,7 +13,10 @@ pub mod extract;
 pub mod id;
 pub mod ingest;
 
-pub use config::{dev_master_kek, dev_master_kek_next, Backend, Config, ConfigError, OidcConfig};
+pub use config::{
+    app_origin_host_from_env, dev_master_kek, dev_master_kek_next, Backend, Config, ConfigError,
+    OidcConfig,
+};
 pub use error::DriveError;
 pub use extract::{extract_text, supports as supports_extraction, ExtractError};
 pub use id::{FileId, FolderId};

@@ -2,7 +2,10 @@
 
 #![forbid(unsafe_code)]
 
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
+use std::time::Duration;
 
 use dochub_auth::AuthState;
 use dochub_core::Config;
@@ -42,6 +45,13 @@ async fn main() -> anyhow::Result<()> {
         return run_verify_audit(&path);
     }
 
+    // Container HEALTHCHECK — probe the local `/healthz` and exit 0/1 without
+    // needing curl in the runtime image. Reads only DOCHUB_BIND (port) and
+    // DOCHUB_APP_ORIGIN (Host header), so it runs before `Config::from_env`.
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        return run_healthcheck();
+    }
+
     let cfg = Config::from_env()?;
 
     // Admin subcommands run to completion and exit — they never start the HTTP
@@ -51,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
         return match cmd.as_str() {
             "rotate-kek" => run_rotate_kek(&cfg).await,
             other => Err(anyhow::anyhow!(
-                "unknown subcommand: {other} (known: rotate-kek, verify-provenance, verify-audit)"
+                "unknown subcommand: {other} (known: rotate-kek, verify-provenance, verify-audit, healthcheck)"
             )),
         };
     }
@@ -302,6 +312,55 @@ async fn seed_admin_if_missing(db: &Db, cfg: &Config) -> Result<(), DbError> {
     }
 }
 
+/// Container HEALTHCHECK probe. Connects to the local `/healthz` on the bound
+/// port and exits 0 when it returns 200, non-zero otherwise. Deliberately
+/// dependency-free (raw TCP, no HTTP client) so the runtime image stays slim.
+fn run_healthcheck() -> anyhow::Result<()> {
+    let port = healthcheck_port(std::env::var("DOCHUB_BIND").ok().as_deref());
+    // Always probe the loopback: the server may bind 0.0.0.0, but the check
+    // runs inside the same container/network namespace.
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let timeout = Duration::from_secs(3);
+
+    // The host-dispatch middleware 421s any Host that doesn't match the app
+    // origin, so send the configured one (parsed straight from
+    // DOCHUB_APP_ORIGIN). Falls back to the loopback authority when unset.
+    let host =
+        dochub_core::app_origin_host_from_env().unwrap_or_else(|| format!("127.0.0.1:{port}"));
+
+    let mut stream = TcpStream::connect_timeout(&addr, timeout)?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    stream.write_all(
+        format!("GET /healthz HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes(),
+    )?;
+
+    let mut resp = String::new();
+    stream.read_to_string(&mut resp)?;
+    if healthcheck_ok(&resp) {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "healthcheck failed: {}",
+            resp.lines().next().unwrap_or("no response")
+        )
+    }
+}
+
+/// Extract the listen port from a `DOCHUB_BIND` value (`host:port`, incl. IPv6
+/// `[::]:port`), falling back to the 8080 default when unset or unparseable.
+fn healthcheck_port(bind: Option<&str>) -> u16 {
+    bind.and_then(|b| b.rsplit(':').next())
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(8080)
+}
+
+/// A `/healthz` response is healthy iff its status line is 200.
+fn healthcheck_ok(response: &str) -> bool {
+    let status = response.lines().next().unwrap_or_default();
+    status.starts_with("HTTP/1.1 200") || status.starts_with("HTTP/1.0 200")
+}
+
 /// Map a config-free meta flag to the text it should print, or `None` to fall
 /// through to normal startup. Pure + synchronous so it's unit-testable without
 /// spawning `main`.
@@ -322,6 +381,7 @@ fn help_text() -> String {
          \x20   dochub rotate-kek                       re-wrap workspace DEKs to DOCHUB_MASTER_KEY_NEXT\n\
          \x20   dochub verify-provenance <manifest.json>  verify a provenance manifest offline\n\
          \x20   dochub verify-audit <export.json>         verify an audit export offline\n\
+         \x20   dochub healthcheck                      probe local /healthz (container HEALTHCHECK)\n\
          \x20   dochub --version | -V                   print the version and exit\n\
          \x20   dochub --help | -h                      print this help and exit\n\
          \n\
@@ -417,6 +477,7 @@ mod tests {
             "rotate-kek",
             "verify-provenance",
             "verify-audit",
+            "healthcheck",
             "--version",
         ] {
             assert!(out.contains(cmd), "help should mention `{cmd}`");
@@ -429,6 +490,29 @@ mod tests {
         // swallowed by the meta-flag handler.
         assert_eq!(super::meta_arg_output(Some("rotate-kek")), None);
         assert_eq!(super::meta_arg_output(Some("verify-audit")), None);
+        assert_eq!(super::meta_arg_output(Some("healthcheck")), None);
         assert_eq!(super::meta_arg_output(None), None);
+    }
+
+    #[test]
+    fn healthcheck_port_parses_bind_or_defaults() {
+        assert_eq!(super::healthcheck_port(Some("0.0.0.0:8080")), 8080);
+        assert_eq!(super::healthcheck_port(Some("127.0.0.1:9000")), 9000);
+        assert_eq!(super::healthcheck_port(Some("[::]:7070")), 7070);
+        // Unset or unparseable → the documented 8080 default.
+        assert_eq!(super::healthcheck_port(None), 8080);
+        assert_eq!(super::healthcheck_port(Some("garbage")), 8080);
+        assert_eq!(super::healthcheck_port(Some("host:notaport")), 8080);
+    }
+
+    #[test]
+    fn healthcheck_ok_only_on_200_status_line() {
+        assert!(super::healthcheck_ok("HTTP/1.1 200 OK\r\n\r\nok"));
+        assert!(super::healthcheck_ok("HTTP/1.0 200 OK\r\n\r\nok"));
+        assert!(!super::healthcheck_ok(
+            "HTTP/1.1 503 Service Unavailable\r\n\r\n"
+        ));
+        assert!(!super::healthcheck_ok("HTTP/1.1 404 Not Found\r\n\r\n"));
+        assert!(!super::healthcheck_ok(""));
     }
 }

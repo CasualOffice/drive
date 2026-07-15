@@ -62,4 +62,10 @@ RUN mkdir -p /data && chown dochub:dochub /data
 
 USER dochub
 EXPOSE 8080
+
+# Liveness probe — the binary self-checks its local /healthz (no curl needed
+# in the slim image). Honours DOCHUB_BIND's port; defaults to 8080.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["/usr/local/bin/dochub", "healthcheck"]
+
 ENTRYPOINT ["/usr/local/bin/dochub"]
