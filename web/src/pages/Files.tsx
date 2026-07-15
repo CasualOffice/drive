@@ -11,6 +11,7 @@ import {
   Link2,
   Lock,
   MoreHorizontal,
+  RotateCw,
   ShieldAlert,
   ShieldCheck,
   Upload,
@@ -1497,7 +1498,20 @@ export function Files({
         )}
         {state.kind === "error" && (
           <div style={{ marginTop: 40 }}>
-            <EmptyState title="Couldn't load files." subtitle={state.message} />
+            <EmptyState
+              title="Couldn't load files."
+              subtitle={state.message}
+              tone="alarm"
+              role="alert"
+              primary={
+                <EmptyStateButton
+                  icon={<RotateCw size={14} strokeWidth={1.5} />}
+                  onClick={() => void refresh()}
+                >
+                  Try again
+                </EmptyStateButton>
+              }
+            />
           </div>
         )}
 

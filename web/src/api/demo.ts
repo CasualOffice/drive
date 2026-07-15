@@ -1193,6 +1193,16 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
 
   // ─── Folders ─────────────────────────────────────────────────────────
   if (p === "/api/folders/root/children" && method === "GET") {
+    // `cd-demo-force-error=1` makes the root listing fail so the Files
+    // load-error state (and its "Try again" retry) can be exercised in e2e.
+    // A retry after clearing the flag recovers.
+    let forceError = false;
+    try {
+      forceError = window.localStorage.getItem("cd-demo-force-error") === "1";
+    } catch {
+      /* storage blocked — proceed normally */
+    }
+    if (forceError) throw makeError(503, "demo: forced load error");
     return listChildren(null) as unknown as T;
   }
   const folderMatch = p.match(/^\/api\/folders\/([^/]+)$/);
