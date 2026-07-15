@@ -22,6 +22,7 @@ type State =
   | { kind: "password" }
   | { kind: "ready"; resolved: ResolvedShare }
   | { kind: "expired" }
+  | { kind: "error" }
   | { kind: "missing" };
 
 export function Recipient({ token }: { token: string }) {
@@ -41,9 +42,13 @@ export function Recipient({ token }: { token: string }) {
           setState({ kind: "password" });
         } else if (e.status === 410) {
           setState({ kind: "expired" });
+        } else if (!e.status || e.status >= 500) {
+          // Transient — a network drop or a 5xx, not an existence signal.
+          // Offer a retry instead of falsely claiming the link is gone.
+          setState({ kind: "error" });
         } else {
-          // 404 + everything else funnels into "missing" to avoid leaking
-          // existence of a share link.
+          // 404 + other client errors funnel into "missing" so a revoked or
+          // nonexistent link stays indistinguishable (no existence leak).
           setState({ kind: "missing" });
         }
       }
@@ -69,6 +74,9 @@ export function Recipient({ token }: { token: string }) {
         setWrongPwd(true);
       } else if (e.status === 410) {
         setState({ kind: "expired" });
+      } else if (!e.status || e.status >= 500) {
+        // Transient during unlock — retry rather than mislabel as missing.
+        setState({ kind: "error" });
       } else {
         setState({ kind: "missing" });
       }
@@ -100,6 +108,13 @@ export function Recipient({ token }: { token: string }) {
         {state.kind === "ready" && <ReadyCard resolved={state.resolved} token={token} />}
         {state.kind === "expired" && (
           <Notice title="This link has expired." body="The file owner can issue a new one." />
+        )}
+        {state.kind === "error" && (
+          <Notice
+            title="Something went wrong."
+            body="We couldn't reach the server. Check your connection and try again."
+            action={<SecondaryButton onClick={() => void attempt(null)}>Try again</SecondaryButton>}
+          />
         )}
         {state.kind === "missing" && (
           <Notice title="This link doesn't exist." body="The link may have been revoked, or the URL was mistyped." />
@@ -307,7 +322,15 @@ function PasswordGate({
   );
 }
 
-function Notice({ title, body }: { title: string; body: string }) {
+function Notice({
+  title,
+  body,
+  action,
+}: {
+  title: string;
+  body: string;
+  action?: React.ReactNode;
+}) {
   return (
     <div style={{ ...card(), padding: "32px 28px", textAlign: "center" }}>
       <h2
@@ -323,6 +346,7 @@ function Notice({ title, body }: { title: string; body: string }) {
         {title}
       </h2>
       <p style={{ margin: "10px 0 0", fontSize: "var(--text-sm)", color: "var(--muted)" }}>{body}</p>
+      {action && <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>{action}</div>}
     </div>
   );
 }

@@ -273,10 +273,31 @@ function loadState(): DemoState {
     signedIn: false,
     folders: seedFolders(),
     files: seedFiles(),
-    shares: [],
+    shares: seedShares(),
     events: seedEvents(),
     nextId: 1000,
   };
+}
+
+// One pre-existing share so the recipient page (/s/<token>) is demo-able out
+// of the box — and consistent with the seeded `share.access` event for
+// "Q2 planning.xlsx", which previously referenced a share that wasn't in state.
+function seedShares(): DemoShare[] {
+  const token = "demo-share-q2planning";
+  return [
+    {
+      id: "shr_seed_1",
+      token,
+      url: `/s/${token}`,
+      permissions: "view",
+      has_password: false,
+      expires_at: null,
+      created_at: new Date(Date.now() - 3 * 60_000).toISOString(),
+      last_accessed_at: null,
+      access_count: 0,
+      file_id: "f_quarter",
+    },
+  ];
 }
 
 function seedEvents(): DemoEvent[] {
@@ -1613,6 +1634,9 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
   const shareResolveMatch = p.match(/^\/api\/share\/([^/]+)$/);
   if (shareResolveMatch && method === "POST") {
     const token = decodeURIComponent(shareResolveMatch[1]);
+    // Force a 5xx when the demo error flag is set, to exercise the recipient
+    // page's transient-error + retry path (distinct from a 404 "missing" link).
+    if (forceErrorEnabled()) throw makeError(503, "demo: forced load error");
     const share = state.shares.find((s) => s.token === token);
     if (!share) throw makeError(404, "not found");
     if (share.expires_at && new Date(share.expires_at) < new Date()) {
