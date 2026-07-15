@@ -162,6 +162,8 @@ Each H2 carries **Rule / Why / How / Phase**. The threat model, OWASP walkthroug
 
 **How.** Sign `hmac-sha256(secret, "{key}|{exp_unix}|{method}")` → base64url, verify with `subtle::ConstantTimeEq`. TTL 5 min default. S3/MinIO/R2/B2 use native pre-signed GETs where available. Share bytes are decrypted server-side before serving (the user-content origin still gets plaintext of a document the share explicitly exposes — the share is the authorisation).
 
+**Share-link password gates the bytes, not just the preview.** A password-protected share must prove the password at *download*, not only at the metadata `resolve` step — otherwise the `/s/{token}` URL alone would fetch the file, making the password cosmetic. `POST /api/share/{token}` (resolve) verifies the Argon2 password and, on success, mints a short-lived (`15 min`) HMAC unlock proof — `base64url({share_id}\n{exp} ‖ HMAC-SHA256(signed_url_hmac_secret, …))` — bound to that share and verified in constant time (`Hmac::verify_slice`). `GET /api/share/{token}/download` requires a valid proof (`?u=…`, replayed transparently by the SPA — no re-prompt) for password-gated links; links without a password download on the token alone as before. Covered by `tests/share.rs::password_share_download_requires_unlock` + `share::tests` unit tests.
+
 **Phase.** v0 must-have.
 
 ---

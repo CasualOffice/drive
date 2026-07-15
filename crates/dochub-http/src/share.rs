@@ -22,6 +22,9 @@ use axum::{
     Json, Router,
 };
 use base64::Engine as _;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
 use dochub_auth::{hash_password, verify_password, AuthSession};
 use dochub_authz::{Permission, ResourceRef};
 use dochub_db::{
@@ -406,12 +409,18 @@ enum Resolved {
         file: RecipientFile,
         download_url: String,
         permissions: String,
+        /// Short-lived proof the password was satisfied; the SPA replays it to
+        /// the download endpoint. `None` for links without a password.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        unlock: Option<String>,
     },
     Folder {
         folder: RecipientFolder,
         files: Vec<RecipientFile>,
         folders: Vec<RecipientFolder>,
         permissions: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        unlock: Option<String>,
     },
 }
 
@@ -436,6 +445,14 @@ async fn resolve_share(
             return Err(ShareError::PasswordRequired);
         }
     }
+
+    // Password satisfied (or none required) — mint the download unlock so the
+    // byte-fetch endpoint can require the same proof. Only password-gated
+    // links need it; unprotected links download on the token alone as before.
+    let unlock = link.password_hash.as_ref().map(|_| {
+        let exp = time::OffsetDateTime::now_utc().unix_timestamp() + UNLOCK_TTL_SECS;
+        mint_unlock(&s.config.signed_url_hmac_secret, &link.id, exp)
+    });
 
     if let Some(folder_id) = link.folder_id.as_deref() {
         let folders = FolderRepo::new(&s.db);
@@ -502,6 +519,7 @@ async fn resolve_share(
                 })
                 .collect(),
             permissions: link.permissions,
+            unlock,
         }));
     }
 
@@ -542,6 +560,7 @@ async fn resolve_share(
         },
         download_url: format!("/api/share/{}/download", link.token),
         permissions: link.permissions,
+        unlock,
     }))
 }
 
@@ -552,6 +571,9 @@ pub(crate) struct DownloadQuery {
     /// actually belongs to that folder before signing the URL. File
     /// shares ignore this — they always serve the link's `file_id`.
     pub file_id: Option<String>,
+    /// Unlock proof (`?u=…`) minted by `resolve_share` after a successful
+    /// password check. Required for password-gated links; ignored otherwise.
+    pub u: Option<String>,
 }
 
 async fn download_share(
@@ -567,10 +589,23 @@ async fn download_share(
     if link.is_expired() {
         return Err(ShareError::Expired);
     }
-    // Password-gated links require the password to flow through
-    // POST /api/share/{token} first — once the SPA has shown a download
-    // button to the user, password-gating the byte fetch as well would be
-    // hostile UX. The token + active link is the access control here.
+
+    // Password-gated links must prove the password was satisfied here too —
+    // otherwise the token alone would fetch the bytes and the password would
+    // protect only the preview metadata, not the file. `resolve_share` issues
+    // a short-lived `unlock` proof after a correct password; the SPA replays
+    // it as `?u=…`. No re-prompt: the proof rides along transparently. Links
+    // without a password download on the token alone, as before.
+    if link.password_hash.is_some() {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let ok = query
+            .u
+            .as_deref()
+            .is_some_and(|u| verify_unlock(&s.config.signed_url_hmac_secret, &link.id, u, now));
+        if !ok {
+            return Err(ShareError::PasswordRequired);
+        }
+    }
 
     let files = FileRepo::new(&s.db);
     let file_id = if let Some(fid) = link.file_id.as_deref() {
@@ -639,6 +674,52 @@ fn mint_token() -> String {
     let mut bytes = [0u8; 16];
     OsRng.fill_bytes(&mut bytes);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Unlock proof TTL — long enough to click "download" after entering the
+/// password, short enough that a leaked proof ages out quickly.
+const UNLOCK_TTL_SECS: i64 = 900; // 15 min
+
+/// Mint a share-unlock proof — `base64url(payload ‖ HMAC(payload))` where
+/// payload is `{share_id}\n{exp_unix}`. Issued only after a password-gated
+/// `resolve` succeeds so the byte-download endpoint can require proof the
+/// password was actually satisfied (otherwise the token alone would fetch the
+/// bytes, defeating the password — see `download_share`).
+fn mint_unlock(secret: &[u8; 32], share_id: &str, exp_unix: i64) -> String {
+    let payload = format!("{share_id}\n{exp_unix}");
+    let mut mac = HmacSha256::new_from_slice(secret).expect("hmac key length");
+    mac.update(payload.as_bytes());
+    let tag = mac.finalize().into_bytes();
+    let mut combined = Vec::with_capacity(payload.len() + 32);
+    combined.extend_from_slice(payload.as_bytes());
+    combined.extend_from_slice(&tag);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(combined)
+}
+
+/// Verify a share-unlock proof for `share_id`: constant-time HMAC check (via
+/// `verify_slice`), bound to this share, and not expired.
+fn verify_unlock(secret: &[u8; 32], share_id: &str, token: &str, now_unix: i64) -> bool {
+    let Ok(raw) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(token) else {
+        return false;
+    };
+    if raw.len() <= 32 {
+        return false;
+    }
+    let (payload, tag) = raw.split_at(raw.len() - 32);
+    let mut mac = HmacSha256::new_from_slice(secret).expect("hmac key length");
+    mac.update(payload);
+    if mac.verify_slice(tag).is_err() {
+        return false;
+    }
+    let Ok(text) = std::str::from_utf8(payload) else {
+        return false;
+    };
+    let Some((sid, exp_str)) = text.split_once('\n') else {
+        return false;
+    };
+    sid == share_id && exp_str.parse::<i64>().is_ok_and(|exp| exp >= now_unix)
 }
 
 fn rfc3339(t: time::OffsetDateTime) -> String {
@@ -733,4 +814,49 @@ pub(crate) fn router(state: HttpState) -> Router {
         .route("/api/share/{token}", post(resolve_share))
         .route("/api/share/{token}/download", get(download_share))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{mint_unlock, verify_unlock, UNLOCK_TTL_SECS};
+
+    const SECRET: [u8; 32] = [7u8; 32];
+    const SHARE: &str = "share_01HXY";
+    const NOW: i64 = 1_800_000_000;
+
+    #[test]
+    fn valid_unlock_verifies() {
+        let tok = mint_unlock(&SECRET, SHARE, NOW + UNLOCK_TTL_SECS);
+        assert!(verify_unlock(&SECRET, SHARE, &tok, NOW));
+    }
+
+    #[test]
+    fn expired_unlock_is_rejected() {
+        let tok = mint_unlock(&SECRET, SHARE, NOW - 1);
+        assert!(!verify_unlock(&SECRET, SHARE, &tok, NOW));
+    }
+
+    #[test]
+    fn unlock_is_bound_to_its_share() {
+        let tok = mint_unlock(&SECRET, SHARE, NOW + UNLOCK_TTL_SECS);
+        assert!(!verify_unlock(&SECRET, "share_OTHER", &tok, NOW));
+    }
+
+    #[test]
+    fn wrong_secret_is_rejected() {
+        let tok = mint_unlock(&SECRET, SHARE, NOW + UNLOCK_TTL_SECS);
+        assert!(!verify_unlock(&[9u8; 32], SHARE, &tok, NOW));
+    }
+
+    #[test]
+    fn tampered_and_garbage_tokens_are_rejected() {
+        let tok = mint_unlock(&SECRET, SHARE, NOW + UNLOCK_TTL_SECS);
+        // Flip the last char of the (base64) proof.
+        let mut bad = tok.clone();
+        let last = bad.pop().unwrap();
+        bad.push(if last == 'A' { 'B' } else { 'A' });
+        assert!(!verify_unlock(&SECRET, SHARE, &bad, NOW));
+        assert!(!verify_unlock(&SECRET, SHARE, "", NOW));
+        assert!(!verify_unlock(&SECRET, SHARE, "!!!not-base64!!!", NOW));
+    }
 }

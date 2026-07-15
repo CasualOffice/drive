@@ -185,18 +185,18 @@ function ReadyCard({ resolved, token }: { resolved: ResolvedShare; token: string
 
         <div style={{ display: "flex", gap: 10 }}>
           {(kind === "sheet" || kind === "doc") ? (
-            <PrimaryButton onClick={() => window.location.assign(shareDownloadUrl(token))}>
+            <PrimaryButton onClick={() => window.location.assign(shareDownloadUrl(token, resolved.unlock))}>
               <ExternalLink size={15} strokeWidth={2} />
               Open in Casual {kind === "sheet" ? "Sheets" : "Editor"}
             </PrimaryButton>
           ) : (
-            <PrimaryButton onClick={() => window.location.assign(shareDownloadUrl(token))}>
+            <PrimaryButton onClick={() => window.location.assign(shareDownloadUrl(token, resolved.unlock))}>
               <Download size={15} strokeWidth={2} />
               Download
             </PrimaryButton>
           )}
           {(kind === "sheet" || kind === "doc") && (
-            <SecondaryButton onClick={() => window.location.assign(shareDownloadUrl(token))}>
+            <SecondaryButton onClick={() => window.location.assign(shareDownloadUrl(token, resolved.unlock))}>
               <Download size={14} strokeWidth={2} />
               Download
             </SecondaryButton>

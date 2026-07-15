@@ -362,6 +362,157 @@ async fn resolve_share_gates_on_password() {
 }
 
 #[tokio::test]
+async fn password_share_download_requires_unlock() {
+    // The password must gate the BYTES, not just the preview metadata. A
+    // download with only the token (no unlock proof) must be refused; the
+    // proof minted by a correct-password resolve must let it through.
+    let state = fixture().await;
+    let oid = owner_id(&state).await;
+    let fid = seed_file(&state, &oid).await;
+    let app = router(state);
+    let cookie = sign_in(&app).await;
+
+    // Mint a password-protected share.
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/files/{fid}/share"))
+                .header("host", APP)
+                .header("cookie", &cookie)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"permissions":"view","password":"open-sesame"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    let mint: Value = serde_json::from_slice(&bytes).unwrap();
+    let token = mint["token"].as_str().unwrap().to_owned();
+
+    // Download with the token alone (the old bypass) → 401, not the bytes.
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/share/{token}/download"))
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        StatusCode::UNAUTHORIZED,
+        "token alone must NOT fetch a password-gated file's bytes"
+    );
+
+    // Resolve with the correct password to obtain the unlock proof.
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/share/{token}"))
+                .header("host", APP)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"password":"open-sesame"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    let resolved: Value = serde_json::from_slice(&bytes).unwrap();
+    let unlock = resolved["unlock"]
+        .as_str()
+        .expect("resolve mints an unlock");
+
+    // Download WITH the proof → 302 to the signed URL.
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                // The proof is URL-safe base64 (no padding) — safe to inline.
+                .uri(format!("/api/share/{token}/download?u={unlock}"))
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        StatusCode::FOUND,
+        "a valid unlock proof must release the download"
+    );
+
+    // A tampered proof is refused.
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/share/{token}/download?u=not-a-real-proof"))
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn unprotected_share_download_needs_no_unlock() {
+    // Backward compatibility: a link with no password still downloads on the
+    // token alone — the unlock gate only applies to password-protected links.
+    let state = fixture().await;
+    let oid = owner_id(&state).await;
+    let fid = seed_file(&state, &oid).await;
+    let app = router(state);
+    let cookie = sign_in(&app).await;
+
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/files/{fid}/share"))
+                .header("host", APP)
+                .header("cookie", &cookie)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"permissions":"view"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = r.into_body().collect().await.unwrap().to_bytes();
+    let mint: Value = serde_json::from_slice(&bytes).unwrap();
+    let token = mint["token"].as_str().unwrap().to_owned();
+
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/share/{token}/download"))
+                .header("host", APP)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FOUND);
+}
+
+#[tokio::test]
 async fn resolve_share_returns_410_when_expired() {
     use dochub_db::{NewShareLink, ShareLinkRepo};
 

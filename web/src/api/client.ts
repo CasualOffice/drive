@@ -208,6 +208,10 @@ export interface ResolvedShare {
   };
   download_url: string;
   permissions: string;
+  /** Short-lived proof that the share password was satisfied. Present only
+   * for password-protected links; replayed to the download endpoint so the
+   * bytes are gated by the password too, not just the preview metadata. */
+  unlock?: string | null;
 }
 
 export async function resolveShare(token: string, password?: string | null): Promise<ResolvedShare> {
@@ -248,11 +252,14 @@ export async function getActivity(before?: string | null, limit = 50): Promise<A
   return request<ActivityPage>(`/api/activity?${params.toString()}`);
 }
 
-export function shareDownloadUrl(token: string): string {
+export function shareDownloadUrl(token: string, unlock?: string | null): string {
   if (DEMO_MODE) {
     return demoShareDownload(token) ?? `/api/share/${encodeURIComponent(token)}/download`;
   }
-  return `/api/share/${encodeURIComponent(token)}/download`;
+  const base = `/api/share/${encodeURIComponent(token)}/download`;
+  // Password-gated links carry an unlock proof so the byte fetch is gated by
+  // the password too. Absent for unprotected links.
+  return unlock ? `${base}?u=${encodeURIComponent(unlock)}` : base;
 }
 
 export interface Me {
