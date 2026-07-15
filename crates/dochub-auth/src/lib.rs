@@ -21,6 +21,7 @@ mod password;
 mod router;
 mod state;
 mod throttle;
+pub use throttle::reap_idle_throttle;
 mod token;
 
 pub use client_addr::client_ip;

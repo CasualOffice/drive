@@ -391,6 +391,8 @@ pub fn spawn_limiter_reaper(state: HttpState) -> tokio::task::JoinHandle<()> {
             ticker.tick().await;
             crate::ai::ai_limiter().evict_idle(LIMITER_IDLE_TTL);
             state.upload_limiter.evict_idle(LIMITER_IDLE_TTL);
+            // Same bounding for the sign-in brute-force throttle (dochub-auth).
+            dochub_auth::reap_idle_throttle(LIMITER_IDLE_TTL);
         }
     })
 }

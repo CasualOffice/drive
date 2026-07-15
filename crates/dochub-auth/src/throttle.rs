@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Rapid failures allowed before throttling kicks in.
 const CAPACITY: f64 = 5.0;
@@ -81,6 +81,21 @@ impl LoginThrottle {
             .unwrap_or_else(|e| e.into_inner())
             .remove(key);
     }
+
+    /// Drop buckets untouched for `idle_for`. Username-enumeration probing
+    /// creates a bucket per attempted username; without eviction the map grows
+    /// unbounded for the life of the process. A bucket idle this long has
+    /// fully refilled to `CAPACITY`, so dropping it is lossless.
+    fn evict_idle(&self, idle_for: Duration) {
+        let now = Instant::now();
+        let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        map.retain(|_, b| now.duration_since(b.last) < idle_for);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
 }
 
 /// The process-global sign-in throttle.
@@ -93,6 +108,13 @@ pub(crate) fn login_throttle() -> &'static LoginThrottle {
 /// variants of the same account share one bucket.
 pub(crate) fn throttle_key(username: &str) -> String {
     username.trim().to_ascii_lowercase()
+}
+
+/// Evict sign-in throttle buckets idle for `idle_for`. Public reaper entry
+/// point, driven by the HTTP layer's periodic limiter reaper so the map stays
+/// bounded. See [`LoginThrottle::evict_idle`].
+pub fn reap_idle_throttle(idle_for: Duration) {
+    login_throttle().evict_idle(idle_for);
 }
 
 #[cfg(test)]
@@ -129,5 +151,21 @@ mod tests {
     #[test]
     fn key_is_normalized() {
         assert_eq!(throttle_key("  Alice "), "alice");
+    }
+
+    #[test]
+    fn evict_idle_bounds_the_map() {
+        let t = LoginThrottle::default();
+        // Probing many distinct usernames leaves a bucket each.
+        for u in ["a", "b", "c"] {
+            t.record_failure(u);
+        }
+        assert_eq!(t.len(), 3);
+        // Fresh buckets survive a generous TTL...
+        t.evict_idle(Duration::from_secs(3600));
+        assert_eq!(t.len(), 3);
+        // ...but a zero TTL treats them all as idle and clears the map.
+        t.evict_idle(Duration::ZERO);
+        assert_eq!(t.len(), 0);
     }
 }
