@@ -1166,6 +1166,16 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
 
   if (p === "/api/activity" && method === "GET") {
     if (!state.signedIn) throw makeError(401, "not signed in");
+    // `cd-demo-force-error=1` makes the activity listing fail so the surface's
+    // load-error state (and its "Try again" retry) can be exercised in e2e.
+    // A retry after clearing the flag recovers. Shared with the Files listing.
+    let forceError = false;
+    try {
+      forceError = window.localStorage.getItem("cd-demo-force-error") === "1";
+    } catch {
+      /* storage blocked — proceed normally */
+    }
+    if (forceError) throw makeError(503, "demo: forced load error");
     const before = url.searchParams.get("before");
     const limit = Math.max(
       1,
