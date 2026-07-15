@@ -90,6 +90,17 @@ jobs:
       # Publish a GitHub Release for the tag, with notes lifted from the
       # matching CHANGELOG section. Runs after the image push, so a hiccup here
       # never blocks the published image.
+# Software bill of materials for the published image — attached to the
+      # GitHub Release (not the registry) so it's discoverable without cluttering
+      # the Docker Hub tag listing with attestation manifests.
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ secrets.DOCKERHUB_USERNAME }}/dochub:${{ steps.meta.outputs.version }}
+          format: spdx-json
+          output-file: dochub-sbom.spdx.json
+          upload-artifact: false
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -106,4 +117,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file release-notes.md \
-            --verify-tag
+            --verify-tag \
+            dochub-sbom.spdx.json

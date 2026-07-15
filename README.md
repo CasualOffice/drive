@@ -6,7 +6,7 @@
 
 `.docx` · `.xlsx` · `.pdf` · `.md` · `.txt` · `.csv` · `.json` · `.yaml` — edited natively in the browser, versioned forever, encrypted at rest, searchable by content.
 
-[![Status](https://img.shields.io/badge/status-revamp_in_progress-orange)](./ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-0.0.1_released-brightgreen)](./CHANGELOG.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/CasualOffice/drive/ci.yml?branch=main&label=CI)](./.github/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org/)
@@ -15,8 +15,8 @@
 
 </div>
 
-> ### 🚧 Revamp in progress
-> **Doc-Hub is being rebuilt from Casual Drive.** This repository is **documents-first**: the vision, architecture, security model, test contract, and phased plan are published — **production code for the pivot has not started yet.** Track it in **[ROADMAP.md](./ROADMAP.md)** and the **[project board](https://github.com/orgs/CasualOffice/projects/1)**. Product URLs, the demo, and some badges below describe the *target* and may not be live during the revamp.
+> ### 🚧 Early days — 0.0.1
+> **Doc-Hub is being rebuilt from Casual Drive.** The foundations have shipped: `0.0.1` is tagged and published as a container image (`casualoffice/dochub`) with encryption, immutable hash-chained history, the documents-only ingest gate, and the two-origin model all in place and tested. Later phases (native co-editing, full AI layer, compliance workflows) are still in progress — track them in **[ROADMAP.md](./ROADMAP.md)** and the **[project board](https://github.com/orgs/CasualOffice/projects/1)**. Some product URLs and demo links describe the *target* and may not be live yet.
 
 ---
 

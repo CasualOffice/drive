@@ -56,6 +56,8 @@ pub use embedding::EmbedFileHandler;
 pub use rate_limit::{RateLimitConfig, RateLimiter};
 pub use state::HttpState;
 
+use std::time::Duration;
+
 use axum::{
     extract::State,
     http::{HeaderValue, StatusCode},
@@ -66,6 +68,7 @@ use axum::{
 };
 use dochub_auth::AuthSession;
 use dochub_wopi::WopiAppState;
+use tokio::time::timeout;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::{
@@ -101,11 +104,27 @@ struct Readiness {
 /// dependency (the database) is reachable. `200` when ready, `503` otherwise, so
 /// an orchestrator stops routing to an instance that can't reach its DB without
 /// killing it (that's [`healthz`]'s job). Unauthenticated, like `healthz`.
+/// How long a single readiness probe may take before it's reported as failed.
+/// Bounds the whole endpoint so a hung dependency can't make the probe itself
+/// hang — a readiness check must always answer promptly.
+const READYZ_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Run a dependency probe with a time bound: `false` if it errors *or* exceeds
+/// `budget`. Keeps `readyz` responsive even when a backend (e.g. an unreachable
+/// S3 endpoint) never returns.
+async fn probe_ok<F, E>(fut: F, budget: Duration) -> bool
+where
+    F: std::future::Future<Output = Result<(), E>>,
+{
+    matches!(timeout(budget, fut).await, Ok(Ok(())))
+}
+
 async fn readyz(State(s): State<HttpState>) -> impl IntoResponse {
     // Both critical dependencies must be reachable to serve real traffic: the
-    // metadata DB and the object store (a read-only probe — never writes).
-    let db_ok = s.db.ping().await.is_ok();
-    let storage_ok = s.storage.check().await.is_ok();
+    // metadata DB and the object store (a read-only probe — never writes). Each
+    // is time-bounded so a hung backend fails the probe instead of hanging it.
+    let db_ok = probe_ok(s.db.ping(), READYZ_PROBE_TIMEOUT).await;
+    let storage_ok = probe_ok(s.storage.check(), READYZ_PROBE_TIMEOUT).await;
     let ready = db_ok && storage_ok;
 
     let mut checks = std::collections::BTreeMap::new();
@@ -313,4 +332,30 @@ fn usercontent_router(state: HttpState) -> Router {
             state,
             |s: State<HttpState>, req, next| host_dispatch(s, Origin::UserContent, req, next),
         ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{probe_ok, READYZ_PROBE_TIMEOUT};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn probe_ok_true_when_fast_and_ok() {
+        assert!(probe_ok(async { Ok::<(), ()>(()) }, READYZ_PROBE_TIMEOUT).await);
+    }
+
+    #[tokio::test]
+    async fn probe_ok_false_when_the_dependency_errors() {
+        assert!(!probe_ok(async { Err::<(), ()>(()) }, READYZ_PROBE_TIMEOUT).await);
+    }
+
+    #[tokio::test]
+    async fn probe_ok_false_when_the_dependency_hangs_past_the_budget() {
+        // A backend that outlives the budget must fail the probe, not hang it.
+        let slow = async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            Ok::<(), ()>(())
+        };
+        assert!(!probe_ok(slow, Duration::from_millis(20)).await);
+    }
 }
