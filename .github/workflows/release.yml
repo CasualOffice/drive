@@ -14,7 +14,7 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: read
+  contents: write # create the GitHub Release for the tag
 
 jobs:
   image:
@@ -86,3 +86,24 @@ jobs:
           repository: ${{ secrets.DOCKERHUB_USERNAME }}/dochub
           short-description: "Encrypted, tamper-evident self-hosted document hub — a single Rust binary."
           readme-filepath: ./.docker/README.md
+
+      # Publish a GitHub Release for the tag, with notes lifted from the
+      # matching CHANGELOG section. Runs after the image push, so a hiccup here
+      # never blocks the published image.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            BEGIN { gsub(/\./, "\\.", v) }          # match dots literally
+            $0 ~ "^## \\[" v "\\]" { f = 1; next }  # start at this version
+            /^## / { f = 0 }                        # stop at the next section
+            f' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            printf 'Release %s.\n' "$GITHUB_REF_NAME" > release-notes.md
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            --verify-tag
