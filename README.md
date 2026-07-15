@@ -47,7 +47,7 @@ docker run -d --name hub \
   -e DOCHUB_STORAGE_BACKEND=fs \
   -e DOCHUB_FS_ROOT=/data \
   -e DOCHUB_MASTER_KEY=<32-byte base64 KEK> \
-  ghcr.io/casualoffice/dochub:latest
+  casualoffice/dochub:latest
 ```
 
 Visit `https://hub.your-server`, complete the one-time admin setup, create a project, upload a document, edit it, and watch the version chain grow. Full env-var matrix at <https://dochub.casualoffice.org/docs/configuration>.

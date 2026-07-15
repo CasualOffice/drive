@@ -1,10 +1,20 @@
 # Changelog
 
-All notable changes to Casual Drive land here. Format follows
+All notable changes to Doc-Hub land here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.0.1] - 2026-07-16
+
+First tagged release and first published container image
+(`casualoffice/dochub:0.0.1`, multi-arch `linux/amd64` + `linux/arm64`). The
+encrypted document-registry foundations validated end-to-end on the release
+image: mandatory at-rest encryption (boot refuses without a master key),
+two-origin isolation, Argon2id admin auth, per-workspace DEKs, the
+documents-only ingest gate (extension + magic-byte sniff), the append-only
+hash-chained audit log, and persistence across restarts.
 
 ### Added
 
