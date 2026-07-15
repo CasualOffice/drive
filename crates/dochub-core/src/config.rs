@@ -305,6 +305,21 @@ fn origin_host(u: &Url) -> String {
     }
 }
 
+/// The app-origin authority (`host[:port]`, default ports stripped) parsed
+/// straight from `DOCHUB_APP_ORIGIN` — no full [`Config`] (or master key)
+/// required. The container healthcheck uses it to send a `Host` header that
+/// satisfies the host-dispatch middleware. `None` when the var is unset or
+/// unparseable.
+#[must_use]
+pub fn app_origin_host_from_env() -> Option<String> {
+    app_origin_host_from_raw(std::env::var("DOCHUB_APP_ORIGIN").ok().as_deref())
+}
+
+fn app_origin_host_from_raw(raw: Option<&str>) -> Option<String> {
+    let host = origin_host(&Url::parse(raw?).ok()?);
+    (!host.is_empty()).then_some(host)
+}
+
 fn env_url(name: &'static str) -> Result<Url, ConfigError> {
     let raw = std::env::var(name).map_err(|_| ConfigError::Missing(name))?;
     Url::parse(&raw).map_err(|e| ConfigError::Invalid(name, e.to_string()))
@@ -487,6 +502,22 @@ mod tests {
     fn origin_host_keeps_nondefault_port() {
         let u = Url::parse("http://127.0.0.1:8080").unwrap();
         assert_eq!(origin_host(&u), "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn app_origin_host_from_raw_matches_host_dispatch_expectation() {
+        // Same output as `Config::app_origin_host` — the healthcheck's Host
+        // header must exactly satisfy the host-dispatch middleware.
+        assert_eq!(
+            app_origin_host_from_raw(Some("http://localhost:8080")).as_deref(),
+            Some("localhost:8080")
+        );
+        assert_eq!(
+            app_origin_host_from_raw(Some("https://hub.example.com")).as_deref(),
+            Some("hub.example.com") // default 443 stripped
+        );
+        assert_eq!(app_origin_host_from_raw(None), None);
+        assert_eq!(app_origin_host_from_raw(Some("not a url")), None);
     }
 
     #[test]
