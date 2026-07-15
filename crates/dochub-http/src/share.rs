@@ -659,9 +659,14 @@ async fn download_share(
 
     let _ = repo.touch(&link.id).await;
 
+    // `target` is always a serialized `Url` (native signed URL) or the
+    // usercontent origin + a URL-safe base64 token, so it's header-safe by
+    // construction — but route a theoretical malformation to the existing 500
+    // path rather than panicking the handler.
+    let location = HeaderValue::from_str(&target)
+        .map_err(|_| ShareError::Internal("redirect target is not a valid header value".into()))?;
     let mut r = (StatusCode::FOUND, ()).into_response();
-    r.headers_mut()
-        .insert(header::LOCATION, HeaderValue::from_str(&target).unwrap());
+    r.headers_mut().insert(header::LOCATION, location);
     Ok(r)
 }
 

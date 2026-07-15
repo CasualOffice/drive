@@ -3,8 +3,9 @@
 
 use dochub_db::{
     ApiTokenRepo, Db, DbError, EmbeddingRepo, FileRepo, FolderRepo, JobsRepo, NewApiToken,
-    NewEmbedding, NewFile, NewFolder, NewJob, NewSession, NewTag, NewUser, ProvenanceKeysRepo,
-    SessionRepo, TagRepo, UserRepo, WorkspaceDeks, WorkspaceKeysRepo, WorkspaceKind, WorkspaceRepo,
+    NewEmbedding, NewFile, NewFolder, NewJob, NewNote, NewSession, NewTag, NewUser, NotesRepo,
+    ProvenanceKeysRepo, SessionRepo, TagRepo, UserRepo, WorkspaceDeks, WorkspaceKeysRepo,
+    WorkspaceKind, WorkspaceRepo,
 };
 
 async fn fresh_db() -> Db {
@@ -122,6 +123,46 @@ async fn personal_ws(db: &Db, user_id: &str) -> String {
         .find(|w| matches!(w.kind, WorkspaceKind::Personal))
         .expect("user must have a Personal workspace")
         .id
+}
+
+#[tokio::test]
+async fn sibling_order_keys_scopes_to_parent_and_skips_trashed() {
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+    let ws = personal_ws(&db, &owner).await;
+    let notes = NotesRepo::new(&db);
+
+    let mk = |parent: Option<&str>, key: &str| NewNote {
+        workspace_id: ws.clone(),
+        parent_id: parent.map(str::to_string),
+        title: format!("n-{key}"),
+        owner_id: owner.clone(),
+        order_key: key.into(),
+    };
+
+    // Two roots and one child under the first root.
+    let root_a = notes.insert(&mk(None, "a")).await.unwrap();
+    notes.insert(&mk(None, "m")).await.unwrap();
+    notes.insert(&mk(Some(&root_a.id), "5")).await.unwrap();
+    let trashed = notes.insert(&mk(None, "z")).await.unwrap();
+    notes.trash(&trashed.id).await.unwrap();
+
+    // Roots: "a" and "m" are live; the trashed "z" (the lexical max) is excluded.
+    let mut roots = notes.sibling_order_keys(&ws, None).await.unwrap();
+    roots.sort();
+    assert_eq!(roots, vec!["a".to_string(), "m".to_string()]);
+    assert_eq!(roots.into_iter().max(), Some("m".to_string()));
+
+    // Children of root_a: only "5".
+    let kids = notes
+        .sibling_order_keys(&ws, Some(&root_a.id))
+        .await
+        .unwrap();
+    assert_eq!(kids, vec!["5".to_string()]);
+
+    // A parent with no children yields an empty set (→ max None).
+    let none = notes.sibling_order_keys(&ws, Some("nope")).await.unwrap();
+    assert!(none.is_empty());
 }
 
 #[tokio::test]

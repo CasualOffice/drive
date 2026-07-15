@@ -250,14 +250,14 @@ async fn create(
     }
 
     // Append to the end of the sibling list: pick a key strictly greater
-    // than the current max under this parent.
+    // than the current max under this parent. Targeted sibling query (not a
+    // full-tree load) keyed to this parent; max taken in Rust to keep the
+    // bytewise ordering identical across SQLite/Postgres.
     let last_key = notes
-        .list_tree(&ws)
+        .sibling_order_keys(&ws, body.parent_id.as_deref())
         .await
         .map_err(|e| NotesError::Internal(e.to_string()))?
         .into_iter()
-        .filter(|n| n.parent_id == body.parent_id)
-        .map(|n| n.order_key)
         .max();
     let order_key = order_key_between(last_key.as_deref(), None);
 

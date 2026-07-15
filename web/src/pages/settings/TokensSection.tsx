@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Check, Clock, Copy, Key, ShieldOff, Trash2 } from "lucide-react";
+import { Check, Clock, Copy, Key, RotateCw, ShieldOff, Trash2 } from "lucide-react";
 
 import {
   ApiError,
@@ -73,7 +73,13 @@ export function TokensSection() {
         subtitle="Every token you've issued, newest first. Revoked and expired tokens stay listed for your records."
       >
         {loadError ? (
-          <ErrorBand>{loadError}</ErrorBand>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", alignItems: "flex-start" }}>
+            <ErrorBand>{loadError}</ErrorBand>
+            <Button type="button" size="sm" onClick={() => void refresh()}>
+              <RotateCw size={13} strokeWidth={STROKE} />
+              Try again
+            </Button>
+          </div>
         ) : tokens === null ? (
           <Muted>Loading…</Muted>
         ) : tokens.length === 0 ? (

@@ -132,6 +132,45 @@ impl<'a> NotesRepo<'a> {
             .collect()
     }
 
+    /// The `order_key`s of the non-trashed notes directly under `parent_id`
+    /// (or the roots when `None`). Appending a new note only needs the max of
+    /// these — this targeted query avoids loading the entire workspace tree
+    /// just to compute it. The caller takes the max in Rust (bytewise) so the
+    /// result is identical regardless of the database's string collation.
+    pub async fn sibling_order_keys(
+        &self,
+        workspace_id: &str,
+        parent_id: Option<&str>,
+    ) -> Result<Vec<String>, DbError> {
+        // Split on NULL: `parent_id = ?` never matches NULL, so roots need the
+        // `IS NULL` form (same pattern as the files repo).
+        let rows = match parent_id {
+            Some(pid) => {
+                sqlx::query(&self.db.sql(
+                    "SELECT order_key FROM notes \
+                     WHERE workspace_id = ? AND parent_id = ? AND trashed_at IS NULL",
+                ))
+                .bind(workspace_id)
+                .bind(pid)
+                .fetch_all(self.db.pool())
+                .await?
+            }
+            None => {
+                sqlx::query(&self.db.sql(
+                    "SELECT order_key FROM notes \
+                     WHERE workspace_id = ? AND parent_id IS NULL AND trashed_at IS NULL",
+                ))
+                .bind(workspace_id)
+                .fetch_all(self.db.pool())
+                .await?
+            }
+        };
+        Ok(rows
+            .iter()
+            .map(|r| r.get::<String, _>("order_key"))
+            .collect())
+    }
+
     /// Trashed siblings of a workspace — feeds the Notes → Trash view.
     pub async fn list_trashed(&self, workspace_id: &str) -> Result<Vec<NoteNode>, DbError> {
         let rows = sqlx::query(&self.db.sql(
