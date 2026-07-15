@@ -51,6 +51,7 @@ export function Activity() {
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async (before?: string | null) => {
+    setErr(null);
     try {
       const page: ActivityPage = await getActivity(before ?? null);
       setEvents((prev) => (prev ? [...prev, ...page.events] : page.events));
@@ -94,15 +95,20 @@ export function Activity() {
 
         {!chainVerified && <TamperAlarm eventId={null} />}
 
-        {err && (
+        {/* A pagination failure (events already shown) surfaces inline so the
+            loaded timeline stays put; a fresh-load failure takes over the body
+            with a retry instead of stranding the user on endless skeletons. */}
+        {err && events !== null && (
           <div role="alert" style={errBox}>
             {err}
           </div>
         )}
 
-        {events === null ? (
+        {events === null && err ? (
+          <LoadError message={err} onRetry={() => void load(null)} />
+        ) : events === null ? (
           <LoadingRows />
-        ) : events.length === 0 && !err ? (
+        ) : events.length === 0 ? (
           <EmptyState />
         ) : (
           <Timeline events={events} />
@@ -355,6 +361,39 @@ function EmptyState() {
         Sign-ins, uploads, shares, saves, and restores show up here as the hub is used — each one a
         hash-chained, append-only record.
       </div>
+    </div>
+  );
+}
+
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "var(--space-3)",
+        padding: "var(--space-8) var(--space-6)",
+        textAlign: "center",
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border-hair)",
+        borderRadius: "var(--radius-lg)",
+      }}
+    >
+      <ShieldOff size={22} strokeWidth={STROKE} color="var(--status-danger)" aria-hidden />
+      <div style={{ fontSize: "var(--text-md)", fontWeight: "var(--weight-medium)", color: "var(--fg-default)" }}>
+        Couldn't load activity.
+      </div>
+      <div style={{ fontSize: "var(--text-sm)", color: "var(--fg-muted)", maxWidth: 340 }}>
+        {message}
+      </div>
+      <button type="button" onClick={onRetry} style={loadMoreBtn}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <RotateCcw size={14} strokeWidth={STROKE} aria-hidden />
+          Try again
+        </span>
+      </button>
     </div>
   );
 }
