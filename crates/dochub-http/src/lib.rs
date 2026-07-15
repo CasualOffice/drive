@@ -62,14 +62,14 @@ use axum::{
     extract::State,
     http::{HeaderValue, StatusCode},
     middleware,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
 use dochub_auth::AuthSession;
 use dochub_wopi::WopiAppState;
 use tokio::time::timeout;
-use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::{catch_panic::CatchPanicLayer, set_header::SetResponseHeaderLayer};
 
 use crate::{
     headers::{
@@ -278,6 +278,10 @@ fn app_origin_router(state: HttpState) -> Router {
         // SPA fallback — `/`, `/sign-in`, `/files/...`, hashed asset paths
         // — anything not matched above is served from the embedded `web/dist/`.
         .fallback(spa::serve)
+        // Catch a panic in any handler and turn it into the standard JSON 500
+        // instead of dropping the connection with no response. Innermost of the
+        // response layers so the security headers below still decorate the 500.
+        .layer(CatchPanicLayer::custom(on_panic))
         // Security headers (app-origin profile).
         .layer(SetResponseHeaderLayer::overriding(
             H_CSP,
@@ -317,6 +321,8 @@ fn usercontent_router(state: HttpState) -> Router {
     Router::new()
         .route("/raw/{token}", get(raw::raw_get))
         .with_state(state.clone())
+        // Same panic safety-net as the app origin.
+        .layer(CatchPanicLayer::custom(on_panic))
         // User-content origin: sandbox CSP, nosniff. Cookies must never be
         // set on this origin — but we don't even mount session middleware,
         // so this is by construction.
@@ -334,10 +340,115 @@ fn usercontent_router(state: HttpState) -> Router {
         ))
 }
 
+/// Panic handler for [`CatchPanicLayer`]. A panic in a handler is a bug, not a
+/// client error — but the client should still get a well-formed 500 (the same
+/// JSON envelope every other error uses) rather than a reset connection, and
+/// the server should stay up. We log the payload at `error` for the operator;
+/// the detail is never surfaced in the response body (it could leak internals).
+fn on_panic(err: Box<dyn std::any::Any + Send + 'static>) -> Response {
+    let detail = panic_detail(err.as_ref());
+    tracing::error!(
+        target: "dochub_http::panic",
+        detail = %detail,
+        "handler panicked; converted to 500",
+    );
+    crate::error::ApiError::internal().into_response()
+}
+
+/// Best-effort extract a human string from a panic payload. `panic!("msg")`
+/// and `panic!("{fmt}")` land as `&str` / `String` respectively; anything else
+/// (a non-string payload) has no readable message.
+fn panic_detail(err: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = err.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = err.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
+
+/// How often the reaper runs, and how long a bucket may sit idle before it's
+/// dropped. The TTL is well past the full-refill time of every limiter
+/// (upload: 60s, AI: 100s), so an evicted bucket is always full — eviction is
+/// lossless, the next request for that key just recreates it at capacity.
+const LIMITER_REAP_INTERVAL: Duration = Duration::from_secs(300);
+const LIMITER_IDLE_TTL: Duration = Duration::from_secs(900);
+
+/// Periodically evict idle rate-limiter buckets so the in-memory maps don't
+/// grow without bound on a long-running multi-user instance — otherwise one
+/// bucket per distinct user/key lingers for the life of the process. Mirrors
+/// [`spawn_indexer`] / `PresenceHub::spawn_sweep`; the caller holds the handle
+/// to abort it on shutdown.
+#[must_use]
+pub fn spawn_limiter_reaper(state: HttpState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(LIMITER_REAP_INTERVAL);
+        // The first `interval` tick fires immediately; skip it — nothing has
+        // accumulated at boot.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            crate::ai::ai_limiter().evict_idle(LIMITER_IDLE_TTL);
+            state.upload_limiter.evict_idle(LIMITER_IDLE_TTL);
+            // Same bounding for the sign-in brute-force throttle (dochub-auth).
+            dochub_auth::reap_idle_throttle(LIMITER_IDLE_TTL);
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{probe_ok, READYZ_PROBE_TIMEOUT};
+    use super::{on_panic, panic_detail, probe_ok, READYZ_PROBE_TIMEOUT};
     use std::time::Duration;
+
+    #[test]
+    fn panic_detail_reads_str_and_string_payloads() {
+        // `panic!("literal")` → &str; `panic!("{}", x)` → String.
+        let s: Box<dyn std::any::Any + Send> = Box::new("boom");
+        assert_eq!(panic_detail(s.as_ref()), "boom");
+        let s: Box<dyn std::any::Any + Send> = Box::new(String::from("dynamic boom"));
+        assert_eq!(panic_detail(s.as_ref()), "dynamic boom");
+        // A non-string payload has no readable message.
+        let s: Box<dyn std::any::Any + Send> = Box::new(42u32);
+        assert_eq!(panic_detail(s.as_ref()), "unknown panic payload");
+    }
+
+    #[tokio::test]
+    async fn on_panic_returns_json_500_envelope() {
+        use axum::body::to_bytes;
+        let resp = on_panic(Box::new("kaboom"));
+        assert_eq!(resp.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["error"]["code"], "internal");
+        // The panic detail must never leak into the client-facing body.
+        assert!(!bytes.windows(6).any(|w| w == b"kaboom"));
+    }
+
+    #[tokio::test]
+    async fn panicking_route_yields_500_not_a_dropped_connection() {
+        use axum::{body::Body, http::Request, routing::get, Router};
+        use tower::ServiceExt; // oneshot
+        use tower_http::catch_panic::CatchPanicLayer;
+
+        let app = Router::new()
+            .route(
+                "/boom",
+                get(|| async {
+                    panic!("intentional test panic");
+                    #[allow(unreachable_code)]
+                    ""
+                }),
+            )
+            .layer(CatchPanicLayer::custom(on_panic));
+
+        let resp = app
+            .oneshot(Request::builder().uri("/boom").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
 
     #[tokio::test]
     async fn probe_ok_true_when_fast_and_ok() {

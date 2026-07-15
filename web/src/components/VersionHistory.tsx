@@ -23,6 +23,7 @@ import {
   Download,
   Gavel,
   RotateCcw,
+  RotateCw,
   ShieldCheck,
   ShieldOff,
 } from "lucide-react";
@@ -182,7 +183,11 @@ export function VersionHistory({
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {err && (
           <div role="alert" style={errBox}>
-            {err}
+            <div>{err}</div>
+            <button type="button" onClick={() => void load()} className="press-sink" style={errRetryBtn}>
+              <RotateCw size={14} strokeWidth={1.5} />
+              Try again
+            </button>
           </div>
         )}
 
@@ -774,6 +779,10 @@ function Footer({ count, verified }: { count: number; verified: boolean }) {
 // ── helpers ────────────────────────────────────────────────────────────
 
 const errBox: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: "var(--space-2)",
   margin: "0 0 var(--space-3)",
   padding: "var(--space-2) var(--space-3)",
   background: "var(--bg-surface)",
@@ -781,6 +790,20 @@ const errBox: React.CSSProperties = {
   borderRadius: "var(--radius)",
   fontSize: "var(--text-sm)",
   color: "var(--fg-default)",
+};
+
+const errRetryBtn: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "6px 12px",
+  border: "var(--border-w) solid var(--border)",
+  background: "var(--bg-surface)",
+  color: "var(--ink)",
+  borderRadius: "var(--radius-sm)",
+  fontSize: "var(--text-sm)",
+  fontWeight: 600,
+  cursor: "pointer",
 };
 
 const emptyBox: React.CSSProperties = {

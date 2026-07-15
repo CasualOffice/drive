@@ -135,6 +135,10 @@ async fn main() -> anyhow::Result<()> {
     // reindex on `/api/search/content` remains as an idempotent backstop.
     let _indexer = dochub_http::spawn_indexer(state.clone());
 
+    // Reaper for the in-memory rate-limiter maps — evicts idle buckets so they
+    // don't accumulate one-per-key for the life of the process.
+    let _limiter_reaper = dochub_http::spawn_limiter_reaper(state.clone());
+
     // OB1 — structured access log per request. Replaces tower-http's
     // default TraceLayer (which span-wrapped requests but never emitted
     // redacted, JSON-shaped events for log aggregation). Mounted

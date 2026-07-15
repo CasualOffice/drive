@@ -15,8 +15,16 @@ use rust_embed::Embed;
 struct Assets;
 
 pub(crate) async fn serve(req: Request) -> Response {
-    let path = req.uri().path().trim_start_matches('/');
-    serve_path(path)
+    let path = req.uri().path();
+    // An unmatched `/api/...` route must NOT fall through to the SPA shell.
+    // A programmatic client (the SPA's own fetch layer, an MCP agent, a curl
+    // script) expects the JSON error envelope and a real 404 — not a 200
+    // carrying an HTML document it can't parse. This only fires for paths no
+    // real API route matched, since routes are resolved before the fallback.
+    if path == "/api" || path.starts_with("/api/") {
+        return crate::error::ApiError::not_found("no such API route").into_response();
+    }
+    serve_path(path.trim_start_matches('/'))
 }
 
 fn serve_path(path: &str) -> Response {
@@ -72,3 +80,40 @@ fn file_response(path: &str, data: Vec<u8>) -> Response {
 
 #[allow(dead_code)]
 fn _unused_uri(_: Uri) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    #[tokio::test]
+    async fn unknown_api_route_is_json_404_not_spa_html() {
+        let req = Request::builder()
+            .uri("/api/definitely-not-a-route")
+            .body(Body::empty())
+            .unwrap();
+        let resp = serve(req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let ct = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(ct.contains("application/json"), "content-type was {ct:?}");
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["error"]["code"], "not_found");
+    }
+
+    #[tokio::test]
+    async fn unknown_app_route_serves_the_spa_shell() {
+        // A client-side route (no `.` in the last segment, not under /api) must
+        // still resolve to the SPA shell so the browser router can handle it.
+        let req = Request::builder()
+            .uri("/documents/abc/history")
+            .body(Body::empty())
+            .unwrap();
+        let resp = serve(req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+}

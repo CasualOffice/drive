@@ -36,8 +36,8 @@
  *     A 404 / no collab server falls back to single-user editing, unchanged.
  */
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Info, Share2, X } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowLeft, Info, RotateCw, Share2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { downloadUrl, getFile, renameFile, trashFile, type FileDto } from "../api/client.ts";
@@ -159,6 +159,19 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileId]);
+
+  // Explicit retry for the error surface — a cold load with no seed that fails
+  // is otherwise a dead end (the mount effect runs once). Re-enters the loading
+  // state so the spinner returns, then refetches.
+  const retry = useCallback(async () => {
+    setState({ kind: "loading" });
+    try {
+      const file = await getFile(fileId);
+      setState({ kind: "ready", file });
+    } catch (err) {
+      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    }
   }, [fileId]);
 
   // Track the live filename for the tab title so refresh / share
@@ -308,6 +321,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
           user={{ name: identity.name, color: identity.tint }}
           onSaveStatus={setSaveStatus}
           onSaved={(file) => setState({ kind: "ready", file })}
+          onRetry={retry}
         />
       </main>
       {state.kind === "ready" && (
@@ -589,6 +603,7 @@ function FullscreenBody({
   user,
   onSaveStatus,
   onSaved,
+  onRetry,
 }: {
   state: LoadState;
   /** Standalone-provider session — plain-text editor only. */
@@ -604,6 +619,8 @@ function FullscreenBody({
   user: { name: string; color: string };
   onSaveStatus: (s: SaveStatus) => void;
   onSaved: (file: FileDto) => void;
+  /** Re-run the file load from the error surface. */
+  onRetry: () => void;
 }) {
   if (state.kind === "loading") {
     return (
@@ -693,6 +710,28 @@ function FullscreenBody({
           <div style={{ fontSize: "var(--text-base)", color: "var(--ink-soft)" }}>
             {state.message}
           </div>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="press-sink"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              marginTop: 4,
+              padding: "8px 14px",
+              border: "var(--border-w) solid var(--border)",
+              background: "var(--bg-surface)",
+              color: "var(--ink)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "var(--text-sm)",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            <RotateCw size={14} strokeWidth={1.5} />
+            Try again
+          </button>
         </div>
       </div>
     );

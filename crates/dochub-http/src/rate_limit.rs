@@ -67,19 +67,45 @@ impl RateLimiter {
     }
 
     /// Cap the in-memory map so we don't leak in front of a long-running
-    /// instance with many usernames. Called from a background reaper; for
-    /// v0 single-tenant it's effectively never needed.
-    #[allow(dead_code)]
+    /// instance with many distinct keys. Driven by [`crate::spawn_limiter_reaper`].
+    /// A bucket idle for `idle_for` has fully refilled, so evicting it is
+    /// lossless: the next request for that key just recreates a full bucket.
     pub fn evict_idle(&self, idle_for: Duration) {
         let now = Instant::now();
         let mut buckets = self.buckets.lock().expect("rate-limit mutex poisoned");
         buckets.retain(|_, b| now.saturating_duration_since(b.last) < idle_for);
+    }
+
+    /// Number of live buckets — test-only, for asserting reaper behaviour.
+    #[cfg(test)]
+    pub(crate) fn bucket_count(&self) -> usize {
+        self.buckets
+            .lock()
+            .expect("rate-limit mutex poisoned")
+            .len()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evict_idle_drops_stale_buckets_keeps_fresh() {
+        let rl = RateLimiter::new(RateLimitConfig {
+            capacity: 5.0,
+            refill_per_sec: 1.0,
+        });
+        let _ = rl.check("a");
+        let _ = rl.check("b");
+        assert_eq!(rl.bucket_count(), 2);
+        // Both were just touched → nothing is older than an hour → all kept.
+        rl.evict_idle(Duration::from_secs(3600));
+        assert_eq!(rl.bucket_count(), 2);
+        // A zero TTL makes every bucket count as stale → all evicted.
+        rl.evict_idle(Duration::ZERO);
+        assert_eq!(rl.bucket_count(), 0);
+    }
 
     #[test]
     fn allows_up_to_capacity_then_throttles() {

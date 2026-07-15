@@ -1318,6 +1318,7 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
   const versionsMatch = p.match(/^\/api\/files\/([^/]+)\/versions$/);
   if (versionsMatch && method === "GET") {
     if (!state.signedIn) throw makeError(401, "not signed in");
+    if (forceVersionsErrorEnabled()) throw makeError(503, "demo: forced versions error");
     const fid = decodeURIComponent(versionsMatch[1]);
     const file = state.files.find((f) => f.id === fid);
     if (!file) throw makeError(404, "file not found");
@@ -1968,6 +1969,18 @@ function forceErrorEnabled(): boolean {
     return window.localStorage.getItem("cd-demo-force-error") === "1";
   } catch {
     /* storage blocked — proceed normally */
+    return false;
+  }
+}
+
+/** `cd-demo-force-versions-error=1` fails only the version-timeline load
+ *  (`GET /api/files/{id}/versions`) while the file-metadata load still
+ *  succeeds — so the `<VersionHistory>` component renders its own error +
+ *  "Try again", rather than the page-level error swallowing it. */
+function forceVersionsErrorEnabled(): boolean {
+  try {
+    return window.localStorage.getItem("cd-demo-force-versions-error") === "1";
+  } catch {
     return false;
   }
 }
