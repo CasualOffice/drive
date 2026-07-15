@@ -1768,6 +1768,7 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     }
 
     if (p === "/api/notes/tree" && method === "GET") {
+      if (forceErrorEnabled()) throw makeError(503, "demo: forced load error");
       const ws = url.searchParams.get("workspace") ?? activeWsCandidate;
       const live = notes
         .filter((n) => n.workspace_id === ws && !n.trashed_at)

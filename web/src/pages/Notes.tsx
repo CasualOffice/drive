@@ -49,6 +49,10 @@ export function Notes({ initialNoteId }: { initialNoteId?: string | null } = {})
   const [openId, setOpenId] = useState<string | null>(initialNoteId ?? null);
   const [open, setOpen] = useState<Note | null>(null);
   const [loading, setLoading] = useState(true);
+  // Persistent tree-load error — distinct from the transient toast, so a failed
+  // load isn't silently mistaken for an empty notebook (both would otherwise
+  // render the "No notes yet" empty state).
+  const [treeError, setTreeError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [searchQ, setSearchQ] = useState("");
@@ -63,6 +67,7 @@ export function Notes({ initialNoteId }: { initialNoteId?: string | null } = {})
       const r = await notesTree(workspaceId);
       setTree(r.nodes);
       setTrashed(r.trashed);
+      setTreeError(null);
       // If the currently-open note is gone, drop it.
       if (openId && !r.nodes.some((n) => n.id === openId)) {
         setOpenId(null);
@@ -73,6 +78,7 @@ export function Notes({ initialNoteId }: { initialNoteId?: string | null } = {})
         e && typeof e === "object" && "message" in e
           ? String((e as { message: unknown }).message)
           : "Couldn't load notes";
+      setTreeError(msg);
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -335,6 +341,14 @@ export function Notes({ initialNoteId }: { initialNoteId?: string | null } = {})
               activeId={openId}
               onPick={(id) => setOpenId(id)}
             />
+          ) : treeError ? (
+            <div role="alert" className="notes-tree-error">
+              <div>Couldn&apos;t load notes — {treeError}</div>
+              <button type="button" className="notes-tree-retry" onClick={() => void refreshTree()}>
+                <RotateCw size={13} strokeWidth={1.8} />
+                Try again
+              </button>
+            </div>
           ) : tree.length === 0 ? (
             <EmptyTree onCreate={() => void onCreate(null)} />
           ) : (
@@ -397,7 +411,23 @@ export function Notes({ initialNoteId }: { initialNoteId?: string | null } = {})
       <section className="notes-pane">
         {!open ? (
           <CenteredFiller>
-            {tree.length === 0 ? (
+            {treeError ? (
+              <EmptyState
+                icon={<NotebookPen size={28} strokeWidth={1.5} />}
+                title="Couldn't load notes."
+                subtitle={treeError}
+                cta={
+                  <button
+                    type="button"
+                    className="notes-newbtn"
+                    onClick={() => void refreshTree()}
+                  >
+                    <RotateCw size={14} strokeWidth={2} />
+                    Try again
+                  </button>
+                }
+              />
+            ) : tree.length === 0 ? (
               <EmptyState
                 icon={<NotebookPen size={28} strokeWidth={1.5} />}
                 title="No notes yet."
