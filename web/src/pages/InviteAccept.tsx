@@ -18,7 +18,7 @@
  * Magic-link auto-create (anonymous → mint user + session) is
  * Phase 1d — not wired here.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Building2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,7 +37,10 @@ interface Props {
 type LoadState =
   | { kind: "loading" }
   | { kind: "ready"; peek: InvitationPeek }
-  | { kind: "error"; message: string };
+  // `transient` splits a network drop / 5xx (retryable) from a genuinely
+  // unavailable invite (expired, revoked, full — a 4xx) so we don't tell a
+  // valid invitee their link is dead just because the server blipped.
+  | { kind: "error"; transient: boolean };
 
 export function InviteAccept({ token }: Props) {
   const { status, refresh: refreshAuth } = useAuth();
@@ -59,23 +62,21 @@ export function InviteAccept({ token }: Props) {
 
   // Fetch the peek payload — anonymous-safe so we can run this
   // before knowing the visitor's auth state.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const peek = await peekInvitation(token);
-        if (cancelled) return;
-        setState({ kind: "ready", peek });
-      } catch (err) {
-        if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
-        setState({ kind: "error", message });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    setState({ kind: "loading" });
+    try {
+      const peek = await peekInvitation(token);
+      setState({ kind: "ready", peek });
+    } catch (err) {
+      // A real fetch failure has no status; an HTTP error carries one.
+      const status = (err as { status?: number }).status;
+      setState({ kind: "error", transient: !status || status >= 500 });
+    }
   }, [token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   async function onJoin() {
     setAccepting(true);
@@ -220,7 +221,7 @@ export function InviteAccept({ token }: Props) {
                 letterSpacing: "-0.01em",
               }}
             >
-              This invitation isn't available
+              {state.transient ? "Something went wrong" : "This invitation isn't available"}
             </h1>
             <p
               style={{
@@ -230,10 +231,18 @@ export function InviteAccept({ token }: Props) {
                 lineHeight: 1.5,
               }}
             >
-              It may have expired, been revoked, or all the slots may already be
-              filled. Ask whoever sent it to share a fresh link.
+              {state.transient
+                ? "We couldn't reach the server. Check your connection and try again."
+                : "It may have expired, been revoked, or all the slots may already be filled. Ask whoever sent it to share a fresh link."}
             </p>
-            <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
+            <div
+              style={{
+                marginTop: 18,
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
               <button
                 type="button"
                 className="cd-dialog-btn cd-dialog-btn--ghost"
@@ -241,6 +250,15 @@ export function InviteAccept({ token }: Props) {
               >
                 Back to Drive
               </button>
+              {state.transient && (
+                <button
+                  type="button"
+                  className="cd-dialog-btn cd-dialog-btn--primary"
+                  onClick={() => void load()}
+                >
+                  Try again
+                </button>
+              )}
             </div>
           </>
         )}

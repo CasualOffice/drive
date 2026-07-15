@@ -1631,6 +1631,23 @@ export async function demoRequest<T>(path: string, init: RequestInit & { json?: 
     persist();
     return undefined as T;
   }
+  // Invitation peek — anonymous-safe, mirrors GET /api/invitations/{token}.
+  // The demo recognises one stable token so the /invite/<token> page is
+  // demo-able; any other token is a 404 ("this invitation isn't available").
+  const invitePeekMatch = p.match(/^\/api\/invitations\/([^/]+)$/);
+  if (invitePeekMatch && method === "GET") {
+    if (forceErrorEnabled()) throw makeError(503, "demo: forced load error");
+    const token = decodeURIComponent(invitePeekMatch[1]);
+    if (token !== "demo-invite-token") throw makeError(404, "not found");
+    return {
+      workspace_name: "Demo Workspace",
+      inviter_username: "demo",
+      role: "editor",
+      expires_at: null,
+      remaining_uses: 5,
+    } as unknown as T;
+  }
+
   const shareResolveMatch = p.match(/^\/api\/share\/([^/]+)$/);
   if (shareResolveMatch && method === "POST") {
     const token = decodeURIComponent(shareResolveMatch[1]);
