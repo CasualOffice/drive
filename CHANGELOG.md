@@ -24,6 +24,9 @@ failure traceability. No behaviour change for well-formed requests.
 
 ### Fixed
 
+- **Theme no longer flashes light↔dark in production.** The pre-paint theme bootstrap in `index.html` sets `data-theme` before first paint, but the strict app CSP (`script-src 'self'`) silently blocked it in production (dev serves no CSP), so the flash returned on every load/navigation. That one inline bootstrap is now allow-listed by SHA-256 hash — the CSP stays strict (no `'unsafe-inline'`) and a test recomputes the hash from `index.html` so a future edit can't silently reintroduce the flash.
+- **Markdown opens in the docs editor.** `.md` files now open in the rich docs editor (`CasualDocEditor`) rather than the plain-text editor, converting `.md`↔`.docx` at the FileSource boundary (via the docs SDK's own WASM converter) so the file stays markdown on disk. Mounted single-user so the md↔docx round-trip is the only writer; preview quick-look still renders read-only markdown.
+- **Per-file menu no longer contradicts the sidebar on Activity.** The kebab / right-click menu dropped its stray "Activity — coming in v0.2" item, which conflicted with the shipped workspace Activity feed; per-file history is the real "Version history" item beside it. Empty menu groups are now filtered so a folder's menu never renders a doubled separator.
 - **Handler panics return a structured 500** instead of dropping the connection with no response; the panic is logged and the server keeps serving.
 - **Unknown `/api/*` routes return a JSON 404** instead of the SPA's HTML shell, so a programmatic client gets a parseable error.
 - **Untrusted expiry + text inputs are bounded** on share, invitation, legal-hold, and retention creation. Absurd numeric expiries (e.g. `i64::MAX`) that would panic the date arithmetic are rejected with a 4xx; oversized passwords/reasons are capped.

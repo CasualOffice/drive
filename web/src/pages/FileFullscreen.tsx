@@ -24,10 +24,15 @@
  *     `<SignIn />`. The fullscreen route only renders when authed.
  *   - File picker / sidebar — the editor wants the whole viewport.
  *     Use the back arrow (or browser back) to return to `/home`.
+ *     `.md` is special: it opens in the docs editor (`<CasualDocEditor>`),
+ *     NOT the plain-text editor — its bytes are converted `.md`↔`.docx` at the
+ *     FileSource boundary. It mounts single-user (no collab room) so that
+ *     round-trip stays the only writer to the file.
  *   - Co-edit: this page brokers a per-file collab room (GET
  *     /api/files/{id}/collab). Two transports, by kind:
- *       · plain-text (.md/.txt/…): `useCollabSession` opens a standalone
- *         `y-websocket` provider and `CodeTextEditor` binds a shared `Y.Text`.
+ *       · plain-text (.txt/.csv/.json/.yaml): `useCollabSession` opens a
+ *         standalone `y-websocket` provider and `CodeTextEditor` binds a
+ *         shared `Y.Text`.
  *       · `.docx` / `.xlsx` (P3): the SDK owns the provider. We fetch just the
  *         room *grant* via `useCollabGrant` and feed it to the editor's
  *         declarative `collab` prop — real CRDT sync + cursors + presence. The
@@ -68,10 +73,12 @@ import {
 } from "../lib/collab.ts";
 import type { CollabRoom } from "../api/client.ts";
 
-/** Editor surfaces that host a live editing session (and thus a collab
- *  room). Viewers (pdf / generic preview) get no room. */
+/** Editor surfaces that host a live *co-editing* session (and thus a collab
+ *  room). Viewers (pdf / generic preview) get no room. `.md` is excluded: it
+ *  opens in the docs editor single-user (see the module docblock), so it never
+ *  brokers a room. */
 function isEditableKind(kind: string): boolean {
-  return kind === "doc" || kind === "sheet" || kind === "text" || kind === "md";
+  return kind === "doc" || kind === "sheet" || kind === "text";
 }
 
 // Same lazy-load pattern as PreviewStage — both surfaces share the
@@ -256,10 +263,12 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
   const kind = file ? inferKind(file.name, file.content_type) : null;
   const editable = kind ? isEditableKind(kind) : false;
   // Two collab transports, split by kind (see the module docblock):
-  //   · text/md → standalone y-websocket provider (CodeTextEditor binds Y.Text)
+  //   · text → standalone y-websocket provider (CodeTextEditor binds Y.Text)
   //   · doc/sheet → the SDK owns the provider; we only broker the room grant.
   // Splitting them keeps a single provider on each room (no ghost peer).
-  const textKind = kind === "text" || kind === "md";
+  // `.md` is neither: it mounts the docs editor single-user (converting
+  // FileSource), so it requests no collab session or grant.
+  const textKind = kind === "text";
   const sdkKind = kind === "doc" || kind === "sheet";
   const identity = useMemo<CollabIdentity>(() => {
     const name = authStatus.kind === "authed" ? authStatus.me.admin : "You";
@@ -780,10 +789,29 @@ function FullscreenBody({
       </Suspense>
     );
   }
-  // P2.1 — the plain-text document kinds (.md/.txt/.csv/.json/.yaml) get
-  // the light embedded editor; every save commits a new version through
-  // the content endpoint, same contract as the SDK editors.
-  if (kind === "text" || kind === "md") {
+  // Markdown opens in the docs editor (CasualDocEditor). `MarkdownDriveFileSource`
+  // converts the file's markdown bytes to DOCX on open and back to markdown on
+  // save, so the `.md` stays markdown on disk. Single-user (collab=null): md
+  // never joins an SDK room, keeping the md↔docx round-trip the only writer,
+  // so no grant gating is needed.
+  if (kind === "md") {
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <CasualDocEditor
+          file={file}
+          mode="editor"
+          onSaveStatus={onSaveStatus}
+          user={user}
+          collab={null}
+          onPresence={onPresence}
+        />
+      </Suspense>
+    );
+  }
+  // P2.1 — the plain-text document kinds (.txt/.csv/.json/.yaml) get the light
+  // embedded editor; every save commits a new version through the content
+  // endpoint, same contract as the SDK editors.
+  if (kind === "text") {
     return (
       <Suspense fallback={<LoadingFallback />}>
         <CodeTextEditor file={file} collab={session} onSaveStatus={onSaveStatus} onSaved={onSaved} />
