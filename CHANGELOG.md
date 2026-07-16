@@ -11,6 +11,8 @@ failure traceability. No behaviour change for well-formed requests.
 
 ### Added
 
+- **Request-latency histogram on `/metrics`.** `dochub_http_request_duration_seconds` (5ms–10s buckets + `_sum`/`_count`) joins the existing status-class counters, in-flight gauge, and uptime — enough to chart p50/p95/p99 and drive an SLO/alert rule without per-endpoint cardinality. Fed by the access-log timer, so it reflects real served traffic (probes included).
+- **Access-log sampling actually works.** `DOCHUB_LOG_SAMPLE_RATE=0.1` now logs one in ten *successful* requests via a deterministic 1-in-N sampler (previously the variable was documented but ignored). Server errors are always logged; metrics still count every request.
 - **Request correlation id.** Every response carries an `X-Request-Id` header — a sane upstream id when a proxy sets one (so a trace spans the hop), otherwise a freshly-minted ULID — and the same id appears on the access-log line. A user can quote it in a bug report; an operator can grep for it. Upstream ids over 128 chars are dropped so a direct client can't bloat every log line. The SPA captures it onto `ApiError.requestId` and appends `· ref <id>` to the full-page load-error surfaces.
 - **Load-error recovery ("Try again").** The Version history route + component, the File view, the Settings → Tokens list, and the Notes tree now render a retry affordance on a failed load instead of a dead-end error (or, for Notes, silently masquerading as an empty notebook).
 
