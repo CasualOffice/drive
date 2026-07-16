@@ -268,6 +268,35 @@ async fn wait_for_audit(db: &Db, action: &str) -> bool {
 // ─── Tests ───────────────────────────────────────────────────────────────
 
 #[tokio::test]
+async fn oversized_hold_reason_is_rejected() {
+    let (state, db) = fixture().await;
+    let app = router(state);
+    let cookie = sign_in(&app, "admin", "hunter2").await;
+    let ws = personal_ws(&db, "admin").await;
+
+    // A multi-KB reason would otherwise be persisted verbatim to the
+    // append-only hold row; cap it with a 422.
+    let big = "x".repeat(5001);
+    let body = format!(r#"{{"workspace_id":"{ws}","target_kind":"workspace","reason":"{big}"}}"#);
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            "/api/holds",
+            &cookie,
+            Some("application/json"),
+            Body::from(body),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    // A normal reason is accepted.
+    let ok = place_hold(&app, &cookie, &ws, "workspace", None).await;
+    assert_eq!(ok.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
 async fn file_hold_blocks_trash_and_purge_then_release_permits() {
     let (state, db) = fixture().await;
     let app = router(state);
@@ -345,6 +374,31 @@ async fn workspace_scoped_hold_covers_all_files() {
         purge(&app, &cookie, &file_id).await.status(),
         StatusCode::CONFLICT
     );
+}
+
+#[tokio::test]
+async fn absurd_min_age_days_is_rejected() {
+    let (state, db) = fixture().await;
+    let app = router(state);
+    let cookie = sign_in(&app, "admin", "hunter2").await;
+    let ws = personal_ws(&db, "admin").await;
+
+    // A huge min_age_days would later panic `now - Duration::days(...)` on every
+    // purge check; the policy setter must reject it up front.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            "/api/retention",
+            &cookie,
+            Some("application/json"),
+            Body::from(format!(
+                r#"{{"workspace_id":"{ws}","min_age_days":9223372036854775807}}"#
+            )),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]

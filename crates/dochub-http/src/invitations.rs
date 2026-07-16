@@ -44,6 +44,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::HttpState;
 
+/// Max invitation lifetime (~10 years in hours). Bounds the `now + Duration`
+/// arithmetic so a huge `expires_in_hours` can't overflow the date.
+const MAX_INVITE_EXPIRES_HOURS: i64 = 87_600;
+
 /// Newly-created invitation row, returned to the inviter so they can
 /// share the URL. The `token` is in plaintext here ON THIS SINGLE
 /// RESPONSE only — list endpoints return a token-less DTO.
@@ -218,6 +222,19 @@ async fn create_invitation(
         ));
     }
 
+    // Reject absurd lifetimes: `now + Duration::hours(i64::MAX)` panics in the
+    // `time` crate's date arithmetic. ~10 years is a generous ceiling.
+    if body
+        .expires_in_hours
+        .is_some_and(|h| h > MAX_INVITE_EXPIRES_HOURS)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrBody {
+                error: "expires_in_hours must be <= 87600 (about 10 years)",
+            }),
+        ));
+    }
     let expires_at = body
         .expires_in_hours
         .filter(|h| *h > 0)

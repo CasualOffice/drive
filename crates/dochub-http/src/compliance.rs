@@ -35,6 +35,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::HttpState;
 
+/// Max chars for a legal-hold reason. Generous for a real justification while
+/// bounding what a single request can persist (the audit/hold rows are
+/// append-only, so an oversized reason would live forever).
+const MAX_HOLD_REASON_CHARS: usize = 5_000;
+
+/// Max retention window (~100 years in days). `Duration::days(n)` overflows and
+/// panics for very large `n`, so cap `min_age_days` here — at write time as a
+/// 422, and defensively at read time in case a legacy row holds a bigger value.
+const MAX_RETENTION_DAYS: i64 = 36_500;
+
 // ─── Guards (consulted by every destructive path) ────────────────────────
 
 /// Active legal holds covering `file` (file → project → workspace). Empty when
@@ -83,8 +93,8 @@ pub(crate) async fn retention_blocks_purge(db: &Db, file: &File) -> Result<bool,
     // `min_age_days`: block if any version is still inside the window.
     if let Some(days) = policy.min_age_days {
         if days > 0 {
-            let cutoff =
-                time::OffsetDateTime::now_utc() - time::Duration::days(days.clamp(0, i64::MAX));
+            let cutoff = time::OffsetDateTime::now_utc()
+                - time::Duration::days(days.clamp(0, MAX_RETENTION_DAYS));
             if chain.iter().any(|v| v.created_at > cutoff) {
                 return Ok(true);
             }
@@ -280,6 +290,11 @@ async fn place_hold(
     if reason.is_empty() {
         return Err(ComplianceError::Validation("reason is required".into()));
     }
+    if reason.chars().count() > MAX_HOLD_REASON_CHARS {
+        return Err(ComplianceError::Validation(format!(
+            "reason must be at most {MAX_HOLD_REASON_CHARS} characters"
+        )));
+    }
 
     let hold = LegalHoldsRepo::new(&s.db)
         .place(&NewLegalHold {
@@ -426,6 +441,13 @@ async fn set_retention(
         return Err(ComplianceError::Validation(
             "min_versions and min_age_days must be non-negative".into(),
         ));
+    }
+    // Cap the age window so it can't overflow the date math in
+    // `retention_blocks_purge` (a stored i64::MAX would panic every purge check).
+    if body.min_age_days.is_some_and(|n| n > MAX_RETENTION_DAYS) {
+        return Err(ComplianceError::Validation(format!(
+            "min_age_days must be at most {MAX_RETENTION_DAYS} (about 100 years)"
+        )));
     }
 
     let policy = RetentionRepo::new(&s.db)

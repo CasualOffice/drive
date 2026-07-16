@@ -106,25 +106,8 @@ async fn create_share(
     )
     .await?;
 
-    let password_hash = match body
-        .password
-        .as_deref()
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-    {
-        Some(p) if p.chars().count() < 4 => {
-            return Err(ShareError::Validation(
-                "share password must be at least 4 characters".into(),
-            ));
-        }
-        Some(p) => Some(hash_password(p).map_err(|e| ShareError::Internal(e.to_string()))?),
-        None => None,
-    };
-
-    let expires_at = body
-        .expires_in_seconds
-        .filter(|&secs| secs > 0)
-        .map(|secs| time::OffsetDateTime::now_utc() + time::Duration::seconds(secs));
+    let password_hash = hash_share_password(body.password.as_deref())?;
+    let expires_at = share_expires_at(body.expires_in_seconds)?;
 
     let token = mint_token();
     let file_name = file.name.clone();
@@ -283,25 +266,8 @@ async fn create_folder_share(
         return Err(ShareError::NotFound);
     }
 
-    let password_hash = match body
-        .password
-        .as_deref()
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-    {
-        Some(p) if p.chars().count() < 4 => {
-            return Err(ShareError::Validation(
-                "share password must be at least 4 characters".into(),
-            ));
-        }
-        Some(p) => Some(hash_password(p).map_err(|e| ShareError::Internal(e.to_string()))?),
-        None => None,
-    };
-
-    let expires_at = body
-        .expires_in_seconds
-        .filter(|&secs| secs > 0)
-        .map(|secs| time::OffsetDateTime::now_utc() + time::Duration::seconds(secs));
+    let password_hash = hash_share_password(body.password.as_deref())?;
+    let expires_at = share_expires_at(body.expires_in_seconds)?;
 
     let token = mint_token();
     let folder_name = folder.name.clone();
@@ -672,6 +638,48 @@ async fn download_share(
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
+/// Max chars for a share password. Argon2 hashing is deliberately expensive,
+/// so an unbounded password is a CPU-DoS vector; cap it well above any real
+/// passphrase.
+const MAX_SHARE_PASSWORD_CHARS: usize = 256;
+/// Max share lifetime (~10 years in seconds). `now + Duration::seconds(secs)`
+/// panics in the `time` crate once `secs` pushes the date past year 9999, so
+/// reject absurd values up front instead of relying on the panic net.
+const MAX_SHARE_EXPIRES_SECONDS: i64 = 315_360_000;
+
+/// Validate + hash the optional share password. Shared by the file and folder
+/// share-creation paths. `None`/blank → no password.
+fn hash_share_password(password: Option<&str>) -> Result<Option<String>, ShareError> {
+    match password.map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) if p.chars().count() < 4 => Err(ShareError::Validation(
+            "share password must be at least 4 characters".into(),
+        )),
+        Some(p) if p.chars().count() > MAX_SHARE_PASSWORD_CHARS => Err(ShareError::Validation(
+            format!("share password must be at most {MAX_SHARE_PASSWORD_CHARS} characters"),
+        )),
+        Some(p) => Ok(Some(
+            hash_password(p).map_err(|e| ShareError::Internal(e.to_string()))?,
+        )),
+        None => Ok(None),
+    }
+}
+
+/// Resolve the optional expiry. A non-positive value means "no expiry"
+/// (preserving prior behaviour); an out-of-range positive value is rejected so
+/// the date arithmetic can't overflow.
+fn share_expires_at(
+    expires_in_seconds: Option<i64>,
+) -> Result<Option<time::OffsetDateTime>, ShareError> {
+    if expires_in_seconds.is_some_and(|s| s > MAX_SHARE_EXPIRES_SECONDS) {
+        return Err(ShareError::Validation(format!(
+            "expires_in_seconds must be at most {MAX_SHARE_EXPIRES_SECONDS}"
+        )));
+    }
+    Ok(expires_in_seconds
+        .filter(|&secs| secs > 0)
+        .map(|secs| time::OffsetDateTime::now_utc() + time::Duration::seconds(secs)))
+}
+
 fn mint_token() -> String {
     // 128 bits of entropy from OsRng → URL-safe base64. 22 chars without
     // padding. Same OsRng channel as dochub-auth's session/CSRF tokens.
@@ -823,7 +831,43 @@ pub(crate) fn router(state: HttpState) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::{mint_unlock, verify_unlock, UNLOCK_TTL_SECS};
+    use super::{
+        hash_share_password, mint_unlock, share_expires_at, verify_unlock,
+        MAX_SHARE_EXPIRES_SECONDS, MAX_SHARE_PASSWORD_CHARS, UNLOCK_TTL_SECS,
+    };
+
+    #[test]
+    fn share_expires_at_rejects_absurd_values() {
+        // Just over the cap → validation error, not a panic in date math.
+        let err = share_expires_at(Some(MAX_SHARE_EXPIRES_SECONDS + 1));
+        assert!(err.is_err());
+        // i64::MAX is the panic vector the cap exists to stop.
+        assert!(share_expires_at(Some(i64::MAX)).is_err());
+    }
+
+    #[test]
+    fn share_expires_at_allows_valid_and_treats_nonpositive_as_none() {
+        assert!(share_expires_at(Some(3600)).unwrap().is_some());
+        assert!(share_expires_at(Some(MAX_SHARE_EXPIRES_SECONDS))
+            .unwrap()
+            .is_some());
+        // Absent, zero, and negative all mean "no expiry".
+        assert!(share_expires_at(None).unwrap().is_none());
+        assert!(share_expires_at(Some(0)).unwrap().is_none());
+        assert!(share_expires_at(Some(-5)).unwrap().is_none());
+    }
+
+    #[test]
+    fn hash_share_password_enforces_bounds() {
+        assert!(hash_share_password(Some("abc")).is_err()); // < 4
+        let too_long = "x".repeat(MAX_SHARE_PASSWORD_CHARS + 1);
+        assert!(hash_share_password(Some(&too_long)).is_err());
+        // Blank / absent → no password (Ok(None)), never hashed.
+        assert!(hash_share_password(None).unwrap().is_none());
+        assert!(hash_share_password(Some("   ")).unwrap().is_none());
+        // A valid password hashes.
+        assert!(hash_share_password(Some("hunter2")).unwrap().is_some());
+    }
 
     const SECRET: [u8; 32] = [7u8; 32];
     const SHARE: &str = "share_01HXY";
