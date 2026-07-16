@@ -22,6 +22,8 @@
 //! (every request). Errors are always logged regardless of the
 //! sample rate.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use axum::{
@@ -77,6 +79,13 @@ pub async fn access_log(req: Request, next: Next) -> Response {
     // Suppress successful probes only — a failing probe is still logged (below),
     // which is exactly what an operator needs to see. Metrics already counted it.
     if is_noisy_probe(uri.path(), status) {
+        return resp;
+    }
+
+    // Sampling: under high traffic an operator can log only a fraction of
+    // successful requests via `DOCHUB_LOG_SAMPLE_RATE` (metrics still count
+    // every one). Server errors are always logged regardless of the rate.
+    if !status.is_server_error() && !should_log_sampled() {
         return resp;
     }
 
@@ -136,6 +145,43 @@ pub async fn access_log(req: Request, next: Next) -> Response {
 /// is looking for, so those still fall through to the log block.
 fn is_noisy_probe(path: &str, status: StatusCode) -> bool {
     matches!(path, "/healthz" | "/readyz" | "/metrics") && !status.is_server_error()
+}
+
+/// Convert a sample-rate probability into a "1 in N" divisor. A rate in
+/// `(0, 1)` gives `round(1/rate)`; absent / `>= 1.0` / non-finite / `<= 0`
+/// gives `1` (log everything). Clamped so a tiny rate can't overflow the cast.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "clamped to [1, 1_000_000] before the cast"
+)]
+fn sample_every_from(rate: Option<f64>) -> u64 {
+    rate.filter(|r| r.is_finite() && *r > 0.0 && *r < 1.0)
+        .map_or(1, |r| (1.0 / r).round().clamp(1.0, 1_000_000.0) as u64)
+}
+
+/// Log one in every N successful requests, N derived from
+/// `DOCHUB_LOG_SAMPLE_RATE` (read once and cached).
+fn sample_every() -> u64 {
+    static N: OnceLock<u64> = OnceLock::new();
+    *N.get_or_init(|| {
+        sample_every_from(
+            std::env::var("DOCHUB_LOG_SAMPLE_RATE")
+                .ok()
+                .and_then(|s| s.parse::<f64>().ok()),
+        )
+    })
+}
+
+/// True when this successful request should be logged under the current sample
+/// rate. Deterministic 1-in-N via a global counter — no RNG, exact fraction.
+fn should_log_sampled() -> bool {
+    let n = sample_every();
+    if n <= 1 {
+        return true;
+    }
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    COUNTER.fetch_add(1, Ordering::Relaxed) % n == 0
 }
 
 /// Longest upstream `X-Request-Id` we'll trust verbatim. A trusted proxy sets
@@ -300,6 +346,27 @@ mod tests {
     fn redact_handles_empty_value() {
         let out = redact_query("/x", Some("token=&q=foo"));
         assert_eq!(out, "/x?token=***&q=foo");
+    }
+
+    #[test]
+    fn sample_every_from_maps_rate_to_divisor() {
+        assert_eq!(sample_every_from(Some(0.1)), 10);
+        assert_eq!(sample_every_from(Some(0.5)), 2);
+        assert_eq!(sample_every_from(Some(0.001)), 1000);
+        // Absent / full / out-of-range / non-finite → log everything (N=1).
+        assert_eq!(sample_every_from(None), 1);
+        assert_eq!(sample_every_from(Some(1.0)), 1);
+        assert_eq!(sample_every_from(Some(0.0)), 1);
+        assert_eq!(sample_every_from(Some(-0.5)), 1);
+        assert_eq!(sample_every_from(Some(f64::NAN)), 1);
+        // A tiny rate is clamped, not overflowed.
+        assert_eq!(sample_every_from(Some(1e-12)), 1_000_000);
+    }
+
+    #[test]
+    fn default_sampling_logs_everything() {
+        // With DOCHUB_LOG_SAMPLE_RATE unset in the test env, nothing is dropped.
+        assert!(should_log_sampled());
     }
 
     #[test]
