@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, RotateCw } from "lucide-react";
 
-import { getFile, type FileDto } from "../api/client.ts";
+import { errorText, getFile, type FileDto } from "../api/client.ts";
 import { VersionHistory } from "../components/VersionHistory.tsx";
 
 type LoadState =
@@ -54,7 +54,7 @@ export function VersionHistoryPage({ fileId }: { fileId: string }) {
       const file = await getFile(fileId);
       setState({ kind: "ready", file });
     } catch (err) {
-      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      setState({ kind: "error", message: errorText(err) });
     }
   }, [fileId]);
 

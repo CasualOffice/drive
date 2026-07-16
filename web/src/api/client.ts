@@ -11,11 +11,24 @@ export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "1";
 export class ApiError extends Error {
   status: number;
   body: unknown;
-  constructor(status: number, body: unknown, message?: string) {
+  /** Server correlation id from the response `X-Request-Id` header, when
+   *  present. Quote it in a bug report so an operator can grep the logs. */
+  requestId?: string;
+  constructor(status: number, body: unknown, message?: string, requestId?: string) {
     super(message ?? `HTTP ${status}`);
     this.status = status;
     this.body = body;
+    this.requestId = requestId;
   }
+}
+
+/** A user-facing error string with the correlation id appended when we have
+ *  one — so "Couldn't load — timeout · ref 01J…" gives support something to
+ *  grep. Falls back to the raw message for non-API errors. */
+export function errorText(err: unknown): string {
+  const base = err instanceof Error ? err.message : String(err);
+  const ref = err instanceof ApiError ? err.requestId : undefined;
+  return ref ? `${base} · ref ${ref}` : base;
 }
 
 let csrfToken: string | null = null;
@@ -71,7 +84,8 @@ async function request<T>(
         parsed = null;
       }
     }
-    throw new ApiError(res.status, parsed);
+    const requestId = res.headers.get("x-request-id") ?? undefined;
+    throw new ApiError(res.status, parsed, undefined, requestId);
   }
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get("content-type") ?? "";

@@ -40,7 +40,14 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { AlertTriangle, ArrowLeft, Info, RotateCw, Share2, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { downloadUrl, getFile, renameFile, trashFile, type FileDto } from "../api/client.ts";
+import {
+  downloadUrl,
+  errorText,
+  getFile,
+  renameFile,
+  trashFile,
+  type FileDto,
+} from "../api/client.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
 import { DetailsPanel } from "../components/DetailsPanel.tsx";
 import { EntryKebab } from "../components/EntryMenu.tsx";
@@ -151,7 +158,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
         setState((prev) =>
           prev.kind === "ready"
             ? prev
-            : { kind: "error", message: err instanceof Error ? err.message : String(err) },
+            : { kind: "error", message: errorText(err) },
         );
       }
     })();
@@ -170,7 +177,7 @@ export function FileFullscreen({ fileId }: FileFullscreenProps) {
       const file = await getFile(fileId);
       setState({ kind: "ready", file });
     } catch (err) {
-      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      setState({ kind: "error", message: errorText(err) });
     }
   }, [fileId]);
 
