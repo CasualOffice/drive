@@ -124,3 +124,5 @@ Unauthenticated app-origin endpoints for orchestration + monitoring:
 - `GET /metrics` — **Prometheus** exposition: HTTP responses by status class, in-flight gauge, uptime, and a request-latency histogram (`dochub_http_request_duration_seconds`, 5ms–10s buckets + `_sum`/`_count`) for p95/p99 SLOs. Fed by the access-log middleware, so it reflects real served traffic. Only non-sensitive aggregates; restrict by network policy if needed.
 
 Per-request detail is emitted by the `access_log` middleware (method, redacted path, status, latency, user, workspace, client IP, request id) — `DOCHUB_LOG_FORMAT=json` for a JSON line per request. Shutdown is graceful: on SIGTERM/SIGINT the server drains in-flight requests before exiting.
+
+Day-2 operations — deploy, monitor (with starter PromQL alerts), back up, restore, rotate the master KEK, and respond to a tamper alarm — are in the [operations runbook](./ops/RUNBOOK.md).

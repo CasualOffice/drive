@@ -11,7 +11,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org/)
 
-[Live demo](https://dochub.casualoffice.org/demo) &nbsp;·&nbsp; [Docs](https://dochub.casualoffice.org/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Testing](./docs/TESTING.md) &nbsp;·&nbsp; [Plan](./PLAN.md)
+[Live demo](https://dochub.casualoffice.org/demo) &nbsp;·&nbsp; [Docs](https://dochub.casualoffice.org/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Runbook](./docs/ops/RUNBOOK.md) &nbsp;·&nbsp; [Testing](./docs/TESTING.md) &nbsp;·&nbsp; [Plan](./PLAN.md)
 
 </div>
 
@@ -134,6 +134,7 @@ dochub/
   docs/
     ARCHITECTURE.md      System architecture
     TESTING.md           Test strategy: unit + integration + property + e2e/use-cases
+    ops/RUNBOOK.md       Day-2 operations: deploy, monitor, back up, restore, rotate keys
     research/            Grounded research briefs + synthesis
     ux/                  Surface specs and numbered flows
   PLAN.md                Phased delivery plan + current status
