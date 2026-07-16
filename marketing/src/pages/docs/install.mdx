@@ -18,7 +18,7 @@ docker run -d --name hub \
   -e DOCHUB_STORAGE_BACKEND=fs \
   -e DOCHUB_FS_ROOT=/data \
   -e DOCHUB_MASTER_KEY=<32-byte base64 KEK> \
-  ghcr.io/casualoffice/dochub:latest
+  casualoffice/dochub:latest
 ```
 
 That's it. Visit `https://hub.your-server`, complete the one-time admin setup, create a project, and you have a working hub.
