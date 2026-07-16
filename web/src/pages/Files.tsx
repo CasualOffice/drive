@@ -1014,6 +1014,54 @@ export function Files({
     }, 250);
   }
 
+  // Keyboard model for the item grid/list (a11y — matches the ARIA listbox /
+  // roving-focus pattern). One handler on the container serves both views:
+  //   Arrow / Home / End  → move focus between items (grid: 2-D by column
+  //                          count; list: 1-D)
+  //   Enter               → open (same route as double-click)
+  //   Space               → toggle selection (same as Cmd-click / checkbox)
+  // Mouse drag-to-move and Cmd/Shift multi-select are untouched. The guard
+  // skips the interactive descendants (checkbox, kebab) so their own
+  // Space/Enter semantics still win.
+  function onItemsKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a, input, textarea, [contenteditable='true'], [role='menu']")) {
+      return;
+    }
+    const container = e.currentTarget;
+    const currentEl = target.closest<HTMLElement>("[data-entry-id]");
+    if (!currentEl || !container.contains(currentEl)) return;
+    const id = currentEl.dataset.entryId;
+    if (!id) return;
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const entry = filteredEntries.find((x) => entryId(x) === id);
+      if (entry) openInEditorRoute(entry);
+      return;
+    }
+    if (e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      setSelection((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      setSelectionAnchor(id);
+      return;
+    }
+
+    const items = Array.from(container.querySelectorAll<HTMLElement>("[data-entry-id]"));
+    const idx = items.indexOf(currentEl);
+    if (idx < 0) return;
+    const cols = gridColumnCount(items);
+    const nextIdx = nextGridIndex(e.key, idx, items.length, cols);
+    if (nextIdx === null) return;
+    e.preventDefault();
+    items[nextIdx]?.focus();
+  }
+
   function handlersFor(entry: MenuEntry): EntryMenuHandlers {
     // `Open` → editor route for every file type. The FileFullscreen
     // page already branches on inferKind to mount the right SDK
@@ -1435,6 +1483,7 @@ export function Files({
                 }
               }}
               onEntryDoubleClick={openInEditorRoute}
+              onItemsKeyDown={onItemsKeyDown}
               handlersFor={handlersFor}
               drag={dragProps}
             />
@@ -1464,6 +1513,7 @@ export function Files({
                 });
                 setSelectionAnchor(id);
               }}
+              onItemsKeyDown={onItemsKeyDown}
               handlersFor={handlersFor}
               drag={dragProps}
             />
@@ -2420,12 +2470,80 @@ type DragProps = {
   dropTargetId: string | null;
 };
 
+// Keyboard navigation for the item grid/list. `data-entry-id` marks every
+// focusable item; a single container-level handler (see `onItemsKeyDown` in
+// the Files component) walks between them. These two helpers are pure so they
+// stay unit-testable and decoupled from the DOM handler.
+
+/** How many items sit in the first visual row — derived from the DOM so it
+ * tracks the responsive `--files-grid` column count without duplicating the
+ * media-query math. Items on the same `offsetTop` share a row; the run of them
+ * from index 0 is the column count. The list view collapses to 1. */
+function gridColumnCount(items: HTMLElement[]): number {
+  if (items.length === 0) return 1;
+  const firstTop = items[0].offsetTop;
+  let cols = 0;
+  for (const el of items) {
+    if (el.offsetTop === firstTop) cols += 1;
+    else break;
+  }
+  return Math.max(1, cols);
+}
+
+/** Next focus index for an Arrow/Home/End key over a `count`-item grid laid out
+ * in `cols` columns. Returns null for non-navigation keys or moves that fall
+ * off the ends (so focus stays put rather than wrapping). */
+function nextGridIndex(
+  key: string,
+  idx: number,
+  count: number,
+  cols: number,
+): number | null {
+  if (count === 0) return null;
+  let next: number;
+  switch (key) {
+    case "ArrowRight":
+      next = idx + 1;
+      break;
+    case "ArrowLeft":
+      next = idx - 1;
+      break;
+    case "ArrowDown":
+      next = idx + cols;
+      break;
+    case "ArrowUp":
+      next = idx - cols;
+      break;
+    case "Home":
+      next = 0;
+      break;
+    case "End":
+      next = count - 1;
+      break;
+    default:
+      return null;
+  }
+  if (next < 0 || next >= count) return null;
+  return next;
+}
+
+/** DOM props threaded onto a card so the container keyboard handler can find
+ * and select it. `data-entry-id` needs a template-literal index because
+ * `React.HTMLAttributes` doesn't declare arbitrary data attributes. */
+type CardItemDomProps = {
+  tabIndex?: number;
+  role?: string;
+  "aria-selected"?: boolean;
+  [dataAttr: `data-${string}`]: string | undefined;
+};
+
 function GridView({
   entries,
   uploading,
   selection,
   onEntryClick,
   onEntryDoubleClick,
+  onItemsKeyDown,
   handlersFor,
   drag,
 }: {
@@ -2434,11 +2552,16 @@ function GridView({
   selection: Set<string>;
   onEntryClick: (e: React.MouseEvent, entry: Entry) => void;
   onEntryDoubleClick?: (entry: Entry) => void;
+  onItemsKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   handlersFor: (entry: MenuEntry) => EntryMenuHandlers;
   drag?: DragProps;
 }) {
   return (
     <div
+      role="listbox"
+      aria-label="Documents"
+      aria-multiselectable="true"
+      onKeyDown={onItemsKeyDown}
       style={{
         display: "grid",
         gridTemplateColumns: "var(--files-grid)",
@@ -2451,6 +2574,12 @@ function GridView({
             key={e.folder.id}
             folder={e.folder}
             selected={selection.has(e.folder.id)}
+            itemProps={{
+              "data-entry-id": e.folder.id,
+              tabIndex: 0,
+              role: "option",
+              "aria-selected": selection.has(e.folder.id),
+            }}
             onClick={(ev) => onEntryClick(ev, e)}
             onDoubleClick={onEntryDoubleClick ? () => onEntryDoubleClick(e) : undefined}
             handlers={handlersFor(e)}
@@ -2467,6 +2596,12 @@ function GridView({
             key={e.file.id}
             file={e.file}
             selected={selection.has(e.file.id)}
+            itemProps={{
+              "data-entry-id": e.file.id,
+              tabIndex: 0,
+              role: "option",
+              "aria-selected": selection.has(e.file.id),
+            }}
             onClick={(ev) => onEntryClick(ev, e)}
             onDoubleClick={onEntryDoubleClick ? () => onEntryDoubleClick(e) : undefined}
             handlers={handlersFor(e)}
@@ -2486,6 +2621,7 @@ function GridView({
 function FolderCard({
   folder,
   selected,
+  itemProps,
   onClick,
   onDoubleClick,
   handlers,
@@ -2499,6 +2635,7 @@ function FolderCard({
 }: {
   folder: FolderDto;
   selected: boolean;
+  itemProps?: CardItemDomProps;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
   handlers: EntryMenuHandlers;
@@ -2513,6 +2650,7 @@ function FolderCard({
   return (
     <EntryContextMenu entry={{ kind: "folder", folder }} handlers={handlers}>
       <Card
+        {...itemProps}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
         folder
@@ -2548,6 +2686,7 @@ function FolderCard({
 function FileCard({
   file,
   selected,
+  itemProps,
   onClick,
   onDoubleClick,
   handlers,
@@ -2557,6 +2696,7 @@ function FileCard({
 }: {
   file: FileDto;
   selected: boolean;
+  itemProps?: CardItemDomProps;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: (e: React.MouseEvent) => void;
   handlers: EntryMenuHandlers;
@@ -2574,6 +2714,7 @@ function FileCard({
   return (
     <EntryContextMenu entry={{ kind: "file", file }} handlers={handlers}>
       <Card
+        {...itemProps}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
         selected={selected}
@@ -2653,7 +2794,11 @@ const Card = React.forwardRef<
     /** Sealed docs carry a 3px amber left rule (verification as spatial
      * identity, §5.2). Pairs with the cover's amber top-bar. */
     sealed?: boolean;
-  } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "children">
+  } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "children"> & {
+      /** Keyboard-nav plumbing (`data-entry-id`) — not declared by
+       * `HTMLAttributes`, so allow arbitrary data attributes through. */
+      [dataAttr: `data-${string}`]: string | undefined;
+    }
 >(function Card({ children, onClick, folder, kebab, selected, sealed, ...rest }, ref) {
   // Neobrutalist tile (§5): flat surface, hard 2px ink border, hard offset
   // shadow. Hover RAISES (translate -1,-1 + shadow grows to lg); press SINKS
@@ -2776,6 +2921,14 @@ const Card = React.forwardRef<
         .cd-card-kebab:focus-within {
           opacity: 1 !important;
         }
+        /* Roving keyboard focus — a hard violet ring outside the tile so it
+         * reads over both the resting and hover shadow. Only shows for
+         * keyboard focus (not mouse clicks), matching the list rows. */
+        .cd-file-card:focus-visible,
+        .cd-folder-card:focus-visible {
+          outline: 2px solid var(--violet-500);
+          outline-offset: 2px;
+        }
       `}</style>
     </div>
   );
@@ -2867,6 +3020,7 @@ function ListView({
   onEntryClick,
   onEntryDoubleClick,
   onToggleSelect,
+  onItemsKeyDown,
   handlersFor,
   drag,
 }: {
@@ -2876,6 +3030,7 @@ function ListView({
   onEntryClick: (e: React.MouseEvent, entry: Entry) => void;
   onEntryDoubleClick?: (entry: Entry) => void;
   onToggleSelect: (entry: Entry) => void;
+  onItemsKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   handlersFor: (entry: MenuEntry) => EntryMenuHandlers;
   drag?: DragProps;
 }) {
@@ -2884,6 +3039,7 @@ function ListView({
       role="table"
       aria-label="Documents"
       className="glass"
+      onKeyDown={onItemsKeyDown}
       style={{
         overflow: "hidden",
       }}
@@ -2897,6 +3053,7 @@ function ListView({
           return (
             <EntryContextMenu key={e.folder.id} entry={entry} handlers={handlers}>
               <VaultRow
+                data-entry-id={e.folder.id}
                 name={e.folder.name}
                 kind="fold"
                 version={null}
@@ -2924,6 +3081,7 @@ function ListView({
         return (
           <EntryContextMenu key={e.file.id} entry={entry} handlers={handlers}>
             <VaultRow
+              data-entry-id={e.file.id}
               fileId={e.file.id}
               name={e.file.name}
               kind={kind}
@@ -2968,6 +3126,12 @@ function ListView({
         .cd-vault-row:focus-within .cd-vault-kebab { opacity: 1; }
         .cd-vault-row:hover .cd-vault-select,
         .cd-vault-row:focus-within .cd-vault-select { opacity: 1; }
+        /* Keyboard focus ring on the whole row (inset so it doesn't clip
+           against the neighbouring rows' hairline borders). */
+        .cd-vault-row:focus-visible {
+          outline: 2px solid var(--violet-500);
+          outline-offset: -2px;
+        }
       `}</style>
     </div>
   );
@@ -3037,7 +3201,10 @@ const VaultRow = React.forwardRef<
     selected?: boolean;
     /** Folder rows only — lit while a dragged entry hovers as a move target. */
     dropActive?: boolean;
-  } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "onDoubleClick">
+  } & Omit<React.HTMLAttributes<HTMLDivElement>, "onClick" | "onDoubleClick"> & {
+      /** Keyboard-nav plumbing (`data-entry-id`), see `onItemsKeyDown`. */
+      [dataAttr: `data-${string}`]: string | undefined;
+    }
 >(function VaultRow(
   {
     fileId,
@@ -3081,12 +3248,9 @@ const VaultRow = React.forwardRef<
       tabIndex={ghost ? undefined : 0}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" && onDoubleClick) {
-          e.preventDefault();
-          onDoubleClick();
-        }
-      }}
+      // Enter/Space (open + select) and arrow navigation are handled once at
+      // the list container (`onItemsKeyDown`) so the grid and list share a
+      // single keyboard model — no per-row handler here to double-fire.
       className="cd-vault-row glass--thick"
       {...rest}
       style={{
