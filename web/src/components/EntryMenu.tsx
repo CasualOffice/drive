@@ -6,13 +6,12 @@
  *   - <EntryKebab />       renders a button that opens the same items.
  *
  * Wired in v0:                 Open, Preview, Rename, Download, See details,
- *                              Move to trash.
- * Stubbed (toast "Coming…"):   Share, Move, Make a copy, Activity.
+ *                              Version history, Move to trash.
+ * Stubbed (toast "Coming…"):   Share, Move, Make a copy.
  *
  * Folders get a trimmed menu (no Preview / Download / Details / Share).
  */
 import {
-  Activity,
   Copy,
   Download,
   ExternalLink,
@@ -103,7 +102,6 @@ function buildGroups(entry: Entry, h: EntryMenuHandlers): Group[] {
       shortcut: "H",
     });
   }
-  meta.push({ label: "Activity", icon: <Activity size={14} strokeWidth={1.8} />, onSelect: () => stub("Activity") });
 
   const destructive: ItemDef[] = [
     {
@@ -115,7 +113,11 @@ function buildGroups(entry: Entry, h: EntryMenuHandlers): Group[] {
     },
   ];
 
-  return [{ items: primary }, { items: collab }, { items: meta }, { items: destructive }];
+  // Drop empty groups so a folder (whose `meta` group is now empty) never
+  // renders a doubled separator between the collab and destructive groups.
+  return [{ items: primary }, { items: collab }, { items: meta }, { items: destructive }].filter(
+    (g) => g.items.length > 0,
+  );
 }
 
 // ── Right-click ────────────────────────────────────────────────────────

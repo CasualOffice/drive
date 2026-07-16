@@ -43,6 +43,7 @@ import "@casualoffice/docs/styles.css";
 import { type CollabRoom, type FileDto } from "../../api/client.ts";
 import { resolveAppearance, subscribeAppearance } from "../../lib/appearance.ts";
 import { DriveFileSource } from "../../file-source/DriveFileSource.ts";
+import { MarkdownDriveFileSource } from "../../file-source/MarkdownDriveFileSource.ts";
 import {
   DISABLED_SESSION,
   presenceSession,
@@ -50,6 +51,15 @@ import {
   type CollabSession,
 } from "../../lib/collab.ts";
 import { withSaveStatus, type OnSaveStatus } from "./save-status.ts";
+
+/** Markdown documents mount in the docs editor too, but their bytes are
+ *  markdown — not the DOCX the SDK parses — so they load through
+ *  `MarkdownDriveFileSource`, which converts `.md`↔`.docx` at the byte
+ *  boundary. Keyed off the stored MIME (authoritative; the backend stamps
+ *  `text/markdown`) with an extension fallback. */
+function isMarkdownFile(file: FileDto): boolean {
+  return file.content_type === "text/markdown" || /\.(md|markdown)$/i.test(file.name);
+}
 
 /** Editor mode: hide only the bottom status bar — Drive's fullscreen
  *  header already surfaces save state + version, so the SDK's bar is
@@ -111,10 +121,12 @@ export function CasualDocEditor({
   onSaveStatusRef.current = onSaveStatus;
 
   const fileSource = useMemo(() => {
-    const fs = new DriveFileSource(file);
+    // Markdown loads through the converting source (`.md`↔`.docx` at the byte
+    // boundary); every other kind (docx) uses the raw byte source.
+    const fs = isMarkdownFile(file) ? new MarkdownDriveFileSource(file) : new DriveFileSource(file);
     // Patch save() so every save transition runs through the status
     // tracker. `bind` so the method keeps its `this` context inside
-    // DriveFileSource (it touches `this.file`).
+    // the source (it touches `this.file`).
     const originalSave = fs.save.bind(fs);
     fs.save = withSaveStatus(originalSave, (s) => onSaveStatusRef.current?.(s));
     return fs;
