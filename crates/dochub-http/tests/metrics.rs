@@ -124,4 +124,18 @@ async fn metrics_reflects_served_traffic() {
         count("dochub_http_requests_total{class=\"4xx\"}") >= 1,
         "unauth /api/me should have counted as a 4xx:\n{text}"
     );
+
+    // The latency histogram is present and observed the served requests: the
+    // +Inf bucket and _count equal the total sample count (>= our 2 requests).
+    assert!(
+        text.contains("# TYPE dochub_http_request_duration_seconds histogram"),
+        "latency histogram missing:\n{text}"
+    );
+    let inf = count("dochub_http_request_duration_seconds_bucket{le=\"+Inf\"}");
+    let hist_count = count("dochub_http_request_duration_seconds_count");
+    assert!(
+        hist_count >= 2,
+        "histogram should have >= 2 samples:\n{text}"
+    );
+    assert_eq!(inf, hist_count, "+Inf bucket must equal _count:\n{text}");
 }

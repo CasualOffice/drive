@@ -67,7 +67,10 @@ pub async fn access_log(req: Request, next: Next) -> Response {
     }
 
     let status = resp.status();
-    crate::metrics::record_end(status.as_u16());
+    // One clock read for both the metric and the log line. Recorded for every
+    // request (probes included) so latency aggregates reflect real traffic.
+    let elapsed = start.elapsed();
+    crate::metrics::record_end(status.as_u16(), elapsed);
 
     // Orchestrators and scrapers hit the probe endpoints every few seconds;
     // logging each successful one buries real traffic and inflates log cost.
@@ -77,7 +80,7 @@ pub async fn access_log(req: Request, next: Next) -> Response {
         return resp;
     }
 
-    let duration_us = start.elapsed().as_micros();
+    let duration_us = elapsed.as_micros();
     let path_redacted = redact_query(uri.path(), uri.query());
     // Post-handler chance to pick up the user (handlers can set it
     // via extension even when no extractor ran).
