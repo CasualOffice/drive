@@ -153,6 +153,44 @@ async fn create_invite(app: &axum::Router, cookie: &str, ws: &str, body: &str) -
 }
 
 #[tokio::test]
+async fn absurd_expires_in_hours_is_rejected_not_a_panic() {
+    let state = fixture().await;
+    let app = router(state);
+    let cookie = sign_in(&app, "alice").await;
+    let ws = create_team_workspace(&app, &cookie).await;
+
+    // i64::MAX hours would overflow `now + Duration::hours(...)`; the handler
+    // must reject it with a 400 rather than panic (→ 500) on the date math.
+    let r = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/workspaces/{ws}/invitations"))
+                .header("host", APP)
+                .header("cookie", &cookie)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"role":"member","expires_in_hours":9223372036854775807}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+
+    // A sane lifetime still works.
+    let ok = create_invite(
+        &app,
+        &cookie,
+        &ws,
+        r#"{"role":"member","expires_in_hours":24}"#,
+    )
+    .await;
+    assert!(!ok["token"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn create_lists_then_revoke_round_trip() {
     let state = fixture().await;
     let app = router(state);

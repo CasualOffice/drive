@@ -35,6 +35,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::HttpState;
 
+/// Max chars for a legal-hold reason. Generous for a real justification while
+/// bounding what a single request can persist (the audit/hold rows are
+/// append-only, so an oversized reason would live forever).
+const MAX_HOLD_REASON_CHARS: usize = 5_000;
+
 // ─── Guards (consulted by every destructive path) ────────────────────────
 
 /// Active legal holds covering `file` (file → project → workspace). Empty when
@@ -279,6 +284,11 @@ async fn place_hold(
     let reason = body.reason.trim();
     if reason.is_empty() {
         return Err(ComplianceError::Validation("reason is required".into()));
+    }
+    if reason.chars().count() > MAX_HOLD_REASON_CHARS {
+        return Err(ComplianceError::Validation(format!(
+            "reason must be at most {MAX_HOLD_REASON_CHARS} characters"
+        )));
     }
 
     let hold = LegalHoldsRepo::new(&s.db)
