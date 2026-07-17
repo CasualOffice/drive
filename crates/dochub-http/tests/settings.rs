@@ -275,7 +275,9 @@ async fn about_returns_build_metadata() {
     assert_eq!(r.status(), StatusCode::OK);
     let bytes = r.into_body().collect().await.unwrap().to_bytes();
     let v: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(v["version"], "0.0.1");
+    // Compiled crate version (env!("CARGO_PKG_VERSION")), not a literal, so a
+    // version bump can't fail this — see the same fix in tests/admin.rs.
+    assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
     assert!(v["git_sha"].is_string());
     assert!(v["built_at"].is_string());
     assert_eq!(v["license"], "Apache-2.0");
