@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "dochub"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -792,7 +792,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-ai"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "reqwest",
@@ -804,7 +804,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-auth"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "argon2",
  "axum",
@@ -828,7 +828,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-authz"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "dochub-crypto",
  "dochub-db",
@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "base64 0.22.1",
  "dochub-crypto",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-crypto"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
@@ -874,7 +874,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-db"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-http"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-index"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "tantivy",
  "tempfile",
@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-mcp"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "serde",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-storage"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -984,7 +984,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-wopi"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "axum",
@@ -1003,7 +1003,7 @@ dependencies = [
 
 [[package]]
 name = "dochub-worker"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "dochub-db",

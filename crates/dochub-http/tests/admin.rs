@@ -166,7 +166,10 @@ async fn system_returns_snapshot_for_admin() {
     let body: Value =
         serde_json::from_slice(&r.into_body().collect().await.unwrap().to_bytes()).unwrap();
 
-    assert_eq!(body["version"], "0.0.1");
+    // Assert against the compiled crate version (what the handler reports via
+    // env!("CARGO_PKG_VERSION")) rather than a literal, so a version bump can't
+    // fail this test — it broke on the 0.0.1 → 0.0.2 bump when hardcoded.
+    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(body["license"], "Apache-2.0");
     assert_eq!(body["storage_backend"], "Memory");
     assert_eq!(body["db_backend"], "Sqlite");

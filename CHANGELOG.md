@@ -6,8 +6,11 @@ All notable changes to Doc-Hub land here. Format follows
 
 ## [Unreleased]
 
-Post-0.0.1 production-hardening sweep — resilience, resource bounding, and
-failure traceability. No behaviour change for well-formed requests.
+## [0.0.2] - 2026-07-18
+
+Post-0.0.1 production-hardening sweep — resilience, resource bounding, failure
+traceability, keyboard accessibility, and symmetric origin hardening. No
+behaviour change for well-formed requests.
 
 ### Added
 
@@ -22,10 +25,12 @@ failure traceability. No behaviour change for well-formed requests.
 - **Access log: successful probes suppressed.** `/healthz`, `/readyz`, and `/metrics` no longer emit a log line on success (orchestrators/scrapers poll them every few seconds); a 5xx from a probe is still logged. Metrics counters are unaffected.
 - **Bounded graceful-shutdown drain.** After SIGTERM/SIGINT the server waits for in-flight requests up to a 25s cap (under the common 30s orchestrator grace period), so a single hung connection can't hold the process open until SIGKILL cuts everything.
 - **Note append no longer loads the whole tree.** Appending a note now runs a targeted sibling-keys query instead of loading the entire workspace note tree to compute the next order-key.
+- **The app origin isolates its browsing context.** Every app-origin response now carries `Cross-Origin-Opener-Policy: same-origin-allow-popups` and `Cross-Origin-Resource-Policy: same-site`, matching the user-content origin — XS-Leak / tab-napping and cross-site-embedding hardening. COOP is the `-allow-popups` variant so interactive auth keeps working; COEP is intentionally omitted (it would break cross-origin fonts + the collab handshake). Covered by tests.
 
 ### Fixed
 
 - **Notes are keyboard-operable.** The note tree + search rows were `<div onClick>` with no keyboard path — a keyboard or screen-reader user could not open a note. They're now `role="button"` with `tabIndex`, Enter/Space activation, `aria-current` for the open note, an `aria-label`, and a visible `:focus-visible` ring.
+- **The document grid + list are keyboard-operable.** The Files grid and list were mouse-only past initial focus. They're now an ARIA listbox with a single **roving Tab stop**: Arrow / Home / End move focus (the grid navigates in 2-D by its column count, the list in 1-D), Enter opens, Space toggles selection, and a visible `:focus-visible` ring tracks focus — all without disturbing the existing mouse drag-to-move or Cmd/Shift multi-select. Covered by a Playwright e2e test.
 - **Failures stop hiding themselves.** Three surfaces silently vanished or hung on error instead of saying so: the AI **answer** panel dropped back to empty (looked like the question was ignored) — now shows a brief "couldn't answer" line; the Settings → **Members** cards sat on "Loading…" forever after a load error — now show an inline "Couldn't load · Try again"; and the share **password** field gained an `aria-label` (it had only a placeholder).
 - **Theme no longer flashes light↔dark in production.** The pre-paint theme bootstrap in `index.html` sets `data-theme` before first paint, but the strict app CSP (`script-src 'self'`) silently blocked it in production (dev serves no CSP), so the flash returned on every load/navigation. That one inline bootstrap is now allow-listed by SHA-256 hash — the CSP stays strict (no `'unsafe-inline'`) and a test recomputes the hash from `index.html` so a future edit can't silently reintroduce the flash.
 - **Markdown opens in the docs editor.** `.md` files now open in the rich docs editor (`CasualDocEditor`) rather than the plain-text editor, converting `.md`↔`.docx` at the FileSource boundary (via the docs SDK's own WASM converter) so the file stays markdown on disk. Mounted single-user so the md↔docx round-trip is the only writer; preview quick-look still renders read-only markdown.
