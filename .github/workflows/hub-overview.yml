@@ -32,8 +32,13 @@ jobs:
       - name: Update Docker Hub overview
         uses: peter-evans/dockerhub-description@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          # Editing a repo's overview goes through Docker Hub's web API
+          # (/v2/users/login/), which rejects an ORG name + registry PAT (the
+          # DOCKERHUB_USERNAME/TOKEN pair that pushes the image). It needs a real
+          # USER who owns the org, so the description step uses its own creds.
+          # `repository` still names the org repo the description lands on.
+          username: ${{ secrets.DOCKERHUB_DESC_USER }}
+          password: ${{ secrets.DOCKERHUB_DESC_PASS }}
           repository: ${{ secrets.DOCKERHUB_USERNAME }}/dochub
           short-description: "Encrypted, tamper-evident self-hosted document hub — a single Rust binary."
           readme-filepath: ./.docker/README.md
