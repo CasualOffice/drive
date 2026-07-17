@@ -2,7 +2,12 @@ name: Release
 
 # Publishes the Doc-Hub container image to Docker Hub on a version tag.
 # Push a tag like `v0.0.1` (matching the workspace version in Cargo.toml) to
-# trigger a multi-arch build + push and a Docker Hub overview refresh.
+# trigger a multi-arch build + push, an SBOM, and a GitHub Release.
+#
+# Once the image is pushed the release is a success; the SBOM + GitHub-Release
+# steps are best-effort and re-runnable so a post-push GitHub-API blip can't
+# mask a published image. The Docker Hub overview is maintained separately by
+# `hub-overview.yml`.
 #
 # Secrets live in the `release` GitHub environment:
 #   DOCKERHUB_USERNAME  — Docker Hub namespace (the image is <username>/dochub)
@@ -65,6 +70,15 @@ jobs:
 
       - name: Build and push (linux/amd64, linux/arm64)
         uses: docker/build-push-action@v6
+        env:
+          # build-push-action@v6 uploads a "build record" to the GitHub API
+          # *after* the image is pushed. During a GitHub REST-API incident that
+          # upload returned 403 and failed the step even though the multi-arch
+          # image had already published — masking a successful v0.0.1 release as
+          # a red failure for hours. We don't consume the summary/record, so
+          # disable both to drop that failure mode: a pushed image is a success.
+          DOCKER_BUILD_SUMMARY: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -78,30 +92,31 @@ jobs:
           # fast-follow once the pipeline is proven.
           provenance: false
 
-      - name: Update Docker Hub overview
-        uses: peter-evans/dockerhub-description@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_USERNAME }}/dochub
-          short-description: "Encrypted, tamper-evident self-hosted document hub — a single Rust binary."
-          readme-filepath: ./.docker/README.md
+      # The Docker Hub overview (long description) is maintained by the
+      # dedicated `hub-overview.yml` workflow — editing it goes through Docker
+      # Hub's web API, which needs a *user* login (not the org+registry-PAT pair
+      # used here) and so can't run from this job. Keeping it out of the release
+      # path also means a Hub-description hiccup can never fail a release whose
+      # image has already published.
 
-      # Publish a GitHub Release for the tag, with notes lifted from the
-      # matching CHANGELOG section. Runs after the image push, so a hiccup here
-      # never blocks the published image.
-# Software bill of materials for the published image — attached to the
+      # Software bill of materials for the published image — attached to the
       # GitHub Release (not the registry) so it's discoverable without cluttering
-      # the Docker Hub tag listing with attestation manifests.
+      # the Docker Hub tag listing with attestation manifests. Non-blocking: a
+      # pushed image is the release, so an SBOM hiccup must not fail it.
       - name: Generate SBOM (SPDX)
         uses: anchore/sbom-action@v0
+        continue-on-error: true
         with:
           image: ${{ secrets.DOCKERHUB_USERNAME }}/dochub:${{ steps.meta.outputs.version }}
           format: spdx-json
           output-file: dochub-sbom.spdx.json
           upload-artifact: false
 
-      - name: Create GitHub Release
+      # Idempotent: create the Release, or update its notes if a prior (maybe
+      # partially-failed) run already made it — so re-running a release that
+      # died after the image push completes cleanly instead of erroring on
+      # "release already exists". The SBOM is attached only if it was generated.
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -114,8 +129,15 @@ jobs:
           if [ ! -s release-notes.md ]; then
             printf 'Release %s.\n' "$GITHUB_REF_NAME" > release-notes.md
           fi
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file release-notes.md \
-            --verify-tag \
-            dochub-sbom.spdx.json
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME exists — updating notes"
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file release-notes.md \
+              --verify-tag
+          fi
+          if [ -f dochub-sbom.spdx.json ]; then
+            gh release upload "$GITHUB_REF_NAME" dochub-sbom.spdx.json --clobber
+          fi
