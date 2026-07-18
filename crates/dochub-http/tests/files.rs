@@ -586,6 +586,81 @@ async fn upload_quota_is_scoped_per_workspace_not_per_user() {
 }
 
 #[tokio::test]
+async fn trashed_files_still_count_against_quota() {
+    // Review finding #13: trashing a file does NOT erase its bytes (trash and
+    // purge are both retain-only until Phase 4). So its bytes must keep counting
+    // against the quota — otherwise a user could trash-and-reupload without bound
+    // and grow real disk usage past the cap. Under the old accounting (which
+    // excluded `trashed_at IS NOT NULL` rows) the second upload below succeeded.
+    use dochub_db::UserRepo;
+    let state = fixture().await;
+    let user = UserRepo::new(&state.db)
+        .find_by_username("admin")
+        .await
+        .unwrap();
+    UserRepo::new(&state.db)
+        .set_quota(&user.id, Some(150))
+        .await
+        .unwrap();
+    let app = router(state);
+    let cookie = sign_in(&app).await;
+
+    let boundary = "----trashquota";
+    let upload = |name: &'static str, n: usize| {
+        let payload = vec![b'x'; n];
+        let body = build_multipart(
+            boundary,
+            &[MultipartField::File("file", name, "text/plain", &payload)],
+        );
+        app.clone().oneshot(auth_req(
+            "POST",
+            "/api/files",
+            &cookie,
+            Some(&format!("multipart/form-data; boundary={boundary}")),
+            Body::from(body),
+        ))
+    };
+
+    // 100 of 150 bytes used.
+    let r = upload("a.txt", 100).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK, "first upload within quota");
+    let file_id = json_body(r).await["id"].as_str().unwrap().to_string();
+
+    // Trash it — bytes are retained on disk (retain-only), so usage stays 100.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            &format!("/api/files/{file_id}/trash"),
+            &cookie,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+
+    // A second 100-byte upload would put REAL usage at 200 > 150 — rejected.
+    // The trash-and-reupload leak is closed.
+    let r = upload("b.txt", 100).await.unwrap();
+    assert_eq!(
+        r.status(),
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "trashed bytes still count, so re-upload past the cap is refused"
+    );
+    assert_eq!(json_body(r).await["error"], "quota exceeded");
+
+    // But accounting is exact, not a blanket block: 40 more bytes (100+40 ≤ 150)
+    // still fits.
+    let r = upload("c.txt", 40).await.unwrap();
+    assert_eq!(
+        r.status(),
+        StatusCode::OK,
+        "an upload that fits under the real total still succeeds"
+    );
+}
+
+#[tokio::test]
 async fn upload_throttles_burst_with_429_and_retry_after() {
     use dochub_http::{RateLimitConfig, RateLimiter};
     use std::sync::Arc;

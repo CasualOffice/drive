@@ -250,6 +250,14 @@ impl<'a> FileRepo<'a> {
     /// their `expected_size` (capped at i64::MAX). Without this clamp a
     /// pair of parallel presigns could both squeeze under the cap and
     /// then together exceed it — the spec calls this out explicitly.
+    ///
+    /// **Trashed rows still count** (review finding #13). Trash and purge are
+    /// both retain-only through Phase 3 — neither erases the blob (physical
+    /// erasure is Phase 4; CLAUDE.md rule 6). The bytes remain on disk, so they
+    /// must remain in the quota total; excluding them let a user trash-and-
+    /// reupload without bound and grow real disk usage past the cap. A row
+    /// counts exactly while its bytes exist: once Phase 4 erasure deletes the
+    /// row (or zeroes its size), it drops out of this sum on its own.
     pub async fn workspace_used_bytes(&self, workspace_id: &str) -> Result<u64, DbError> {
         let n: Option<i64> = sqlx::query_scalar(&self.db.sql(
             "SELECT COALESCE(SUM( \
@@ -258,7 +266,7 @@ impl<'a> FileRepo<'a> {
                        ELSE size END \
                 ), 0) \
              FROM files \
-             WHERE workspace_id = ? AND trashed_at IS NULL",
+             WHERE workspace_id = ?",
         ))
         .bind(workspace_id)
         .fetch_one(self.db.pool())
