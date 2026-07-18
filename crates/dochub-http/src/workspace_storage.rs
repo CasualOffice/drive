@@ -18,7 +18,7 @@ use dochub_db::{
     WorkspaceStorageProvider, WorkspaceStorageRepo,
 };
 use dochub_storage::{
-    seal_secret, ssrf_guard, test_connection, validate_shape_, ByoConfig, ByoError,
+    seal_secret, ssrf_guard_resolving, test_connection, validate_shape_, ByoConfig, ByoError,
 };
 use serde::{Deserialize, Serialize};
 
@@ -188,6 +188,18 @@ fn allow_insecure() -> bool {
     )
 }
 
+/// SSRF-guard an endpoint including the DNS-resolution pass, off the async
+/// executor (`ssrf_guard_resolving` may do a blocking `getaddrinfo`). Run on
+/// every path that will connect to a user-supplied endpoint.
+async fn guard_endpoint(cfg: &ByoConfig) -> Result<(), WsStorageError> {
+    let endpoint = cfg.endpoint.clone();
+    let insecure = allow_insecure();
+    tokio::task::spawn_blocking(move || ssrf_guard_resolving(endpoint.as_deref(), insecure))
+        .await
+        .map_err(|e| WsStorageError::TestFailed(format!("ssrf guard task failed: {e}")))?
+        .map_err(byo_to_err)
+}
+
 /// Mask an access key id for display. Shows the first 4 chars + tail 4.
 fn mask_ak(id: &str) -> String {
     let len = id.chars().count();
@@ -242,7 +254,7 @@ async fn put_storage(
 
     let cfg = body_to_cfg(&body);
     validate_shape_(&cfg).map_err(byo_to_err)?;
-    ssrf_guard(cfg.endpoint.as_deref(), allow_insecure()).map_err(byo_to_err)?;
+    guard_endpoint(&cfg).await?;
 
     let latency = test_connection(&cfg)
         .await
@@ -337,7 +349,7 @@ async fn test_storage(
         secret_access_key: body.secret_access_key,
     };
     validate_shape_(&cfg).map_err(byo_to_err)?;
-    ssrf_guard(cfg.endpoint.as_deref(), allow_insecure()).map_err(byo_to_err)?;
+    guard_endpoint(&cfg).await?;
 
     match test_connection(&cfg).await {
         Ok(latency) => {
@@ -410,7 +422,7 @@ async fn patch_credentials(
         secret_access_key: body.secret_access_key.clone(),
     };
     validate_shape_(&cfg).map_err(byo_to_err)?;
-    ssrf_guard(cfg.endpoint.as_deref(), allow_insecure()).map_err(byo_to_err)?;
+    guard_endpoint(&cfg).await?;
     test_connection(&cfg)
         .await
         .map_err(|e| WsStorageError::TestFailed(e.to_string()))?;
