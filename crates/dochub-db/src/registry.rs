@@ -69,6 +69,10 @@ pub enum RegistryError {
     /// The requested version `(file_id, seq)` does not exist.
     #[error("version not found")]
     VersionNotFound,
+    /// Too many concurrent commits raced for the next `seq` on this file and
+    /// the retry budget was exhausted. The caller may retry the save.
+    #[error("commit contention — too many concurrent writers")]
+    CommitContention,
 }
 
 /// Version registry service. Cheap to clone — every field is `Arc`-backed.
@@ -123,25 +127,47 @@ impl Registry {
             .to_string();
 
         let versions = FileVersionsRepo::new(&self.db);
-        let head = versions.head(file_id).await?;
-        let (seq, prev_hash) = match head {
-            Some(h) => (h.seq + 1, Some(h.content_hash)),
-            None => (1, None),
-        };
-
         let size = i64::try_from(plaintext.len()).unwrap_or(i64::MAX);
-        let version = versions
-            .append(&NewVersion {
-                file_id: file_id.to_string(),
-                seq,
-                storage_key: key.into_string(),
-                size,
-                content_hash,
-                prev_hash,
-                author_id: author_id.to_string(),
-                reason: Some(reason.to_string()),
-            })
-            .await?;
+
+        // Read-head → append can race a concurrent commit to the same file. The
+        // `(file_id, seq)` PRIMARY KEY turns that race into a unique violation on
+        // the loser rather than a forked/duplicated chain link (append-only
+        // integrity is thus preserved by the DB regardless). Retry: re-read the
+        // head and re-append at the next seq, so concurrent saves both land
+        // instead of one erroring out. The blob is content-addressed, so the
+        // seal above is idempotent and stays outside the loop.
+        const MAX_COMMIT_RETRIES: u32 = 8;
+        let storage_key = key.into_string();
+        let mut committed: Option<Version> = None;
+        for _ in 0..MAX_COMMIT_RETRIES {
+            let (seq, prev_hash) = match versions.head(file_id).await? {
+                Some(h) => (h.seq + 1, Some(h.content_hash)),
+                None => (1, None),
+            };
+            match versions
+                .append(&NewVersion {
+                    file_id: file_id.to_string(),
+                    seq,
+                    storage_key: storage_key.clone(),
+                    size,
+                    content_hash: content_hash.clone(),
+                    prev_hash,
+                    author_id: author_id.to_string(),
+                    reason: Some(reason.to_string()),
+                })
+                .await
+            {
+                Ok(v) => {
+                    committed = Some(v);
+                    break;
+                }
+                // Lost the race for this seq — loop to re-read the head and
+                // try the next one.
+                Err(e) if e.is_unique_violation() => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        let version = committed.ok_or(RegistryError::CommitContention)?;
 
         // Move the head pointer, then schedule a content reindex of the new
         // head on the durable job queue. Best-effort: a failed enqueue is
@@ -149,7 +175,7 @@ impl Registry {
         // catches it. Skipped for the indexer's own backfill commits, which
         // index the file in the same pass.
         FileRepo::new(&self.db)
-            .set_version_head(file_id, seq, size)
+            .set_version_head(file_id, version.seq, size)
             .await?;
 
         if reason != BACKFILL_REASON {

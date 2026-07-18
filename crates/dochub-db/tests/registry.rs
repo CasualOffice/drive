@@ -206,6 +206,36 @@ async fn missing_blob_breaks_chain_not_error() {
     }
 }
 
+/// Two concurrent commits to the same file both land at distinct sequential
+/// seqs (the loser of the `(file_id, seq)` PK race retries at the next seq),
+/// and the resulting chain is intact — no fork, no dropped save, no error.
+#[tokio::test]
+async fn concurrent_commits_both_land_with_distinct_seqs() {
+    let (registry, file_id, ws, author, db, _storage) = fixture().await;
+
+    let (a, b) = tokio::join!(
+        registry.commit_version(&ws, &file_id, b"one", &author, "edit"),
+        registry.commit_version(&ws, &file_id, b"two", &author, "edit"),
+    );
+    let va = a.expect("commit A landed");
+    let vb = b.expect("commit B landed");
+
+    let mut seqs = [va.seq, vb.seq];
+    seqs.sort_unstable();
+    assert_eq!(seqs, [1, 2], "concurrent commits must get distinct seqs");
+
+    assert_eq!(
+        registry.verify_chain(&file_id).await.unwrap(),
+        ChainStatus::Intact,
+        "the chain must stay intact under concurrent commits"
+    );
+    let chain = FileVersionsRepo::new(&db)
+        .list_chain(&file_id)
+        .await
+        .unwrap();
+    assert_eq!(chain.len(), 2, "both commits are in the chain");
+}
+
 /// `restore_version(k)` appends a new head whose plaintext equals version k's,
 /// and leaves k and the rest of the chain intact.
 #[tokio::test]

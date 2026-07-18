@@ -30,4 +30,18 @@ impl DbError {
             other => Self::Sqlx(other),
         }
     }
+
+    /// True when this error is a unique-/primary-key-constraint violation.
+    /// Portable across SQLite + Postgres via sqlx's `is_unique_violation`; lets
+    /// callers retry an insert that raced a concurrent writer to the same key.
+    #[must_use]
+    pub fn is_unique_violation(&self) -> bool {
+        match self {
+            Self::UniqueViolation(_) => true,
+            Self::Sqlx(e) => e
+                .as_database_error()
+                .is_some_and(sqlx::error::DatabaseError::is_unique_violation),
+            _ => false,
+        }
+    }
 }
