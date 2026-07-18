@@ -1,13 +1,18 @@
 //! Pipeline §13.6 — direct-to-storage upload endpoints.
 //! Spec: docs/research/10-direct-upload.md.
 //!
-//! Three routes:
-//!   - `POST /api/files/upload-url` — presign + create row as `uploading`
-//!   - `POST /api/files/{id}/complete` — stat + flip to `ready`
-//!   - `POST /api/files/{id}/abort` — drop row + best-effort delete object
+//! **Direct-to-storage upload is DISABLED** (audit finding, critical). A native
+//! presigned PUT lets the client write PLAINTEXT document bytes straight to the
+//! storage backend, and because the server holds the encryption keys those
+//! bytes can never be sealed at rest — violating the inviolable "no plaintext
+//! document bytes ever reach a storage backend" rule. `POST /api/files/upload-url`
+//! now always returns 409, which the SPA (`api/client.ts`) already handles by
+//! falling back to the proxy multipart path at `POST /api/files` (`files.rs`) —
+//! the sole write path for document bytes, which seals them in-memory before
+//! they touch storage. Uploads are thus bounded by `DOCHUB_BODY_LIMIT_MB`.
 //!
-//! The proxy multipart path at `POST /api/files` (in `files.rs`) is
-//! unchanged. Direct upload is opt-in from the client side.
+//! `complete` / `abort` remain as inert handlers (nothing creates the
+//! `uploading` rows they operate on anymore).
 
 use axum::{
     extract::{Path, State},
@@ -18,11 +23,9 @@ use axum::{
 };
 use bytes::BytesMut;
 use dochub_auth::AuthSession;
-use dochub_db::{AuditRepo, FileRepo, FileStatus, NewAuditEvent, NewFile};
-use dochub_storage::SignedUrl;
+use dochub_db::{AuditRepo, FileRepo, FileStatus, NewAuditEvent};
 use futures::TryStreamExt;
-use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use serde::Serialize;
 
 use crate::{
     files::{storage_key, FileDto},
@@ -35,11 +38,6 @@ use crate::{
 /// trail past the first sector.
 const SNIFF_BYTES: u64 = 4 * 1024;
 
-/// 15 minutes — long enough for a flaky mobile connection on a multi-GB
-/// PUT, short enough that a leaked URL stops working before the next
-/// coffee. Spec calls this out.
-const PRESIGN_TTL: Duration = Duration::from_secs(15 * 60);
-
 /// 8 MiB — the SPA opts into direct upload at this threshold. We
 /// don't enforce it server-side (the proxy path keeps working at any
 /// size) but we *do* document it so the SPA's branching stays in sync.
@@ -50,7 +48,6 @@ pub(crate) const DIRECT_UPLOAD_THRESHOLD_BYTES: u64 = 8 * 1024 * 1024;
 pub(crate) enum DirectError {
     Forbidden,
     NotFound,
-    Validation(String),
     AdapterCannotPresign,
     QuotaExceeded {
         used: u64,
@@ -80,9 +77,6 @@ impl IntoResponse for DirectError {
             }
             Self::NotFound => {
                 (StatusCode::NOT_FOUND, Json(Err { error: "not found" })).into_response()
-            }
-            Self::Validation(m) => {
-                (StatusCode::BAD_REQUEST, Json(Err { error: &m })).into_response()
             }
             // 409 — SPA branches to proxy upload when it sees this.
             Self::AdapterCannotPresign => (
@@ -137,157 +131,25 @@ impl IntoResponse for DirectError {
     }
 }
 
-// ── Bodies ────────────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub(crate) struct PresignBody {
-    pub name: String,
-    pub size: u64,
-    #[serde(default)]
-    pub content_type: Option<String>,
-    #[serde(default)]
-    pub parent_id: Option<String>,
-    #[serde(default)]
-    pub workspace_id: Option<String>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct PresignResp {
-    pub file_id: String,
-    pub upload_url: String,
-    pub expires_at: String,
-    pub method: &'static str,
-    pub required_headers: serde_json::Value,
-}
-
 // ── Handlers ──────────────────────────────────────────────────────────
 
-pub(crate) async fn presign(
-    State(s): State<HttpState>,
-    session: AuthSession,
-    Json(body): Json<PresignBody>,
-) -> Result<(StatusCode, Json<PresignResp>), DirectError> {
-    let name = crate::files::sanitise_display_name(&body.name)
-        .map_err(|e| DirectError::Validation(e.to_string()))?;
-    // Documents-only allowlist — extension half only, since no bytes exist at
-    // presign time. The full magic-byte sniff runs at `complete` once the
-    // object has landed (§13.6a). A disallowed extension is a rejected type
-    // (415); a name with no extension is a malformed request (400).
-    dochub_core::ingest::allowed_extension(&name).map_err(|e| match e {
-        dochub_core::ingest::IngestError::DisallowedExtension(ext) => {
-            DirectError::ForbiddenContent(ext)
-        }
-        other => DirectError::Validation(other.to_string()),
-    })?;
-
-    if body.size == 0 {
-        return Err(DirectError::Validation("size must be > 0".into()));
-    }
-
-    let workspace_id = crate::workspaces::resolve_active_workspace(
-        &s.db,
-        &session.user_id,
-        body.workspace_id.as_deref(),
-    )
-    .await
-    .map_err(|e| match e {
-        crate::workspaces::WsError::Forbidden => DirectError::Forbidden,
-        crate::workspaces::WsError::NotFound => DirectError::NotFound,
-        other => DirectError::Internal(format!("workspace: {other:?}")),
-    })?;
-
-    // Resolve adapter for this workspace. BYO when set, default otherwise.
-    let (storage, storage_id) = crate::workspace_storage::resolve_upload_storage(&s, &workspace_id)
-        .await
-        .map_err(|e| DirectError::Internal(format!("storage: {e:?}")))?;
-
-    // Quota gate. Counts uploading rows against the cap via
-    // `workspace_used_bytes`'s CASE clause.
-    let users = dochub_db::UserRepo::new(&s.db);
-    let me = users
-        .find_by_id(&session.user_id)
-        .await
-        .map_err(|e| DirectError::Internal(e.to_string()))?;
-    if let Some(quota) = me.quota_bytes {
-        let used = FileRepo::new(&s.db)
-            .workspace_used_bytes(&workspace_id)
-            .await
-            .map_err(|e| DirectError::Internal(e.to_string()))?;
-        if used + body.size > quota {
-            return Err(DirectError::QuotaExceeded { used, quota });
-        }
-    }
-
-    let id = ulid::Ulid::new().to_string();
-    let key = crate::files::storage_key(&id);
-
-    // Mint the signed PUT now — if the adapter can't presign (fs / memory)
-    // we return 409 and the SPA falls back to the proxy path.
-    let signed = storage
-        .signed_put(&key, PRESIGN_TTL)
-        .await
-        .map_err(|e| DirectError::Internal(format!("signed_put: {e}")))?;
-    let (url, expires_at) = match signed {
-        SignedUrl::Native { url, expires_at } => (url.to_string(), expires_at),
-        SignedUrl::Token { .. } => return Err(DirectError::AdapterCannotPresign),
-    };
-
-    // Insert as `uploading` only AFTER the presign succeeds. If we
-    // inserted earlier and presign failed, we'd leak rows.
-    let file = FileRepo::new(&s.db)
-        .insert(&NewFile {
-            id: id.clone(),
-            parent_id: body.parent_id.clone(),
-            name: name.clone(),
-            size: 0,
-            content_type: body.content_type.clone(),
-            etag: None,
-            owner_id: session.user_id.clone(),
-            project_id: crate::files::resolve_project(&s, &workspace_id).await.ok(),
-            workspace_id,
-            storage_id,
-            status: FileStatus::Uploading,
-            expected_size: Some(body.size),
-        })
-        .await
-        .map_err(|e| DirectError::Internal(e.to_string()))?;
-
-    AuditRepo::emit(
-        &s.db,
-        NewAuditEvent {
-            actor_id: Some(session.user_id.clone()),
-            actor_username: Some(session.username.clone()),
-            action: "files.upload_url_minted".into(),
-            target_kind: Some("file".into()),
-            target_id: Some(file.id.clone()),
-            target_name: Some(file.name.clone()),
-            ip_address: None,
-            metadata: Some(format!(
-                r#"{{"size":{},"content_type":{}}}"#,
-                body.size,
-                serde_json::to_string(body.content_type.as_deref().unwrap_or(""))
-                    .unwrap_or_else(|_| "\"\"".into())
-            )),
-        },
-    );
-
-    let mut required_headers = serde_json::Map::new();
-    if let Some(ct) = body.content_type.as_deref() {
-        required_headers.insert("Content-Type".into(), serde_json::Value::String(ct.into()));
-    }
-
-    Ok((
-        StatusCode::CREATED,
-        Json(PresignResp {
-            file_id: file.id,
-            upload_url: url,
-            expires_at: expires_at
-                .format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default(),
-            method: "PUT",
-            required_headers: serde_json::Value::Object(required_headers),
-        }),
-    ))
+pub(crate) async fn presign(_session: AuthSession) -> DirectError {
+    // Direct-to-storage upload is DISABLED (audit finding: critical).
+    //
+    // A native presigned PUT hands the client a path to write PLAINTEXT
+    // document bytes straight to the storage backend. Because the server holds
+    // the encryption keys (the documents-first, not-zero-knowledge model),
+    // client-written bytes can never be sealed at rest — even a re-seal on
+    // `complete` leaves a plaintext window in the bucket and orphaned plaintext
+    // if the client abandons the upload. That violates the inviolable rule that
+    // *no plaintext document bytes ever reach a storage backend*.
+    //
+    // Return the same 409 an adapter-that-can't-presign returns; the SPA already
+    // handles it by falling back to the proxy upload path, which is the sole
+    // write path for document bytes and seals them in-memory before they touch
+    // storage. Trade-off: uploads are bounded by the proxy body limit
+    // (DOCHUB_BODY_LIMIT_MB) — acceptable for a documents-only hub.
+    DirectError::AdapterCannotPresign
 }
 
 pub(crate) async fn complete(

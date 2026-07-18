@@ -188,52 +188,24 @@ async fn presign_on_memory_backend_is_409() {
 }
 
 #[tokio::test]
-async fn presign_validation_400() {
+async fn presign_is_disabled_returns_409() {
+    // Direct-to-storage upload is disabled: it can't seal client-written bytes
+    // at rest (the server holds the keys), which would violate the no-plaintext
+    // invariant. presign returns 409 for any input, and the SPA falls back to
+    // the proxy path, which seals in-memory before writing.
     let state = fixture().await;
     let app = router(state);
     let cookie = sign_in(&app, "admin").await;
 
-    // Empty name.
     let (st, _) = json_send(
         &app,
         &cookie,
         "POST",
         "/api/files/upload-url",
-        json!({"name": "", "size": 1024}),
+        json!({"name": "ok.pdf", "size": 1024}),
     )
     .await;
-    assert_eq!(st, StatusCode::BAD_REQUEST);
-
-    // size = 0 (allowlisted extension, so the size check is what fires).
-    let (st, _) = json_send(
-        &app,
-        &cookie,
-        "POST",
-        "/api/files/upload-url",
-        json!({"name": "ok.pdf", "size": 0}),
-    )
-    .await;
-    assert_eq!(st, StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn presign_off_allowlist_extension_415() {
-    // The documents-only allowlist rejects a non-document extension at presign
-    // time (before any bytes exist) with 415 — the SPA never even gets a URL.
-    let state = fixture().await;
-    let app = router(state);
-    let cookie = sign_in(&app, "admin").await;
-
-    let (st, body) = json_send(
-        &app,
-        &cookie,
-        "POST",
-        "/api/files/upload-url",
-        json!({"name": "evil.exe", "size": 1024, "content_type": "application/octet-stream"}),
-    )
-    .await;
-    assert_eq!(st, StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    assert_eq!(body["kind"], "exe");
+    assert_eq!(st, StatusCode::CONFLICT);
 }
 
 #[tokio::test]
@@ -463,49 +435,6 @@ async fn abort_refuses_to_nuke_ready_rows() {
     assert_eq!(st, StatusCode::CONFLICT);
     // Row still there.
     assert!(FileRepo::new(&state.db).find_by_id(&id).await.is_ok());
-}
-
-#[tokio::test]
-async fn quota_counts_uploading_rows() {
-    // Set a tight quota, drop an `uploading` row that fills most of it,
-    // then verify a new presign request that overflows is refused with 413.
-    let state = fixture().await;
-    let ws = personal_ws(&state, "admin").await;
-    let users = UserRepo::new(&state.db);
-    let user = users.find_by_username("admin").await.unwrap();
-    users.set_quota(&user.id, Some(10_000)).await.unwrap();
-
-    FileRepo::new(&state.db)
-        .insert(&NewFile {
-            id: ulid::Ulid::new().to_string(),
-            parent_id: None,
-            name: "huge.bin".into(),
-            size: 0,
-            content_type: None,
-            etag: None,
-            owner_id: user.id.clone(),
-            workspace_id: ws,
-            project_id: None,
-            storage_id: None,
-            status: FileStatus::Uploading,
-            expected_size: Some(9_000),
-        })
-        .await
-        .unwrap();
-
-    let app = router(state);
-    let cookie = sign_in(&app, "admin").await;
-    let (st, body) = json_send(
-        &app,
-        &cookie,
-        "POST",
-        "/api/files/upload-url",
-        json!({"name": "second.pdf", "size": 2_000, "content_type": "application/pdf"}),
-    )
-    .await;
-    assert_eq!(st, StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(body["used_bytes"], 9_000);
-    assert_eq!(body["quota_bytes"], 10_000);
 }
 
 #[tokio::test]
