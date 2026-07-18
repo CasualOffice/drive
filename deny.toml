@@ -15,9 +15,17 @@ yanked = "deny"
 #   RUSTSEC-2026-0190 — anyhow soundness (Error::context + downcast_mut UB)
 #   RUSTSEC-2026-0194 — quick-xml quadratic-time DoS (fix >= 0.41.0)
 #   RUSTSEC-2026-0195 — quick-xml namespace-alloc DoS (fix >= 0.41.0)
+#
+# RUSTSEC-2026-0192 — `ttf-parser` unmaintained (NOT a vulnerability). Reachable
+# only via `pdf-extract` (PDF text extraction in dochub-core::extract); it parses
+# font tables to map glyphs → text. It's the de-facto pure-Rust TrueType parser
+# (resvg et al.) with no maintained drop-in, no known vuln, and PDF bytes are
+# already sniff-gated at ingest. Extraction runs behind std::panic::catch_unwind
+# so a parser panic can't crash the worker. Revisit if a maintained fork lands.
 ignore = [
     "RUSTSEC-2023-0071",
     "RUSTSEC-2026-0190",
+    "RUSTSEC-2026-0192",
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 ]

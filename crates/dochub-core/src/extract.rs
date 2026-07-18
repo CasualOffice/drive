@@ -10,10 +10,13 @@
 //!   of the relevant parts are streamed out (`quick-xml`). We extract *text*,
 //!   not layout: runs are joined with single spaces and whitespace is
 //!   collapsed, which is exactly what a token-based index wants.
+//! - `pdf` — the text layer is extracted via `pdf-extract` (pure-Rust: `lopdf`
+//!   parse + font-table glyph→text decode). It runs behind `catch_unwind`
+//!   because it parses untrusted upload bytes; a parse error or panic degrades
+//!   to "index title-only", never a crashed worker. Scanned/image-only PDFs
+//!   carry no text layer (no OCR), so they extract to little/nothing — expected.
 //! - `xlsm` — treated as opaque (macro-enabled; product scope calls it opaque),
-//!   so it is title-only like `pdf`.
-//! - `pdf` — deferred to its own follow-up (needs a PDF text layer parser);
-//!   returns [`ExtractError::Unsupported`] so callers index it by title only.
+//!   so it is title-only: returns [`ExtractError::Unsupported`].
 //!
 //! Design note: extraction lives in `core` per CLAUDE.md ("text extraction …
 //! lives in `core`, not re-implemented" upstream). It is pure (bytes in, string
@@ -36,13 +39,17 @@ const MAX_TEXT_BYTES: usize = 8 * 1024 * 1024;
 /// Errors from text extraction. None carry document content.
 #[derive(Debug, Error)]
 pub enum ExtractError {
-    /// The `kind` has no text extractor yet (pdf) or is opaque by policy
-    /// (xlsm). Callers index such files by title/metadata only.
+    /// The `kind` is opaque by policy (`xlsm`, macro-enabled). Callers index
+    /// such files by title/metadata only.
     #[error("no text extractor for {0:?}")]
     Unsupported(DocKind),
     /// The OOXML container could not be opened as a zip.
     #[error("malformed OOXML container: {0}")]
     Container(String),
+    /// The PDF could not be parsed (malformed, encrypted without a key, or the
+    /// parser panicked on hostile input). The caller indexes title-only.
+    #[error("PDF text extraction failed: {0}")]
+    Pdf(String),
 }
 
 /// Whether [`extract_text`] can produce body text for `kind`. Lets callers
@@ -59,14 +66,16 @@ pub fn supports(kind: DocKind) -> bool {
             | DocKind::Docx
             | DocKind::Xlsx
             | DocKind::Pptx
+            | DocKind::Pdf
     )
 }
 
 /// Extract searchable plaintext from a document's decrypted bytes.
 ///
-/// Returns [`ExtractError::Unsupported`] for `pdf` / `xlsm` (index title only)
-/// and [`ExtractError::Container`] if an OOXML file is not a valid zip. The
-/// result is truncated to [`MAX_TEXT_BYTES`] on a char boundary.
+/// Returns [`ExtractError::Unsupported`] for `xlsm` (opaque by policy — index
+/// title only), [`ExtractError::Container`] if an OOXML file is not a valid zip,
+/// and [`ExtractError::Pdf`] if a PDF can't be parsed. The result is truncated
+/// to [`MAX_TEXT_BYTES`] on a char boundary.
 pub fn extract_text(kind: DocKind, bytes: &[u8]) -> Result<String, ExtractError> {
     let text = match kind {
         DocKind::Md | DocKind::Txt | DocKind::Csv | DocKind::Json | DocKind::Yaml => {
@@ -79,9 +88,30 @@ pub fn extract_text(kind: DocKind, bytes: &[u8]) -> Result<String, ExtractError>
             ooxml_text(bytes, &["xl/sharedStrings.xml"], false)?
         }
         DocKind::Pptx => ooxml_text(bytes, &[], true)?,
-        DocKind::Xlsm | DocKind::Pdf => return Err(ExtractError::Unsupported(kind)),
+        DocKind::Pdf => pdf_text(bytes)?,
+        DocKind::Xlsm => return Err(ExtractError::Unsupported(kind)),
     };
     Ok(truncate_on_char_boundary(text, MAX_TEXT_BYTES))
+}
+
+/// Extract the text layer of a PDF via `pdf-extract`.
+///
+/// Isolated behind [`std::panic::catch_unwind`]: the underlying parser
+/// (`lopdf` with font-table decoding) runs on untrusted upload bytes and can
+/// panic on malformed input, and extraction runs on the background worker — a
+/// panic must degrade to a title-only index, never crash the task. Truncation
+/// to [`MAX_TEXT_BYTES`] is applied by the caller.
+fn pdf_text(bytes: &[u8]) -> Result<String, ExtractError> {
+    let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pdf_extract::extract_text_from_mem(bytes)
+    }));
+    match parsed {
+        Ok(Ok(text)) => Ok(text),
+        Ok(Err(e)) => Err(ExtractError::Pdf(e.to_string())),
+        Err(_) => Err(ExtractError::Pdf(
+            "parser panicked on malformed input".into(),
+        )),
+    }
 }
 
 /// Open `bytes` as an OOXML (zip) container and concatenate the text nodes of
@@ -320,17 +350,83 @@ mod tests {
     }
 
     #[test]
-    fn xlsm_and_pdf_are_unsupported() {
+    fn xlsm_is_unsupported_but_pdf_is_supported() {
         assert!(matches!(
             extract_text(DocKind::Xlsm, b"anything"),
             Err(ExtractError::Unsupported(DocKind::Xlsm))
         ));
-        assert!(matches!(
-            extract_text(DocKind::Pdf, b"%PDF-1.7"),
-            Err(ExtractError::Unsupported(DocKind::Pdf))
-        ));
-        assert!(!supports(DocKind::Pdf));
+        assert!(!supports(DocKind::Xlsm));
+        assert!(supports(DocKind::Pdf));
         assert!(supports(DocKind::Docx));
+    }
+
+    /// Build a one-page PDF whose text layer is `text`, using `lopdf` (dev-dep).
+    fn pdf_with_text(text: &str) -> Vec<u8> {
+        use lopdf::content::{Content, Operation};
+        use lopdf::{dictionary, Document, Object, Stream, StringFormat};
+
+        let mut doc = Document::with_version("1.5");
+        let pages_tree_id = doc.new_object_id();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica",
+        });
+        let resources_id = doc.add_object(dictionary! {
+            "Font" => dictionary! { "F1" => font_id },
+        });
+        let content = Content {
+            operations: vec![
+                Operation::new("BT", vec![]),
+                Operation::new("Tf", vec![Object::Name(b"F1".to_vec()), 24.into()]),
+                Operation::new("Td", vec![72.into(), 720.into()]),
+                Operation::new(
+                    "Tj",
+                    vec![Object::String(
+                        text.as_bytes().to_vec(),
+                        StringFormat::Literal,
+                    )],
+                ),
+                Operation::new("ET", vec![]),
+            ],
+        };
+        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_tree_id,
+            "Contents" => content_id,
+            "Resources" => resources_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        doc.objects.insert(
+            pages_tree_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => pages_tree_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        let mut buf = Vec::new();
+        doc.save_to(&mut buf).unwrap();
+        buf
+    }
+
+    #[test]
+    fn pdf_extracts_text_layer() {
+        let bytes = pdf_with_text("Encrypted document registry");
+        let text = extract_text(DocKind::Pdf, &bytes).unwrap();
+        assert!(
+            text.contains("Encrypted document registry"),
+            "extracted: {text:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_pdf_is_an_error_not_a_panic() {
+        // A PDF header with junk after it — extraction must return a Pdf error
+        // (caught, so the caller indexes title-only), never unwind the worker.
+        let err = extract_text(DocKind::Pdf, b"%PDF-1.7\nnot a real pdf body").unwrap_err();
+        assert!(matches!(err, ExtractError::Pdf(_)), "got: {err:?}");
     }
 
     #[test]

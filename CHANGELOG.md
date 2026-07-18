@@ -6,6 +6,10 @@ All notable changes to Doc-Hub land here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **PDF content search.** PDF text is now extracted into the content index (`dochub-core::extract` via the pure-Rust `pdf-extract`), so full-text search, semantic search/RAG, AI summaries, and PII detection all cover `.pdf` — previously PDFs were indexed by title/extension only. Extraction runs behind `catch_unwind` (it parses untrusted upload bytes on the background worker, so a malformed PDF degrades to title-only, never a crashed task). Scanned/image-only PDFs carry no text layer and remain title-only (no OCR). `.xlsm` stays opaque by policy.
+
 ## [0.0.2] - 2026-07-18
 
 Post-0.0.1 production-hardening sweep — resilience, resource bounding, failure
