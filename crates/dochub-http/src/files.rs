@@ -352,7 +352,8 @@ pub(crate) async fn resolve_project(
 /// DEK resolver wraps the master KEK held on `Config`; nothing is persisted
 /// until a version is committed.
 pub(crate) fn version_registry(s: &HttpState) -> dochub_db::Registry {
-    let deks = dochub_db::WorkspaceDeks::new(s.db.clone(), s.config.master_kek.clone());
+    let deks = dochub_db::WorkspaceDeks::new(s.db.clone(), s.config.master_kek.clone())
+        .with_next_kek(s.config.master_kek_next.clone());
     dochub_db::Registry::new(s.db.clone(), s.storage.clone(), deks)
 }
 

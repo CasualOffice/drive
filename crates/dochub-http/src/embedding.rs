@@ -80,7 +80,8 @@ pub(crate) async fn embed_file_now(
     }
 
     // Decrypt head + extract text.
-    let deks = WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone());
+    let deks = WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone())
+        .with_next_kek(state.config.master_kek_next.clone());
     let registry = Registry::new(state.db.clone(), state.storage.clone(), deks);
     let bytes = registry
         .read_or_backfill_for_file(file_id, EMBED_AUTHOR)

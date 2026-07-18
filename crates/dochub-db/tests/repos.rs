@@ -692,6 +692,83 @@ async fn rewrap_all_reports_unwrappable_as_failed() {
     assert!(kek_a.unwrap(&row).is_ok());
 }
 
+/// Zero-downtime rotation: a resolver holding BOTH KEKs reads a workspace no
+/// matter which key sealed its row. Simulates a half-done rotation — one
+/// workspace re-wrapped to the next KEK, one still under the current — and
+/// asserts a `current + next` resolver serves both. Without the fallback the
+/// re-wrapped workspace would 500 until the key is promoted and the server
+/// restarted.
+#[tokio::test]
+async fn resolver_with_next_kek_reads_across_a_half_rotation() {
+    let db = fresh_db().await;
+    let owner = seed_admin(&db).await;
+
+    let kek_a = dochub_core::dev_master_kek();
+    let kek_b = dochub_core::dev_master_kek_next();
+
+    // Two workspaces, both sealed under A.
+    let ws_old = personal_ws(&db, &owner).await;
+    let ws_rotated = WorkspaceRepo::new(&db)
+        .insert("Team", WorkspaceKind::Team, &owner)
+        .await
+        .unwrap()
+        .id;
+    let deks_a = WorkspaceDeks::new(db.clone(), kek_a.clone());
+    let dek_old = deks_a.get_or_create(&ws_old).await.unwrap();
+    let dek_rotated = deks_a.get_or_create(&ws_rotated).await.unwrap();
+
+    // Re-wrap ONLY ws_rotated to B — a half-done rotation.
+    WorkspaceKeysRepo::new(&db)
+        .rewrap_workspace_dek(&ws_rotated, kek_a.as_ref(), kek_b.as_ref())
+        .await
+        .unwrap();
+
+    // Mid-rotation server config: current = A, fallback = B. Both workspaces
+    // resolve to their original DEKs — ws_old via the current KEK, ws_rotated
+    // via the fallback.
+    let resolver = WorkspaceDeks::new(db.clone(), kek_a.clone()).with_next_kek(Some(kek_b.clone()));
+    assert!(
+        deks_equal(&resolver.get_or_create(&ws_old).await.unwrap(), &dek_old),
+        "row under the current KEK still reads"
+    );
+    assert!(
+        deks_equal(
+            &resolver.get_or_create(&ws_rotated).await.unwrap(),
+            &dek_rotated
+        ),
+        "row re-wrapped to the next KEK reads via the fallback"
+    );
+
+    // After promotion with the old key kept as a grace fallback (current = B,
+    // fallback = A): both still read.
+    let promoted = WorkspaceDeks::new(db.clone(), kek_b.clone()).with_next_kek(Some(kek_a.clone()));
+    assert!(deks_equal(
+        &promoted.get_or_create(&ws_old).await.unwrap(),
+        &dek_old
+    ));
+    assert!(deks_equal(
+        &promoted.get_or_create(&ws_rotated).await.unwrap(),
+        &dek_rotated
+    ));
+
+    // Proof the fallback is load-bearing: a resolver with ONLY the current KEK
+    // (A) cannot read the row re-wrapped to B.
+    let no_fallback = WorkspaceDeks::new(db.clone(), kek_a.clone());
+    assert!(
+        no_fallback.get_or_create(&ws_rotated).await.is_err(),
+        "without the fallback, a re-wrapped row is unreadable (the bug this fixes)"
+    );
+    // ...but the not-yet-rotated row is fine on the current KEK alone.
+    assert!(no_fallback.get_or_create(&ws_old).await.is_ok());
+}
+
+/// Two DEK handles wrap the same plaintext key iff a probe sealed by one opens
+/// under the other.
+fn deks_equal(a: &dochub_crypto::Dek, b: &dochub_crypto::Dek) -> bool {
+    let probe = dochub_crypto::seal(a, b"probe");
+    dochub_crypto::open(b, &probe.0).is_ok_and(|p| p == b"probe")
+}
+
 #[tokio::test]
 async fn tags_create_assign_query_unassign_delete() {
     let db = fresh_db().await;

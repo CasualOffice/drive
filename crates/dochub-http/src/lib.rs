@@ -198,7 +198,8 @@ fn app_origin_router(state: HttpState) -> Router {
     // WOPI GetFile/PutFile route through the encrypted version chain via the
     // registry-backed document store — never a plaintext blob.
     let wopi_deks =
-        dochub_db::WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone());
+        dochub_db::WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone())
+            .with_next_kek(state.config.master_kek_next.clone());
     let wopi_registry =
         dochub_db::Registry::new(state.db.clone(), state.storage.clone(), wopi_deks);
     let wopi_docs: std::sync::Arc<dyn dochub_wopi::DocumentStore> =

@@ -148,7 +148,8 @@ pub(crate) async fn index_one(
     workspace_id: &str,
     f: &dochub_db::File,
 ) -> Result<(), StatusCode> {
-    let deks = WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone());
+    let deks = WorkspaceDeks::new(state.db.clone(), state.config.master_kek.clone())
+        .with_next_kek(state.config.master_kek_next.clone());
     let registry = Registry::new(state.db.clone(), state.storage.clone(), deks);
     let versions = FileVersionsRepo::new(&state.db);
     let files = FileRepo::new(&state.db);

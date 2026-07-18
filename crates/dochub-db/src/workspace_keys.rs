@@ -128,10 +128,24 @@ pub enum DekError {
 
 /// Resolves a `workspace_id` to a live [`Dek`], wrapping the master KEK
 /// (injected from `Config`, never global) around the persisted rows.
+///
+/// During a master-KEK rotation the resolver holds **two** KEKs: the current
+/// one and an optional fallback (`master_kek_next`). Unwrap tries the current
+/// KEK first, then the fallback — so a row already re-wrapped to the next KEK by
+/// `rotate-kek` still reads on a server that hasn't promoted the key yet, and a
+/// straggler left under the old KEK still reads after promotion while the old
+/// key is kept configured as the fallback. New DEKs are always sealed under the
+/// current KEK. This makes the rotation window read-safe (zero-downtime) rather
+/// than throwing 500s on any workspace whose row is sealed under "the other"
+/// key.
 #[derive(Clone)]
 pub struct WorkspaceDeks {
     db: Db,
     kek: Arc<EnvKek>,
+    /// Optional second KEK tried on unwrap when the current one fails — the
+    /// `master_kek_next` (or a retained old key) during a rotation. `None` in
+    /// steady state.
+    kek_next: Option<Arc<EnvKek>>,
 }
 
 impl std::fmt::Debug for WorkspaceDeks {
@@ -145,20 +159,52 @@ impl std::fmt::Debug for WorkspaceDeks {
 impl WorkspaceDeks {
     #[must_use]
     pub fn new(db: Db, kek: Arc<EnvKek>) -> Self {
-        Self { db, kek }
+        Self {
+            db,
+            kek,
+            kek_next: None,
+        }
+    }
+
+    /// Add a fallback KEK, tried on unwrap when the current one fails — the
+    /// `master_kek_next` during a rotation (`None` in steady state). Keeping
+    /// both keys configured across the whole transition is what makes rotation
+    /// zero-downtime: unwrap succeeds whichever of the two sealed a given row.
+    #[must_use]
+    pub fn with_next_kek(mut self, kek_next: Option<Arc<EnvKek>>) -> Self {
+        self.kek_next = kek_next;
+        self
+    }
+
+    /// Unwrap a DEK trying the current KEK, then the fallback (if configured).
+    /// A wrong key fails GCM authentication cleanly, so the fallback attempt
+    /// can't produce a false positive. Returns the current KEK's error when
+    /// both fail (the fallback's error is the less informative one).
+    fn unwrap_any(&self, wrapped: &WrappedDek) -> Result<Dek, CryptoError> {
+        match self.kek.unwrap(wrapped) {
+            Ok(dek) => Ok(dek),
+            Err(primary) => {
+                if let Some(next) = self.kek_next.as_deref() {
+                    if let Ok(dek) = next.unwrap(wrapped) {
+                        return Ok(dek);
+                    }
+                }
+                Err(primary)
+            }
+        }
     }
 
     /// Return the workspace's DEK, creating and persisting one on first use.
     ///
-    /// Existing row → unwrap it. No row → `generate_dek()`, wrap under the
-    /// KEK, insert, return. If two callers race the first write, the loser's
-    /// insert hits the PRIMARY KEY and it re-reads the winner's row so both
-    /// observers get the *same* DEK.
+    /// Existing row → unwrap it (current KEK, then the rotation fallback). No
+    /// row → `generate_dek()`, wrap under the current KEK, insert, return. If
+    /// two callers race the first write, the loser's insert hits the PRIMARY KEY
+    /// and it re-reads the winner's row so both observers get the *same* DEK.
     pub async fn get_or_create(&self, workspace_id: &str) -> Result<Dek, DekError> {
         let repo = WorkspaceKeysRepo::new(&self.db);
 
         if let Some(wrapped) = repo.get(workspace_id).await? {
-            return Ok(self.kek.unwrap(&wrapped)?);
+            return Ok(self.unwrap_any(&wrapped)?);
         }
 
         let dek = generate_dek();
@@ -168,7 +214,7 @@ impl WorkspaceDeks {
             // Lost an insert race (or any insert failure): if a row now
             // exists, adopt it; otherwise surface the original error.
             Err(insert_err) => match repo.get(workspace_id).await? {
-                Some(existing) => Ok(self.kek.unwrap(&existing)?),
+                Some(existing) => Ok(self.unwrap_any(&existing)?),
                 None => Err(DekError::Db(insert_err)),
             },
         }

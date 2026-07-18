@@ -88,7 +88,8 @@ pub(crate) async fn scan_file_pii(
 
     // Pure read of the head bytes through the encrypted version engine, then
     // extract text. No committed head yet ⇒ nothing to scan.
-    let deks = WorkspaceDeks::new(s.db.clone(), s.config.master_kek.clone());
+    let deks = WorkspaceDeks::new(s.db.clone(), s.config.master_kek.clone())
+        .with_next_kek(s.config.master_kek_next.clone());
     let registry = Registry::new(s.db.clone(), s.storage.clone(), deks);
     let head = FileVersionsRepo::new(&s.db)
         .head(&file_id)
