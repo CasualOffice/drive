@@ -122,7 +122,7 @@ pub enum ConfigError {
     Missing(&'static str),
     #[error("invalid {0}: {1}")]
     Invalid(&'static str, String),
-    #[error("origins must differ in production (app == usercontent == {0})")]
+    #[error("app and user-content origins must not share a host:port in production — host-dispatch can't tell them apart, collapsing the two-origin isolation (app origin: {0})")]
     OriginsMatch(String),
     #[error("secret {0} too short — need 32 bytes (raw or base64)")]
     SecretTooShort(&'static str),
@@ -148,7 +148,14 @@ impl Config {
 
         let app_origin = env_url("DOCHUB_APP_ORIGIN")?;
         let usercontent_origin = env_url("DOCHUB_USERCONTENT_ORIGIN")?;
-        if is_prod && app_origin == usercontent_origin {
+        // Compare the *dispatch identity* (host:port), not the full URL. The
+        // two-origin isolation is enforced by host-dispatch, which keys on
+        // `origin_host` (host:port) — scheme and path are ignored. So origins
+        // that merely differ by scheme or path (e.g. `https://h.example` vs
+        // `https://h.example/uc`) are indistinguishable to dispatch and must be
+        // rejected too; a full-URL `==` check let them slip through and collapse
+        // the app/user-content boundary.
+        if is_prod && origins_share_dispatch_host(&app_origin, &usercontent_origin) {
             return Err(ConfigError::OriginsMatch(app_origin.to_string()));
         }
 
@@ -303,6 +310,15 @@ fn origin_host(u: &Url) -> String {
         (Some(h), None) => h.to_string(),
         _ => String::new(),
     }
+}
+
+/// True when two origins are indistinguishable to the host-dispatch layer —
+/// i.e. they share the same non-empty `host:port`, even if their full URLs
+/// differ by scheme or path. Sharing the dispatch host collapses the
+/// app/user-content isolation, so boot must reject it in production.
+fn origins_share_dispatch_host(app: &Url, usercontent: &Url) -> bool {
+    let a = origin_host(app);
+    !a.is_empty() && a == origin_host(usercontent)
 }
 
 /// The app-origin authority (`host[:port]`, default ports stripped) parsed
@@ -502,6 +518,24 @@ mod tests {
     fn origin_host_keeps_nondefault_port() {
         let u = Url::parse("http://127.0.0.1:8080").unwrap();
         assert_eq!(origin_host(&u), "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn origins_sharing_host_port_are_a_conflict() {
+        let share = |a: &str, b: &str| {
+            origins_share_dispatch_host(&Url::parse(a).unwrap(), &Url::parse(b).unwrap())
+        };
+        // Same host:port but different path or scheme → indistinguishable to
+        // host-dispatch → conflict (the bug a full-URL `==` check missed).
+        assert!(share(
+            "https://hub.example.org",
+            "https://hub.example.org/uc"
+        ));
+        assert!(share("https://hub.example.org", "http://hub.example.org"));
+        assert!(share("https://hub.example.org", "https://hub.example.org"));
+        // Distinct host or port → safe.
+        assert!(!share("https://hub.example.org", "https://uc.example.org"));
+        assert!(!share("http://localhost:8080", "http://localhost:8081"));
     }
 
     #[test]
