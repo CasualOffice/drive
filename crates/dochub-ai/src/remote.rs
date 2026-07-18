@@ -35,6 +35,14 @@ use crate::embed::AiError;
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u32 = 1024;
 
+/// Cap on a single provider request. Generous for long (non-streaming)
+/// generations, but bounds a hung / black-holed endpoint — a bare
+/// `reqwest::Client` has NO default timeout, so without this an unresponsive
+/// AI endpoint would hang the calling request (and its DB/worker slot) forever.
+const REQUEST_TIMEOUT_SECS: u64 = 120;
+/// Cap on just the TCP+TLS connect, so an unroutable endpoint fails fast.
+const CONNECT_TIMEOUT_SECS: u64 = 10;
+
 const SYSTEM_PROMPT: &str = "You are a document assistant for a company's private \
 document hub. Answer the user's question using ONLY the numbered context \
 passages provided. Cite the passages you rely on inline as [n] (matching the \
@@ -150,7 +158,13 @@ impl RemoteAnswerer {
     #[must_use]
     pub fn new(provider: Provider) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // Mirror `reqwest::Client::new()` (which `.expect()`s the builder) —
+            // a timeout-only config can't fail to build in practice.
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS))
+                .build()
+                .expect("reqwest client with timeout"),
             provider,
             api_key: None,
             model: provider.default_model().to_string(),

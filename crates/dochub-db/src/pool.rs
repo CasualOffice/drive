@@ -54,6 +54,12 @@ impl Db {
         };
         let pool = AnyPoolOptions::new()
             .max_connections(max)
+            // Fail a request fast if the DB is unreachable or the pool is
+            // saturated, rather than the caller hanging. Shorter than sqlx's
+            // 30s default: a request queued >10s means the service is already
+            // degraded, and a prompt error lets the LB/readyz shed load. Covers
+            // connection establishment too (acquire spans connect).
+            .acquire_timeout(std::time::Duration::from_secs(10))
             .connect(url)
             .await?;
         MIGRATOR.run(&pool).await?;

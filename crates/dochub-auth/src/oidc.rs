@@ -61,6 +61,10 @@ pub fn build_http_client() -> Result<oidc_reqwest::Client, OidcError> {
     oidc_reqwest::ClientBuilder::new()
         // OWASP SSRF prevention — never follow redirects in the OIDC client.
         .redirect(oidc_reqwest::redirect::Policy::none())
+        // Bound discovery + token exchange: a hung IdP must not wedge a login
+        // request forever (the builder otherwise sets no timeout).
+        .timeout(std::time::Duration::from_secs(15))
+        .connect_timeout(std::time::Duration::from_secs(5))
         .build()
         .map_err(|e| OidcError::Internal(format!("reqwest build: {e}")))
 }
