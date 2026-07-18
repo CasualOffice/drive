@@ -42,6 +42,7 @@ use axum::{
     Json, Router,
 };
 use dochub_auth::AuthSession;
+use dochub_authz::{AuthzError, Permission, ResourceRef};
 use dochub_db::{action, AuditRepo, FileRepo, NewAuditEvent, RegistryError};
 use dochub_wopi::{mint_token, WopiClaims, WopiPerms};
 use jsonwebtoken::{decode, DecodingKey, Validation};
@@ -72,6 +73,16 @@ enum CollabError {
     BadRequest,
     #[error("internal: {0}")]
     Internal(String),
+}
+
+/// A denied `gate` is a 403; a DB error behind it is opaque 500.
+impl From<AuthzError> for CollabError {
+    fn from(e: AuthzError) -> Self {
+        match e {
+            AuthzError::Forbidden => Self::Forbidden,
+            AuthzError::Db(e) => Self::Internal(e.to_string()),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -206,12 +217,21 @@ async fn collab_grant(
         .find_by_id(&id)
         .await
         .map_err(|_| CollabError::NotFound)?;
-    if file.owner_id != session.user_id {
-        return Err(CollabError::Forbidden);
-    }
     if file.trashed_at.is_some() {
         return Err(CollabError::NotFound);
     }
+    // Authorize against the live grant state, not raw ownership: a bare
+    // `owner_id` check both under-authorizes (denies ACL-granted co-editors) and
+    // over-authorizes (a user removed from the workspace still owns the row and
+    // would keep collab access). `gate` enforces workspace membership + ACL
+    // grants uniformly, exactly as `download_file`/version endpoints do.
+    crate::authz::gate(
+        &s,
+        &session,
+        ResourceRef::File(file.id.clone()),
+        Permission::Edit,
+    )
+    .await?;
 
     let file_id = dochub_core::FileId::from_str(&file.id)
         .map_err(|e| CollabError::Internal(format!("file id parse: {e}")))?;

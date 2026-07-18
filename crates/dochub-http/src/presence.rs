@@ -138,9 +138,14 @@ impl Default for WorkspaceChannel {
 /// Per-workspace presence state. The outer map is the workspace
 /// channel; the inner map keys by user_id (multiple tabs from the
 /// same user collapse to one entry — last-beat-wins).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PresenceHub {
     inner: RwLock<HashMap<String, WorkspaceChannel>>,
+    /// Per-(user, workspace) heartbeat limiter. `/beat` is authenticated but
+    /// otherwise cheap to spam thousands/sec, saturating the broadcast queue and
+    /// disconnecting subscribers (docs/research/14-presence.md threat model).
+    /// Bounds it well below abuse while staying far above the SPA's ~10 s cadence.
+    beat_limiter: crate::rate_limit::RateLimiter,
 }
 
 impl PresenceHub {
@@ -148,7 +153,23 @@ impl PresenceHub {
     /// across the HTTP layer via `HttpState`.
     #[must_use]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self::default())
+        Arc::new(Self {
+            inner: RwLock::new(HashMap::new()),
+            // Burst of 6, then ~1 beat / 2 s sustained per (user, workspace) —
+            // comfortably above a 10 s heartbeat with multi-tab jitter, far
+            // below the thousands/sec an abuser would need.
+            beat_limiter: crate::rate_limit::RateLimiter::new(crate::rate_limit::RateLimitConfig {
+                capacity: 6.0,
+                refill_per_sec: 0.5,
+            }),
+        })
+    }
+
+    /// Rate-check a heartbeat for `key` (per user+workspace). `Ok` to proceed,
+    /// `Err(retry_after_secs)` when throttled.
+    #[must_use = "callers must honor the retry-after, not drop it"]
+    pub fn allow_beat(&self, key: &str) -> Result<(), u64> {
+        self.beat_limiter.check(key)
     }
 
     /// Mark a user present in a workspace. Idempotent — the same
@@ -313,6 +334,14 @@ async fn beat(
     Path(workspace_id): Path<String>,
     body: Option<Json<BeatBody>>,
 ) -> Result<Json<BeatResp>, (StatusCode, String)> {
+    // Throttle before the membership DB read so a flood is cheap to shed.
+    let key = format!("{}:{workspace_id}", session.user_id);
+    if let Err(retry) = s.presence.allow_beat(&key) {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            format!("presence heartbeat rate limited; retry after {retry}s"),
+        ));
+    }
     require_member(&s, &workspace_id, &session.user_id).await?;
     let Json(b) = body.unwrap_or_default();
     s.presence
@@ -660,5 +689,20 @@ mod tests {
         assert_eq!(t1, t2);
         assert!(t1.starts_with('#'));
         assert_eq!(t1.len(), 7);
+    }
+
+    #[test]
+    fn beat_limiter_bursts_then_throttles_per_key() {
+        let hub = PresenceHub::new();
+        // Burst capacity is 6 — the 7th consecutive beat for one key throttles.
+        for i in 0..6 {
+            assert!(hub.allow_beat("u:ws").is_ok(), "beat {i} within burst");
+        }
+        let throttled = hub.allow_beat("u:ws");
+        assert!(throttled.is_err(), "beat past the burst is throttled");
+        assert!(throttled.unwrap_err() >= 1, "retry-after is at least 1s");
+        // A different (user, workspace) key has its own independent bucket.
+        assert!(hub.allow_beat("u:other-ws").is_ok());
+        assert!(hub.allow_beat("other-u:ws").is_ok());
     }
 }

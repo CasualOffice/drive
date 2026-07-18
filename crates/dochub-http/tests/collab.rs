@@ -524,3 +524,48 @@ async fn grant_enforces_auth_and_ownership() {
         );
     }
 }
+
+/// A non-owner with an Edit grant CAN get a collab grant — the grant is
+/// authorized against live permissions (workspace membership + ACL), not raw
+/// `owner_id`. Before the fix this returned 403 for a legitimately-shared
+/// co-editor.
+#[tokio::test]
+async fn grant_allows_acl_editor_not_just_owner() {
+    let app = router(fixture(true).await);
+    let owner = sign_in(&app, "admin", "hunter2").await;
+    let id = upload(&app, &owner, b"shared doc").await;
+
+    // Owner shares Edit with bob via an ACL grant.
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "POST",
+            &format!("/api/files/{id}/grants"),
+            &owner,
+            Some("application/json"),
+            Body::from(r#"{"user":"bob","role":"editor"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::CREATED);
+
+    // Bob (not the owner) can now mint a collab room grant.
+    let bob = sign_in(&app, "bob", "bobpass").await;
+    let r = app
+        .clone()
+        .oneshot(auth_req(
+            "GET",
+            &format!("/api/files/{id}/collab"),
+            &bob,
+            None,
+            Body::empty(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        StatusCode::OK,
+        "an ACL-granted editor must be allowed a collab grant"
+    );
+    assert_eq!(json_body(r).await["room"], id);
+}

@@ -20,6 +20,12 @@ pub enum DocStoreError {
     /// The document (or its bytes) does not exist.
     #[error("not found")]
     NotFound,
+    /// The caller is not (or is no longer) authorized for this document. Lets
+    /// the store re-check the acting identity's live permission on each op, so a
+    /// grant revoked after the WOPI token was minted takes effect immediately
+    /// rather than lingering for the token's TTL.
+    #[error("unauthorized")]
+    Unauthorized,
     /// Any other failure. The message is safe to log but not shown to clients.
     #[error("document store error: {0}")]
     Internal(String),

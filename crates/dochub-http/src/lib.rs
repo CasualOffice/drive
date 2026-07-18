@@ -202,8 +202,9 @@ fn app_origin_router(state: HttpState) -> Router {
             .with_next_kek(state.config.master_kek_next.clone());
     let wopi_registry =
         dochub_db::Registry::new(state.db.clone(), state.storage.clone(), wopi_deks);
-    let wopi_docs: std::sync::Arc<dyn dochub_wopi::DocumentStore> =
-        std::sync::Arc::new(wopi_docs::RegistryDocStore::new(wopi_registry));
+    let wopi_docs: std::sync::Arc<dyn dochub_wopi::DocumentStore> = std::sync::Arc::new(
+        wopi_docs::RegistryDocStore::new(wopi_registry, state.db.clone()),
+    );
     let wopi_state = WopiAppState {
         docs: wopi_docs,
         wopi: state.wopi.clone(),

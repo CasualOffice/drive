@@ -37,6 +37,7 @@ impl From<DocStoreError> for WopiError {
     fn from(e: DocStoreError) -> Self {
         match e {
             DocStoreError::NotFound => Self::NotFound,
+            DocStoreError::Unauthorized => Self::Unauthorized,
             DocStoreError::Internal(m) => Self::Internal(m),
         }
     }

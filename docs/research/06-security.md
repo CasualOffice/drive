@@ -150,6 +150,8 @@ Each H2 carries **Rule / Why / How / Phase**. The threat model, OWASP walkthroug
 
 **How.** Token = HMAC-SHA256 over `{user_id | "share:<id>", file_id, perms, exp, jti}`, TTL ~10 min, refreshed via the session cookie near expiry. Perms: `read`, `write`, `comment`. Every call validates the token, then `(URL file_id) == (token file_id)` and `(required perms) ⊆ (granted)`. WOPI proof-key validation applies only if an operator federates to external MS365 clients (opt-in interop); otherwise not needed.
 
+**Continuous authorization (review finding).** The token is a stateless bearer, so validating it alone is time-of-check-vs-time-of-use: a grant revoked after issuance would keep working until the ~10 min TTL lapsed. The registry-backed WOPI store therefore re-checks the acting user's **live** permission on every op — `View` on GetFile, `Edit` on PutFile (`RegistryDocStore::authorize` → `dochub_authz::require`) — and returns `401` the moment access no longer holds (`crates/dochub-http/src/wopi_docs.rs`; test `store_denies_unauthorized_user_read_and_commit`). The collab room grant is likewise authorized against live grants (`authz::gate(Edit)`), not raw `owner_id`, so a removed workspace member can't keep editing a file they still "own" and an ACL-granted co-editor isn't wrongly denied (`crates/dochub-http/src/collab.rs`; test `grant_allows_acl_editor_not_just_owner`). The presence `/beat` heartbeat is per-`(user, workspace)` rate-limited (burst 6, ~1/2 s sustained) so it can't be spammed to saturate the broadcast queue (`crates/dochub-http/src/presence.rs`).
+
 **Phase.** Editor access token = Phase 2 (issuance + validation). WOPI interop tokens = optional, whenever an operator turns on the interop path.
 
 ---
