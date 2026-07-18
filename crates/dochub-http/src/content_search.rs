@@ -96,8 +96,8 @@ fn index_for(state: &HttpState) -> Result<Arc<Index>, StatusCode> {
 /// Bring the content index up to date for one workspace: remove trashed files,
 /// then (re)index every pending / changed head. Extractable formats are
 /// decrypted and their text indexed via `dochub_core::extract`:
-/// `md/txt/csv/json/yaml` (UTF-8) and `docx/xlsx/pptx` (OOXML text). `xlsm`
-/// (opaque by policy) and `pdf` (extractor pending) are indexed by **title +
+/// `md/txt/csv/json/yaml` (UTF-8), `docx/xlsx/pptx` (OOXML text), and `pdf`
+/// (text layer). Only `xlsm` (opaque by policy) is indexed by **title +
 /// extension only**.
 ///
 /// Idempotent and cheap in steady state (the candidate query returns nothing
