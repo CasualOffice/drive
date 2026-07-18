@@ -334,6 +334,75 @@ async fn only_a_user_with_share_can_grant() {
     );
 }
 
+#[tokio::test]
+async fn editor_cannot_grant_a_role_above_their_own() {
+    // Regression for the grant-ceiling escalation: `share` (which an Editor
+    // holds) lets a user reach the grant endpoint, but the granted role's
+    // permissions must be a subset of the granter's own — an Editor must not be
+    // able to mint an `admin` grant.
+    let state = fixture().await;
+    let db = state.db.clone();
+    let owner = mk_user(&db, "owner").await;
+    let editor = mk_user(&db, "editor").await;
+    let alice = mk_user(&db, "alice").await;
+    let bob = mk_user(&db, "bob").await;
+    let (ws, file_a) = seed_file(&db, &owner, "a.txt").await;
+
+    // `editor` is a workspace Editor: holds `share`, but none of the admin-only
+    // perms (ManageMembers, ManageSettings, …).
+    WorkspaceMemberRepo::new(&db)
+        .add(&ws, &editor, "editor")
+        .await
+        .unwrap();
+
+    let app = router(state);
+    let editor_cookie = sign_in(&app, "editor").await;
+
+    // Within their own access, an Editor may grant viewer/editor.
+    let (status, _) = send(
+        &app,
+        "POST",
+        &format!("/api/files/{file_a}/grants"),
+        &editor_cookie,
+        r#"{"user":"alice","role":"editor"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let _ = alice;
+
+    // Escalation blocked: an Editor may NOT grant admin.
+    let (status, _) = send(
+        &app,
+        "POST",
+        &format!("/api/files/{file_a}/grants"),
+        &editor_cookie,
+        r#"{"user":"bob","role":"admin"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        !can(
+            &db,
+            &bob,
+            &ResourceRef::File(file_a.clone()),
+            Permission::ManageMembers
+        )
+        .await
+    );
+
+    // The owner (full access) CAN grant admin.
+    let owner_cookie = sign_in(&app, "owner").await;
+    let (status, _) = send(
+        &app,
+        "POST",
+        &format!("/api/files/{file_a}/grants"),
+        &owner_cookie,
+        r#"{"user":"bob","role":"admin"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
 // ── Member roles ────────────────────────────────────────────────────────
 
 #[tokio::test]

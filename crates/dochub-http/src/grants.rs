@@ -18,7 +18,7 @@ use axum::{
     Json, Router,
 };
 use dochub_auth::AuthSession;
-use dochub_authz::{Permission, ResourceRef, Role};
+use dochub_authz::{effective_perms, role_permissions, Permission, ResourceRef, Role};
 use dochub_db::{
     resource_kind, subject_kind, AclGrant, AclRepo, AuditRepo, FileRepo, NewAclGrant,
     NewAuditEvent, UserRepo,
@@ -190,6 +190,18 @@ async fn create_file_grant(
     .await?;
 
     let role = parse_grantable_role(&body.role)?;
+
+    // Ceiling: you cannot grant access you don't hold yourself. `share` alone
+    // (which an Editor has) gates *reaching* this endpoint, but the granted
+    // role's permissions must be a subset of the granter's own effective
+    // permissions on this file — otherwise an Editor could mint an `admin`
+    // grant and escalate a sharee above themselves (audit finding). Owners /
+    // superadmins hold every permission, so they pass trivially.
+    let granter_perms =
+        effective_perms(&s.db, &session.user_id, &ResourceRef::File(file.id.clone())).await?;
+    if !granter_perms.is_superset(role_permissions(role)) {
+        return Err(GrantError::Forbidden);
+    }
 
     // Resolve the sharee by id first, then username. 422 keeps this distinct
     // from a missing file (404).

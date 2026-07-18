@@ -134,6 +134,13 @@ impl PermSet {
         self.0 & perm.bit() != 0
     }
 
+    /// True when `self` holds every permission in `other` (i.e. `other ⊆ self`).
+    /// Used to enforce that a grant never exceeds the granter's own access.
+    #[must_use]
+    pub fn is_superset(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
     /// True when no permission is set.
     #[must_use]
     pub fn is_empty(self) -> bool {
