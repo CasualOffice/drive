@@ -13,8 +13,8 @@ pub mod secret_box;
 
 pub use blob::StorageKey;
 pub use byo::{
-    build_operator, ssrf_guard, test_connection, validate_shape as validate_shape_, ByoConfig,
-    ByoError, Provider,
+    build_operator, ssrf_guard, ssrf_guard_resolving, test_connection,
+    validate_shape as validate_shape_, ByoConfig, ByoError, Provider,
 };
 pub use registry::StorageRegistry;
 pub use secret_box::{
