@@ -840,7 +840,8 @@ async fn upload_file(
             .workspace_used_bytes(&workspace_id)
             .await
             .map_err(|e| FilesError::Internal(e.to_string()))?;
-        if used + size > quota {
+        // saturating_add so a pathological size can't wrap past the quota.
+        if used.saturating_add(size) > quota {
             return Err(FilesError::QuotaExceeded { used, quota });
         }
     }

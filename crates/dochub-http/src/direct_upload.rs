@@ -271,7 +271,7 @@ pub(crate) async fn complete(
         // `expected_size`; subtract it so we compare the projected post-commit
         // total, not double-count.
         let used = used_incl.saturating_sub(row.expected_size.unwrap_or(0));
-        if used + meta.size > quota {
+        if used.saturating_add(meta.size) > quota {
             // Mirror the forbidden-content rollback: object + row both go away.
             let s2 = s.clone();
             let key2 = key.clone();

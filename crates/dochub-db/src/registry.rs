@@ -22,7 +22,7 @@
 
 use std::str::FromStr;
 
-use dochub_crypto::{verify_chain, ChainLink, ChainStatus, CryptoError, Sha256Hex};
+use dochub_crypto::{verify_chain, BreakReason, ChainLink, ChainStatus, CryptoError, Sha256Hex};
 use dochub_storage::{Storage, StorageError, StorageKey};
 use thiserror::Error;
 
@@ -285,9 +285,21 @@ impl Registry {
         // is over the ciphertext, so ciphertext is exactly what we hash.
         let mut ciphertexts: Vec<Vec<u8>> = Vec::with_capacity(versions.len());
         let mut links: Vec<ChainLink> = Vec::with_capacity(versions.len());
-        for v in &versions {
+        for (i, v) in versions.iter().enumerate() {
             let key = StorageKey::from_stored(v.storage_key.clone());
-            ciphertexts.push(self.storage.read_ciphertext(&key).await?);
+            match self.storage.read_ciphertext(&key).await {
+                Ok(bytes) => ciphertexts.push(bytes),
+                // A destroyed/lost blob is tamper — surface it as a chain break
+                // at this link, not a 500. Other storage errors (transient
+                // backend failures) still propagate as infrastructure errors.
+                Err(StorageError::NotFound(_)) => {
+                    return Ok(ChainStatus::Broken {
+                        at_index: i,
+                        reason: BreakReason::ContentMissing,
+                    });
+                }
+                Err(e) => return Err(e.into()),
+            }
             links.push(ChainLink {
                 content_hash: Sha256Hex::from_str(&v.content_hash)?,
                 prev_hash: match &v.prev_hash {
