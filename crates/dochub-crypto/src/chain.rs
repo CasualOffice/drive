@@ -192,6 +192,10 @@ pub enum BreakReason {
     /// The link's `prev_hash` does not point at the previous link's
     /// `content_hash` (or is not `None` at the head): the ordering was altered.
     PrevMismatch,
+    /// The version's sealed bytes are absent from storage — the blob was
+    /// destroyed or lost. The content can't be re-hashed, so the chain can't be
+    /// verified past this link: a tamper alarm, not an infrastructure error.
+    ContentMissing,
 }
 
 /// Outcome of [`verify_chain`].

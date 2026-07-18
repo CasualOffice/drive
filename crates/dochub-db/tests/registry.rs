@@ -175,6 +175,37 @@ async fn corrupt_blob_breaks_chain_at_that_seq() {
     }
 }
 
+/// A DESTROYED / lost version blob makes `verify_chain` report `Broken`
+/// (`ContentMissing`) — a surfaced tamper alarm — rather than erroring out,
+/// which the HTTP layer would otherwise turn into an opaque 500.
+#[tokio::test]
+async fn missing_blob_breaks_chain_not_error() {
+    let (registry, file_id, ws, author, db, storage) = fixture().await;
+
+    for p in [b"aaa".as_slice(), b"bbb".as_slice(), b"ccc".as_slice()] {
+        registry
+            .commit_version(&ws, &file_id, p, &author, "edit")
+            .await
+            .unwrap();
+    }
+
+    // Delete the seq=2 blob outright (bytes lost / destroyed at rest).
+    let chain = FileVersionsRepo::new(&db)
+        .list_chain(&file_id)
+        .await
+        .unwrap();
+    let victim = &chain[1];
+    storage.delete(&victim.storage_key).await.unwrap();
+
+    match registry.verify_chain(&file_id).await.unwrap() {
+        ChainStatus::Broken { at_index, reason } => {
+            assert_eq!(at_index, 1, "break at seq=2 → index 1");
+            assert_eq!(reason, BreakReason::ContentMissing);
+        }
+        ChainStatus::Intact => panic!("a destroyed blob must not verify Intact"),
+    }
+}
+
 /// `restore_version(k)` appends a new head whose plaintext equals version k's,
 /// and leaves k and the rest of the chain intact.
 #[tokio::test]
