@@ -9,7 +9,8 @@
 //! - `docx / xlsx / pptx` — the OOXML container is unzipped and the text nodes
 //!   of the relevant parts are streamed out (`quick-xml`). We extract *text*,
 //!   not layout: runs are joined with single spaces and whitespace is
-//!   collapsed, which is exactly what a token-based index wants.
+//!   collapsed, which is exactly what a token-based index wants. `xlsx` covers
+//!   both shared strings and per-worksheet inline strings (see `xlsx_text`).
 //! - `pdf` — the text layer is extracted via `pdf-extract` (pure-Rust: `lopdf`
 //!   parse + font-table glyph→text decode). It runs behind `catch_unwind`
 //!   because it parses untrusted upload bytes; a parse error or panic degrades
@@ -82,11 +83,7 @@ pub fn extract_text(kind: DocKind, bytes: &[u8]) -> Result<String, ExtractError>
             String::from_utf8_lossy(bytes).into_owned()
         }
         DocKind::Docx => ooxml_text(bytes, &["word/document.xml"], false)?,
-        DocKind::Xlsx => {
-            // Most cell text lives in the shared-strings table; inline strings
-            // in the sheets themselves are a documented follow-up.
-            ooxml_text(bytes, &["xl/sharedStrings.xml"], false)?
-        }
+        DocKind::Xlsx => xlsx_text(bytes)?,
         DocKind::Pptx => ooxml_text(bytes, &[], true)?,
         DocKind::Pdf => pdf_text(bytes)?,
         DocKind::Xlsm => return Err(ExtractError::Unsupported(kind)),
@@ -152,6 +149,107 @@ fn ooxml_text(bytes: &[u8], exact_parts: &[&str], slides: bool) -> Result<String
         }
     }
     Ok(collapse_ws(&out))
+}
+
+/// Extract text from an `.xlsx`, covering **both** ways a cell stores a string:
+///
+/// - **Shared strings** (`xl/sharedStrings.xml`) — Excel's default; a table of
+///   deduplicated strings that cells reference by index. All its text is body.
+/// - **Inline strings** — some (streaming) writers emit the string directly in
+///   the worksheet as `<c t="inlineStr"><is><t>…</t></is></c>` instead. These
+///   live in `xl/worksheets/sheetN.xml`, where the **only** `<t>` elements are
+///   inline strings — cell numbers are `<v>` and formulas `<f>` — so a
+///   `<t>`-scoped pass captures them without pulling in numeric/formula noise
+///   (including the shared-string *indices* in `<v>`).
+fn xlsx_text(bytes: &[u8]) -> Result<String, ExtractError> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+        .map_err(|e| ExtractError::Container(e.to_string()))?;
+
+    let mut out = String::new();
+
+    // Shared strings first (the common case). All text nodes are body text.
+    if let Ok(mut entry) = archive.by_name("xl/sharedStrings.xml") {
+        let mut xml = Vec::new();
+        if entry.read_to_end(&mut xml).is_ok() {
+            append_xml_text(&xml, &mut out);
+        }
+    }
+
+    // Inline strings from each worksheet — `<t>` elements only.
+    let mut sheets: Vec<String> = (0..archive.len())
+        .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
+        .filter(|name| is_worksheet(name))
+        .collect();
+    sheets.sort(); // deterministic; order is irrelevant to a bag-of-words index
+    for name in sheets {
+        if out.len() >= MAX_TEXT_BYTES {
+            break;
+        }
+        let Ok(mut entry) = archive.by_name(&name) else {
+            continue;
+        };
+        let mut xml = Vec::new();
+        if entry.read_to_end(&mut xml).is_ok() {
+            append_element_text(&xml, &mut out, b"t");
+        }
+    }
+
+    Ok(collapse_ws(&out))
+}
+
+/// A worksheet body part: `xl/worksheets/sheet1.xml`, …. Excludes the `_rels`
+/// sidecars (`xl/worksheets/_rels/…`) which don't start with `sheet`.
+fn is_worksheet(name: &str) -> bool {
+    // OOXML part names are spec-lowercase, so a case-sensitive suffix match is
+    // correct here (and `strip_suffix` sidesteps the extension-casing lint).
+    name.strip_prefix("xl/worksheets/sheet")
+        .and_then(|rest| rest.strip_suffix(".xml"))
+        .is_some()
+}
+
+/// Like [`append_xml_text`] but emits character data **only** while inside a
+/// `target` element (matched by local name, ignoring any namespace prefix). A
+/// space is appended when each `target` element closes so adjacent cells' text
+/// never fuses. Used to pull inline-string `<t>` text out of a worksheet
+/// without also grabbing the surrounding `<v>` numbers / `<f>` formulas.
+fn append_element_text(xml: &[u8], out: &mut String, target: &[u8]) {
+    let mut reader = Reader::from_reader(xml);
+    let mut buf = Vec::new();
+    let mut depth: u32 = 0;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) if e.local_name().as_ref() == target => depth += 1,
+            Ok(Event::End(e)) if e.local_name().as_ref() == target && depth > 0 => {
+                depth -= 1;
+                out.push(' ');
+            }
+            Ok(Event::Text(e)) if depth > 0 => {
+                if let Ok(t) = e.xml_content() {
+                    out.push_str(&t);
+                }
+            }
+            Ok(Event::CData(e)) if depth > 0 => {
+                if let Ok(t) = e.decode() {
+                    out.push_str(&t);
+                }
+            }
+            Ok(Event::GeneralRef(e)) if depth > 0 => {
+                if let Ok(Some(c)) = e.resolve_char_ref() {
+                    out.push(c);
+                } else if let Ok(name) = e.decode() {
+                    if let Some(c) = named_entity(&name) {
+                        out.push(c);
+                    }
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+        if out.len() >= MAX_TEXT_BYTES {
+            break;
+        }
+    }
 }
 
 /// Parse the `N` out of `ppt/slides/slideN.xml`. Returns `None` for anything
@@ -314,6 +412,38 @@ mod tests {
         let text = extract_text(DocKind::Xlsx, &bytes).unwrap();
         assert!(text.contains("Budget"));
         assert!(text.contains("Marketing spend"));
+    }
+
+    #[test]
+    fn xlsx_extracts_inline_strings_without_numeric_noise() {
+        // A1 references shared string #0 (t="s"); B1 is an inline string; C1 is
+        // a plain number. Both string kinds must be found; the shared-string
+        // index and the number (both `<v>`, not `<t>`) must NOT leak in.
+        let shared = r#"<?xml version="1.0"?>
+            <sst xmlns="x" count="1"><si><t>SharedBudget</t></si></sst>"#;
+        let sheet = r#"<?xml version="1.0"?>
+            <worksheet xmlns="x"><sheetData>
+              <row r="1">
+                <c r="A1" t="s"><v>0</v></c>
+                <c r="B1" t="inlineStr"><is><t>InlineNote</t></is></c>
+                <c r="C1"><v>4242</v></c>
+              </row>
+            </sheetData></worksheet>"#;
+        let bytes = zip_of(&[
+            ("xl/sharedStrings.xml", shared),
+            ("xl/worksheets/sheet1.xml", sheet),
+            ("[Content_Types].xml", "<x/>"),
+        ]);
+        let text = extract_text(DocKind::Xlsx, &bytes).unwrap();
+        assert!(
+            text.contains("SharedBudget"),
+            "shared string missing: {text:?}"
+        );
+        assert!(
+            text.contains("InlineNote"),
+            "inline string missing: {text:?}"
+        );
+        assert!(!text.contains("4242"), "numeric cell leaked: {text:?}");
     }
 
     #[test]
