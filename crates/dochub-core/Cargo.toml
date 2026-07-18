@@ -23,6 +23,7 @@ sha2      = { workspace = true }
 infer     = { workspace = true }
 zip       = { workspace = true }
 quick-xml = { workspace = true }
+pdf-extract = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

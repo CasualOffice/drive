@@ -135,7 +135,9 @@ jobs:
       # reachable only via sqlx-mysql, which we do not enable. The 2026-06-29
       # advisories are transitive and pending a dependency bump in the code
       # revamp (anyhow: RUSTSEC-2026-0190; quick-xml: -0194/-0195, fix >=0.41).
-      - run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0190 --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195
+      # RUSTSEC-2026-0192 (ttf-parser unmaintained, not a vuln) is transitive
+      # via pdf-extract — see deny.toml for the full justification.
+      - run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0190 --ignore RUSTSEC-2026-0192 --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195
 
   deny:
     name: cargo deny

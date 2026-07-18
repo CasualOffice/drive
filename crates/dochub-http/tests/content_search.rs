@@ -537,13 +537,14 @@ async fn unsupported_format_indexes_title_only() {
     let state = fixture().await;
     let owner = user_id(&state, "admin").await;
     let ws = personal_ws(&state, &owner).await;
-    // A pdf: content extraction is a follow-up, so only the title is indexed.
+    // xlsm is opaque by policy (macro-enabled), so only the title is indexed.
+    // (PDF content IS extracted now — this test covers the title-only path.)
     let id = make_file(
         &state,
         &ws,
         &owner,
-        "Quarterly budget.pdf",
-        b"%PDF-1.4 binary body",
+        "Quarterly budget.xlsm",
+        b"PK\x03\x04 binary body",
     )
     .await;
 

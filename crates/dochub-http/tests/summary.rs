@@ -273,7 +273,9 @@ async fn unsupported_format_reports_supported_false() {
     let state = fixture().await;
     let admin = user_id(&state, "admin").await;
     let ws = personal_ws(&state, &admin).await;
-    let id = make_file(&state, &ws, &admin, "scan.pdf", b"%PDF-1.4 ...").await;
+    // xlsm is opaque by policy (macro-enabled) ⇒ no text extractor. (PDF is now
+    // extracted, so it's no longer the unsupported example.)
+    let id = make_file(&state, &ws, &admin, "macros.xlsm", b"PK\x03\x04 workbook").await;
 
     let app = router(state);
     let cookie = sign_in_as(&app, "admin").await;

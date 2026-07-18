@@ -155,9 +155,9 @@ pub(crate) async fn index_one(
 
     let ext = extension_of(&f.name);
     let kind = ext.as_deref().and_then(DocKind::from_extension);
-    // Extractable = plain text (md/txt/csv/json/yaml) OR OOXML with a text
-    // extractor (docx/xlsx/pptx). xlsm (opaque) and pdf remain title-only until
-    // their extractors land (`dochub_core::extract`).
+    // Extractable = plain text (md/txt/csv/json/yaml), OOXML (docx/xlsx/pptx),
+    // or pdf. Only xlsm stays title-only (opaque by policy). See
+    // `dochub_core::extract`.
     let extractable = kind.is_some_and(dochub_core::supports_extraction);
 
     let (content, state_label) = if extractable {

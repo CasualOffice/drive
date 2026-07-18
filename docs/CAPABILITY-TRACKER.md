@@ -31,7 +31,7 @@ The **inherited Drive spine is shipped and solid** (storage facade, portable mig
 | Encryption at rest | **Shipped** | `dochub-crypto` AES-256-GCM envelope over **document bytes**; per-workspace DEKs wrapped by the master KEK (`dochub-db::workspace_keys`), re-wrap on rotation without rewriting blobs (`key_rotation`); boot **refuses to start** without a master key (`dochub-bin`) | External KMS backends (deferred) | — |
 | Provenance / hash-chain (“prove things”) | **Shipped** | write-once `content_hash` (SHA-256 of ciphertext) / `prev_hash` version chain + `Registry::verify_chain`; additive **restore-as-new** (`restore_version`); append-only hash-chained `audit_log` + `verify_audit_chain`; Ed25519 provenance signing (`dochub-crypto::provenance`) | Provenance-export UX breadth | — |
 | Documents-only ingest | **Shipped** | `dochub-core::ingest` — authoritative extension allowlist **+ magic-byte sniff** (`infer`); reject-not-quarantine; enforced on every upload path, tested | — | — |
-| Indexing + extraction (Rust) | **Partial** | `dochub-index` (Tantivy 0.26, tests); `index_state`/`indexed_hash`; lazy reindex-on-query | **Office/PDF extraction** (only md/txt/csv/json/yaml today); a true **background worker**; extraction via `core` | L |
+| Indexing + extraction (Rust) | **Partial** | `dochub-index` (Tantivy, tests); `dochub-core::extract` covers **all text-bearing formats** — md/txt/csv/json/yaml, docx/xlsx/pptx (OOXML), and **pdf** (`pdf-extract`, behind `catch_unwind`); worker-driven indexing + `index_state`/`indexed_hash` | xlsx inline-strings (shared-strings only today); no OCR for scanned PDFs; `.xlsm` opaque by policy | S |
 | Full-text / global search | **Partial** | `GET /api/search` (metadata, shipped + UI-wired, 20+ tests); `GET /api/search/content` (BM25 + `<b>` snippets, **7 unit + 6 integ tests**); **SPA-wired** — `searchContent` in `CommandPalette.tsx` + `Files.tsx` with `SearchSnippet` | Office/PDF content coverage (extraction gap); filters/facets on content results | S–M |
 | Search by tag | **Not-started** | — (no tag tables/routes found) | Tag model + `document_tags` migration, tag CRUD endpoints, tag filter in search, tag UI | M |
 | Vaults | **Partial** | projects/workspaces (SP4) as the container | Explicit **Vault** UX + per-vault DEK boundary story, vault switcher/grid in SPA | M |
@@ -49,7 +49,7 @@ The **inherited Drive spine is shipped and solid** (storage facade, portable mig
 
 ### Indexing + text extraction — Partial
 **Goal:** every committed document version's text is extracted and indexed (all allowed formats), kept fresh on new-version, and removed on tombstone — driven by a durable background worker.
-- [ ] Add `core`-backed extraction for **docx / xlsx / pptx / pdf** in `dochub-index` (today only md/txt/csv/json/yaml decode as UTF-8).
+- [x] Add `core`-backed extraction for **docx / xlsx / pptx / pdf** (`dochub-core::extract`; OOXML via `zip`+`quick-xml`, PDF via `pdf-extract` behind `catch_unwind`). Only `.xlsm` stays opaque by policy.
 - [ ] Replace lazy reindex-on-query with a **durable background worker** (mirror the retired thumb-worker) reading `index_state`.
 - [ ] Reindex on new version; **remove from index on tombstone** (wire into the version/tombstone paths).
 - [ ] Backfill job for existing documents; bound memory (decrypt head, stream).
