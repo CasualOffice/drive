@@ -26,14 +26,19 @@
 //! whole chain and reports the first break; committed rows are never
 //! `UPDATE`/`DELETE`d.
 //!
-//! ## Single-writer assumption (Phase 0)
+//! ## Concurrent appends never fork
 //!
 //! Appends read the current chain head and insert the successor in one
-//! transaction. Phase 0 assumes a single audit writer: SQLite is capped at one
-//! connection (`pool.rs`), so appends serialize there; a concurrent second
-//! writer under Postgres could read the same head and fork the chain. Verified
-//! single-writer serialization (advisory lock / dedicated writer task) is a
-//! Phase 1 hardening — the read-head-then-append transaction is the seam.
+//! transaction. Two writers racing the same head (possible under Postgres;
+//! SQLite is capped at one connection in `pool.rs`) would both chain off the
+//! same `prev_hash` — a fork. A unique index on `audit_log(prev_hash)`
+//! (migration 0028) rejects the loser; [`AuditRepo::insert`] catches that
+//! unique violation, re-reads the now-advanced head, and retries, so concurrent
+//! appends serialize into one linear chain. [`verify_audit_chain`] also *detects*
+//! any fork that somehow lands (linkage walk), so the invariant is both enforced
+//! at write time and checkable after the fact.
+//!
+//! [`verify_audit_chain`]: AuditRepo::verify_audit_chain
 
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -162,6 +167,61 @@ pub fn chain_status_str(status: &AuditChainStatus) -> String {
     }
 }
 
+/// Reorder chained rows into hash-chain **linkage** order — genesis first, then
+/// each row whose `prev_hash` points at the previous row's `entry_hash`.
+///
+/// The chain's true order is the linkage, not wall-clock `created_at`: clock
+/// skew or same-millisecond ULID non-monotonicity can sort two rows opposite to
+/// how they were linked, which a `created_at` walk misreads as tamper (finding
+/// #2). Walking the pointers is order-independent and also surfaces forks.
+///
+/// `links[i]` is `(prev_hash, entry_hash)` for row `i`. Returns the row indices
+/// in chain order, or `Err(i)` at the first structural break: a missing or
+/// duplicate genesis, two rows sharing a parent (fork), or an unreachable
+/// orphan — `i` is that row's position in chain order.
+fn linkage_order(links: &[(Option<&str>, &str)]) -> Result<Vec<usize>, usize> {
+    use std::collections::HashMap;
+    if links.is_empty() {
+        return Ok(Vec::new());
+    }
+    // parent entry_hash -> the row whose prev_hash points at it.
+    let mut child_of: HashMap<&str, usize> = HashMap::with_capacity(links.len());
+    let mut genesis: Option<usize> = None;
+    for (idx, (prev, _entry)) in links.iter().enumerate() {
+        match prev {
+            None => {
+                if genesis.replace(idx).is_some() {
+                    return Err(0); // two roots — forked at the genesis
+                }
+            }
+            Some(p) => {
+                if child_of.insert(p, idx).is_some() {
+                    return Err(idx); // two rows claim the same parent — a fork
+                }
+            }
+        }
+    }
+    let Some(start) = genesis else {
+        return Err(0); // rows exist but none is a root
+    };
+    let mut order = Vec::with_capacity(links.len());
+    let mut cur = start;
+    loop {
+        order.push(cur);
+        match child_of.get(links[cur].1) {
+            Some(&next) => cur = next,
+            None => break,
+        }
+        if order.len() > links.len() {
+            break; // defensive: a cycle can't happen in a hash chain
+        }
+    }
+    if order.len() != links.len() {
+        return Err(order.len()); // orphan / gap: rows unreachable from genesis
+    }
+    Ok(order)
+}
+
 /// Re-verify an exported chain **offline** — no database. Recomputes each row's
 /// `entry_hash` from its own fields + stored `prev_hash` (catching field tamper)
 /// and checks each `prev_hash` links to the previous row's `entry_hash`
@@ -170,8 +230,20 @@ pub fn chain_status_str(status: &AuditChainStatus) -> String {
 /// row. This is the check `dochub verify-audit` runs on an export file.
 #[must_use]
 pub fn verify_exported_chain(events: &[ExportedAuditRow]) -> AuditChainStatus {
+    // Verify in linkage order, not file order — so a legitimately skewed export
+    // isn't misread as tampered, and reordering the file can't hide a splice.
+    let links: Vec<(Option<&str>, &str)> = events
+        .iter()
+        .map(|r| (r.prev_hash.as_deref(), r.entry_hash.as_str()))
+        .collect();
+    let order = match linkage_order(&links) {
+        Ok(o) => o,
+        Err(i) => return AuditChainStatus::Broken { at_index: i },
+    };
+
     let mut prev: Option<Sha256Hex> = None;
-    for (i, row) in events.iter().enumerate() {
+    for (i, &idx) in order.iter().enumerate() {
+        let row = &events[idx];
         let stored_prev: Option<Sha256Hex> = match &row.prev_hash {
             Some(h) => match h.parse() {
                 Ok(v) => Some(v),
@@ -237,72 +309,117 @@ impl<'a> AuditRepo<'a> {
 
     /// Append one audit event, extending the global hash chain.
     ///
-    /// In a single transaction: read the current chain head's `entry_hash`
-    /// (deterministic order `created_at DESC, id DESC`, skipping pre-migration
-    /// rows whose `entry_hash` is NULL), set it as this row's `prev_hash`
-    /// (`None` at the head), compute `entry_hash = SHA-256(prev_hex ‖ 0x00 ‖
-    /// canonical)`, and insert with both columns set.
+    /// In a single transaction: read the current chain head's `entry_hash` (the
+    /// one chained row nobody links back to — see below), set it as this row's
+    /// `prev_hash` (`None` at the head), compute `entry_hash = SHA-256(prev_hex ‖
+    /// 0x00 ‖ canonical)`, and insert with both columns set.
+    ///
+    /// The head is the row whose `entry_hash` appears in no other row's
+    /// `prev_hash` (`NOT EXISTS` a child), NOT simply the most recent by
+    /// `created_at` — same-millisecond ULID ties mean `created_at`/`id` order can
+    /// put a non-tip row on top, and chaining off *that* would fork off a row that
+    /// already has a successor (finding #2 applied to the write path). We still
+    /// `ORDER BY created_at DESC, id DESC LIMIT 1` so the common case (tip is the
+    /// newest row) short-circuits after one probe. Pre-0017 rows have a NULL
+    /// `entry_hash` and sit outside the chain.
+    ///
+    /// Two concurrent appends read the same head and try to chain off it — the
+    /// unique index on `prev_hash` (migration 0028) rejects the loser as a fork.
+    /// We retry it against the new head, so both land in a single linear chain
+    /// (finding #14, mirroring `commit_version`'s `(file_id, seq)` retry).
     pub async fn insert(&self, new: NewAuditEvent) -> Result<AuditEvent, DbError> {
+        /// Bounded so a genuinely stuck writer surfaces an error instead of
+        /// spinning; contention past this many rounds is pathological.
+        const MAX_APPEND_RETRIES: u32 = 8;
+
         let id = ulid::Ulid::new().to_string();
         let created_at = time::OffsetDateTime::now_utc();
         let created_s = ts(created_at);
 
-        let mut tx = self.db.pool().begin().await?;
+        let mut attempt = 0;
+        loop {
+            let mut tx = self.db.pool().begin().await?;
 
-        // Chain head: the most recent chained row's entry_hash. Rows predating
-        // migration 0017 have a NULL entry_hash and sit outside the chain.
-        let head_row = sqlx::query(&self.db.sql(
-            "SELECT entry_hash FROM audit_log \
-             WHERE entry_hash IS NOT NULL \
-             ORDER BY created_at DESC, id DESC LIMIT 1",
-        ))
-        .fetch_optional(&mut *tx)
-        .await?;
-        let prev: Option<Sha256Hex> = match head_row {
-            Some(row) => {
-                let hex: String = row.get("entry_hash");
-                Some(
-                    hex.parse()
-                        .map_err(|_| DbError::Corrupt("audit entry_hash"))?,
-                )
+            // Chain head: the one chained row with no successor — its entry_hash
+            // is referenced by no other row's prev_hash. This is linkage-correct
+            // regardless of created_at/id ordering (finding #2); the ORDER BY just
+            // makes the newest tip the first candidate probed. Rows predating
+            // migration 0017 have a NULL entry_hash and sit outside the chain.
+            let head_row = sqlx::query(&self.db.sql(
+                "SELECT entry_hash FROM audit_log AS e \
+                 WHERE entry_hash IS NOT NULL \
+                   AND NOT EXISTS ( \
+                     SELECT 1 FROM audit_log AS c WHERE c.prev_hash = e.entry_hash \
+                   ) \
+                 ORDER BY created_at DESC, id DESC LIMIT 1",
+            ))
+            .fetch_optional(&mut *tx)
+            .await?;
+            let prev: Option<Sha256Hex> = match head_row {
+                Some(row) => {
+                    let hex: String = row.get("entry_hash");
+                    Some(
+                        hex.parse()
+                            .map_err(|_| DbError::Corrupt("audit entry_hash"))?,
+                    )
+                }
+                None => None,
+            };
+
+            let canonical = canonical(&CanonicalFields {
+                id: &id,
+                created_at: &created_s,
+                actor_id: new.actor_id.as_deref(),
+                action: &new.action,
+                target_kind: new.target_kind.as_deref(),
+                target_id: new.target_id.as_deref(),
+                ip_address: new.ip_address.as_deref(),
+                metadata: new.metadata.as_deref(),
+            });
+            let entry = entry_hash(prev.as_ref(), &canonical);
+
+            let res = sqlx::query(&self.db.sql(
+                "INSERT INTO audit_log \
+                 (id, created_at, actor_id, actor_username, action, target_kind, \
+                  target_id, target_name, ip_address, metadata, prev_hash, entry_hash) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ))
+            .bind(&id)
+            .bind(&created_s)
+            .bind(&new.actor_id)
+            .bind(&new.actor_username)
+            .bind(&new.action)
+            .bind(&new.target_kind)
+            .bind(&new.target_id)
+            .bind(&new.target_name)
+            .bind(&new.ip_address)
+            .bind(&new.metadata)
+            .bind(prev.map(|p| p.to_hex()))
+            .bind(entry.to_hex())
+            .execute(&mut *tx)
+            .await;
+
+            match res {
+                Ok(_) => {
+                    tx.commit().await?;
+                    break;
+                }
+                Err(e) => {
+                    let err: DbError = e.into();
+                    // Lost the race for this head (duplicate prev_hash) — drop the
+                    // tx, re-read the now-advanced head, and try again.
+                    if err.is_unique_violation() {
+                        drop(tx);
+                        attempt += 1;
+                        if attempt >= MAX_APPEND_RETRIES {
+                            return Err(DbError::Contention);
+                        }
+                    } else {
+                        return Err(err);
+                    }
+                }
             }
-            None => None,
-        };
-
-        let canonical = canonical(&CanonicalFields {
-            id: &id,
-            created_at: &created_s,
-            actor_id: new.actor_id.as_deref(),
-            action: &new.action,
-            target_kind: new.target_kind.as_deref(),
-            target_id: new.target_id.as_deref(),
-            ip_address: new.ip_address.as_deref(),
-            metadata: new.metadata.as_deref(),
-        });
-        let entry = entry_hash(prev.as_ref(), &canonical);
-
-        sqlx::query(&self.db.sql(
-            "INSERT INTO audit_log \
-             (id, created_at, actor_id, actor_username, action, target_kind, \
-              target_id, target_name, ip_address, metadata, prev_hash, entry_hash) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ))
-        .bind(&id)
-        .bind(&created_s)
-        .bind(&new.actor_id)
-        .bind(&new.actor_username)
-        .bind(&new.action)
-        .bind(&new.target_kind)
-        .bind(&new.target_id)
-        .bind(&new.target_name)
-        .bind(&new.ip_address)
-        .bind(&new.metadata)
-        .bind(prev.map(|p| p.to_hex()))
-        .bind(entry.to_hex())
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
+        }
 
         Ok(AuditEvent {
             id,
@@ -320,42 +437,75 @@ impl<'a> AuditRepo<'a> {
 
     /// Verify the global audit hash chain end-to-end.
     ///
-    /// Walks chained rows in append order (`created_at ASC, id ASC`, skipping
-    /// pre-migration NULL-`entry_hash` rows). For each row it recomputes
-    /// `entry_hash` from the row's own fields + stored `prev_hash` and checks it
-    /// against the stored `entry_hash` (catches any field / pointer tamper), and
-    /// checks the `prev_hash` links to the previous row's `entry_hash` (catches
-    /// reordering / splicing). Returns [`AuditChainStatus::Broken`] at the first
-    /// failing index, else [`AuditChainStatus::Intact`] (including the empty and
-    /// single-row chains). Never mutates anything.
+    /// Walks chained rows in **linkage order** — genesis first, then each row
+    /// whose `prev_hash` points at the previous row's `entry_hash` (via the
+    /// private `linkage_order` walk) — NOT wall-clock `created_at` order, which clock skew
+    /// or same-millisecond ULID ties can invert (finding #2). Pre-migration
+    /// NULL-`entry_hash` rows sit outside the chain and are skipped. For each row
+    /// it recomputes `entry_hash` from the row's own fields + stored `prev_hash`
+    /// and checks it against the stored `entry_hash` (catches any field / pointer
+    /// tamper); `linkage_order` itself catches a missing/duplicate genesis, a
+    /// fork (two rows sharing a parent), or an orphan. Returns
+    /// [`AuditChainStatus::Broken`] at the first failing index, else
+    /// [`AuditChainStatus::Intact`] (including the empty and single-row chains).
+    /// Never mutates anything.
     pub async fn verify_audit_chain(&self) -> Result<AuditChainStatus, DbError> {
         let rows = sqlx::query(&self.db.sql(
             "SELECT id, created_at, actor_id, action, target_kind, target_id, \
              ip_address, metadata, prev_hash, entry_hash \
-             FROM audit_log WHERE entry_hash IS NOT NULL \
-             ORDER BY created_at ASC, id ASC",
+             FROM audit_log WHERE entry_hash IS NOT NULL",
         ))
         .fetch_all(self.db.pool())
         .await?;
 
-        let mut prev: Option<Sha256Hex> = None;
-        for (i, row) in rows.iter().enumerate() {
-            let id: String = row.get("id");
-            let created_s: String = row.get("created_at");
-            let actor_id: Option<String> = row.get("actor_id");
-            let act: String = row.get("action");
-            let target_kind: Option<String> = row.get("target_kind");
-            let target_id: Option<String> = row.get("target_id");
-            let ip_address: Option<String> = row.get("ip_address");
-            let metadata: Option<String> = row.get("metadata");
-            let stored_prev_hex: Option<String> = row.get("prev_hash");
-            let stored_entry_hex: String = row.get("entry_hash");
+        // Extract into owned rows so we can walk them in linkage order rather
+        // than the (skew-prone) wall-clock order they'd sort by (finding #2).
+        struct Chained {
+            id: String,
+            created_at: String,
+            actor_id: Option<String>,
+            action: String,
+            target_kind: Option<String>,
+            target_id: Option<String>,
+            ip_address: Option<String>,
+            metadata: Option<String>,
+            prev_hash: Option<String>,
+            entry_hash: String,
+        }
+        let items: Vec<Chained> = rows
+            .iter()
+            .map(|row| Chained {
+                id: row.get("id"),
+                created_at: row.get("created_at"),
+                actor_id: row.get("actor_id"),
+                action: row.get("action"),
+                target_kind: row.get("target_kind"),
+                target_id: row.get("target_id"),
+                ip_address: row.get("ip_address"),
+                metadata: row.get("metadata"),
+                prev_hash: row.get("prev_hash"),
+                entry_hash: row.get("entry_hash"),
+            })
+            .collect();
 
-            let stored_prev: Option<Sha256Hex> = match &stored_prev_hex {
+        let links: Vec<(Option<&str>, &str)> = items
+            .iter()
+            .map(|r| (r.prev_hash.as_deref(), r.entry_hash.as_str()))
+            .collect();
+        let order = match linkage_order(&links) {
+            Ok(o) => o,
+            Err(i) => return Ok(AuditChainStatus::Broken { at_index: i }),
+        };
+
+        let mut prev: Option<Sha256Hex> = None;
+        for (i, &idx) in order.iter().enumerate() {
+            let r = &items[idx];
+            let stored_prev: Option<Sha256Hex> = match &r.prev_hash {
                 Some(h) => Some(h.parse().map_err(|_| DbError::Corrupt("audit prev_hash"))?),
                 None => None,
             };
-            let stored_entry: Sha256Hex = stored_entry_hex
+            let stored_entry: Sha256Hex = r
+                .entry_hash
                 .parse()
                 .map_err(|_| DbError::Corrupt("audit entry_hash"))?;
 
@@ -372,14 +522,14 @@ impl<'a> AuditRepo<'a> {
 
             // Recompute from this row's fields + its own prev_hash.
             let canonical = canonical(&CanonicalFields {
-                id: &id,
-                created_at: &created_s,
-                actor_id: actor_id.as_deref(),
-                action: &act,
-                target_kind: target_kind.as_deref(),
-                target_id: target_id.as_deref(),
-                ip_address: ip_address.as_deref(),
-                metadata: metadata.as_deref(),
+                id: &r.id,
+                created_at: &r.created_at,
+                actor_id: r.actor_id.as_deref(),
+                action: &r.action,
+                target_kind: r.target_kind.as_deref(),
+                target_id: r.target_id.as_deref(),
+                ip_address: r.ip_address.as_deref(),
+                metadata: r.metadata.as_deref(),
             });
             if entry_hash(stored_prev.as_ref(), &canonical) != stored_entry {
                 return Ok(AuditChainStatus::Broken { at_index: i });
@@ -631,11 +781,19 @@ mod tests {
             AuditChainStatus::Broken { at_index: 1 }
         );
 
-        // Reordering (splicing) breaks linkage at the first out-of-place row.
+        // Reordering the ROWS in the file does NOT break verification: the
+        // chain's integrity is its hash linkage, not the file's line order —
+        // which is exactly what makes verification immune to clock skew (#2).
         let mut reordered = export.clone();
         reordered.swap(0, 1);
+        assert_eq!(verify_exported_chain(&reordered), AuditChainStatus::Intact);
+
+        // A genuine splice DOES break: repointing a row's prev_hash orphans it
+        // from the chain, caught regardless of file order.
+        let mut spliced = export.clone();
+        spliced[2].prev_hash = Some("0".repeat(64));
         assert!(matches!(
-            verify_exported_chain(&reordered),
+            verify_exported_chain(&spliced),
             AuditChainStatus::Broken { .. }
         ));
     }
@@ -738,6 +896,144 @@ mod tests {
             repo.verify_audit_chain().await.expect("verify"),
             AuditChainStatus::Broken { at_index: 0 }
         );
+    }
+
+    #[tokio::test]
+    async fn verifies_by_linkage_despite_clock_skew() {
+        // Finding #2: rows can be stored with a created_at that sorts OPPOSITE to
+        // the chain order (clock skew, same-millisecond ULID ties). Verification
+        // follows the hash linkage, not the wall clock — so a correctly-chained
+        // log with descending timestamps is Intact. A created_at walk (the old
+        // behaviour) would have raised a false tamper alarm here.
+        let db = fresh_db().await;
+        let repo = AuditRepo::new(&db);
+
+        // Three correctly-linked rows, created_at assigned in REVERSE (row 0 is
+        // the newest, row 2 the oldest) with ascending ids — so neither a
+        // `created_at` nor an `id` tiebreak recovers the true chain order.
+        let times = [
+            "2026-07-18T00:00:03Z",
+            "2026-07-18T00:00:02Z",
+            "2026-07-18T00:00:01Z",
+        ];
+        let mut prev: Option<Sha256Hex> = None;
+        for (i, t) in times.iter().enumerate() {
+            let id = format!("A_{i}");
+            let canonical = canonical(&CanonicalFields {
+                id: &id,
+                created_at: t,
+                actor_id: None,
+                action: "version.commit",
+                target_kind: None,
+                target_id: None,
+                ip_address: None,
+                metadata: None,
+            });
+            let entry = entry_hash(prev.as_ref(), &canonical);
+            sqlx::query(&db.sql(
+                "INSERT INTO audit_log (id, created_at, action, prev_hash, entry_hash) \
+                 VALUES (?, ?, ?, ?, ?)",
+            ))
+            .bind(&id)
+            .bind(*t)
+            .bind("version.commit")
+            .bind(prev.map(|p| p.to_hex()))
+            .bind(entry.to_hex())
+            .execute(db.pool())
+            .await
+            .expect("insert");
+            prev = Some(entry);
+        }
+
+        assert_eq!(
+            repo.verify_audit_chain().await.expect("verify"),
+            AuditChainStatus::Intact,
+            "a valid chain with inverted timestamps must verify by linkage"
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_prev_hash_is_rejected_no_fork() {
+        // Finding #14: the unique index (0028) makes a second row chaining off an
+        // already-used head a hard error — the fork can't be written at all.
+        let db = fresh_db().await;
+        let repo = AuditRepo::new(&db);
+        repo.insert(event(action::VERSION_COMMIT))
+            .await
+            .expect("genesis");
+        repo.insert(event(action::VERSION_COMMIT))
+            .await
+            .expect("second");
+
+        // The head row's prev_hash points at the genesis entry_hash. Try to write
+        // ANOTHER row claiming that same prev_hash — that is a fork attempt.
+        let dup_prev: String = sqlx::query(
+            &db.sql("SELECT prev_hash FROM audit_log WHERE prev_hash IS NOT NULL LIMIT 1"),
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("row")
+        .get("prev_hash");
+
+        let err = sqlx::query(&db.sql(
+            "INSERT INTO audit_log (id, created_at, action, prev_hash, entry_hash) \
+             VALUES (?, ?, ?, ?, ?)",
+        ))
+        .bind("FORK")
+        .bind("2026-07-18T00:00:09Z")
+        .bind("version.commit")
+        .bind(&dup_prev)
+        .bind("f".repeat(64))
+        .execute(db.pool())
+        .await
+        .expect_err("a duplicate prev_hash must be rejected");
+
+        assert!(
+            DbError::from(err).is_unique_violation(),
+            "fork attempt must fail as a unique violation"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_appends_form_one_intact_chain() {
+        // Finding #14: many appends racing the same head must serialize into ONE
+        // linear chain (retry on the unique-index rejection), never a fork or a
+        // dropped write. (SQLite's single writer serializes these; the retry path
+        // and the index invariant still hold end-to-end.)
+        let db = fresh_db().await;
+        let mut set = tokio::task::JoinSet::new();
+        for _ in 0..12 {
+            let db = db.clone();
+            set.spawn(async move {
+                AuditRepo::new(&db)
+                    .insert(event(action::VERSION_COMMIT))
+                    .await
+            });
+        }
+        while let Some(joined) = set.join_next().await {
+            joined.expect("task").expect("insert");
+        }
+
+        let repo = AuditRepo::new(&db);
+        assert_eq!(
+            repo.verify_audit_chain().await.expect("verify"),
+            AuditChainStatus::Intact,
+            "concurrent appends must form one intact linear chain"
+        );
+
+        // No two chained rows share a prev_hash → the chain never forked.
+        let rows =
+            sqlx::query(&db.sql("SELECT prev_hash FROM audit_log WHERE prev_hash IS NOT NULL"))
+                .fetch_all(db.pool())
+                .await
+                .expect("rows");
+        let mut seen = std::collections::HashSet::new();
+        for row in &rows {
+            let ph: String = row.get("prev_hash");
+            assert!(seen.insert(ph), "no two rows may chain off the same head");
+        }
+        // All 12 landed (genesis has no prev_hash, so 11 linked rows).
+        assert_eq!(rows.len(), 11, "all appends landed, exactly one genesis");
     }
 
     #[tokio::test]

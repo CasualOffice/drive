@@ -19,6 +19,9 @@ pub enum DbError {
 
     #[error("corrupt stored data: {0}")]
     Corrupt(&'static str),
+
+    #[error("write contention: exhausted retries")]
+    Contention,
 }
 
 impl DbError {
