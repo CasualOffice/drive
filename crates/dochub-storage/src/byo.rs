@@ -289,7 +289,11 @@ pub fn build_operator(cfg: &ByoConfig) -> Result<opendal::Operator, StorageError
     {
         builder = builder.endpoint(ep);
     }
-    Ok(opendal::Operator::new(builder)?.finish())
+    // Same timeout guard as the default S3 backend — a stalled BYO endpoint must
+    // not hang the caller (the test-connection path already ran the SSRF guard).
+    Ok(opendal::Operator::new(builder)?
+        .layer(crate::s3_timeout_layer())
+        .finish())
 }
 
 /// Round-trip put → stat → delete on a random key. Returns wall-clock

@@ -27,7 +27,7 @@ Public surface is three pieces \[4\], \[5\]:
 
 - **`Builder`** — typed per-service struct (`services::S3`, `services::Fs`, `services::Memory`), fluent setters.
 - **`Operator`** — `Send + Sync + Clone`, stateless. All handler code talks to this.
-- **`Layer`** — middleware: `RetryLayer`, `TimeoutLayer`, `LoggingLayer`, `TracingLayer`, `MetricsLayer`, `ConcurrentLimitLayer`, `ThrottleLayer` \[6\]. `OperatorBuilder::layer()` is **static dispatch — zero cost**.
+- **`Layer`** — middleware: `RetryLayer`, `TimeoutLayer`, `LoggingLayer`, `TracingLayer`, `MetricsLayer`, `ConcurrentLimitLayer`, `ThrottleLayer` \[6\]. `OperatorBuilder::layer()` is **static dispatch — zero cost**. **Applied:** a `TimeoutLayer` on both S3 backends (default + BYO) — `timeout` 30 s for metadata ops (stat/delete/list/presign), `io_timeout` 60 s per read/write IO op (per multipart part), so a stalled endpoint fails fast instead of hanging a request/worker while a slow-but-progressing large transfer still completes. Not applied to fs/memory (local, effectively instant). See `s3_timeout_layer()`.
 
 S3 wire-up from upstream service docs \[7\]:
 

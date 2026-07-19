@@ -145,7 +145,9 @@ impl Storage {
                 if let Some(k) = cfg.aws_secret_access_key.as_deref() {
                     builder = builder.secret_access_key(k);
                 }
-                opendal::Operator::new(builder)?.finish()
+                opendal::Operator::new(builder)?
+                    .layer(s3_timeout_layer())
+                    .finish()
             }
         };
         Ok(Self::new(op, cfg.signed_url_hmac_secret))
@@ -396,6 +398,19 @@ impl Storage {
 }
 
 type HmacSha256 = Hmac<Sha256>;
+
+/// Timeout layer for the S3 backends (default + BYO). Without it a stalled S3
+/// endpoint hangs a `put`/`get`/`stat` forever, wedging the request or worker
+/// slot. `timeout` bounds the quick metadata ops (stat/delete/list/presign);
+/// `io_timeout` bounds each individual read/write IO op — for S3 that's per
+/// multipart part, so a genuinely stalled transfer trips while a slow-but-
+/// progressing large upload/download does not. Not applied to fs/memory (local,
+/// effectively instant).
+pub(crate) fn s3_timeout_layer() -> opendal::layers::TimeoutLayer {
+    opendal::layers::TimeoutLayer::new()
+        .with_timeout(std::time::Duration::from_secs(30))
+        .with_io_timeout(std::time::Duration::from_secs(60))
+}
 
 fn validate_key(key: &str) -> Result<(), StorageError> {
     if key.is_empty()
