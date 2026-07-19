@@ -136,19 +136,50 @@ snapshot is simply unreferenced — never a dangling pointer).
 
 ## Master-KEK rotation
 
-Lossless — re-wraps DEKs, never rewrites document blobs.
+Lossless — re-wraps per-workspace DEKs, never rewrites document blobs. **Zero
+downtime** when done in this order: while both keys are configured the running
+server unwraps a DEK by trying the current KEK, then the next as a fallback
+(`WorkspaceDeks::with_next_kek`), so reads never 500 on a mix of old-key and
+re-wrapped rows. New DEKs are always sealed under the current KEK.
 
-1. Set `DOCHUB_MASTER_KEY_NEXT` (base64 32-byte) alongside the current
-   `DOCHUB_MASTER_KEY`.
-2. Run the admin subcommand: `dochub rotate-kek`. It unwraps each
+Drill:
+
+1. **Set the next key + restart.** Add `DOCHUB_MASTER_KEY_NEXT` (base64 32-byte)
+   alongside the current `DOCHUB_MASTER_KEY` and restart the server(s). Now the
+   running process can read rows sealed under **either** key. (Do this restart
+   *before* `rotate-kek`, so a row re-wrapped in the next step is immediately
+   readable.)
+2. **Re-wrap.** Run the admin subcommand: `dochub rotate-kek`. It unwraps each
    `workspace_keys` row under the current KEK, re-wraps the same DEK under the
    next KEK, bumps `key_version`, and prints a per-workspace `rotated`/`failed`
    report. It exits non-zero if any workspace failed, so automation can gate the
-   cut-over on a clean run.
-3. On a clean run, promote `DOCHUB_MASTER_KEY_NEXT` → `DOCHUB_MASTER_KEY` and
-   unset the next key.
+   cut-over. **Re-run until the report is clean** — it's idempotent (an already-
+   rotated row is a no-op) and covers workspaces created during the window.
+3. **Promote.** On a clean run, set `DOCHUB_MASTER_KEY` = the next key. Keep the
+   **old** key as `DOCHUB_MASTER_KEY_NEXT` for a grace window (so any straggler
+   still sealed under it keeps reading via the fallback) and restart.
+4. **Finish.** Once you've confirmed a clean `rotate-kek` under the promoted key
+   (nothing left under the old one), unset `DOCHUB_MASTER_KEY_NEXT` and restart.
+
+Partial failure: if `rotate-kek` reports `failed` workspaces, **do not unset the
+next key** — the fallback keeps them readable under whichever key sealed them.
+Investigate the `failed` rows (a row that unwraps under neither key is corrupt or
+predates the chain), fix or restore them, and re-run until clean.
 
 `rotate-kek` is CLI/admin-only by design — there is no HTTP endpoint for it.
+
+## Backup-restore verification drill
+
+A backup you've never restored is a hope, not a backup. Periodically (and after
+any backup-tooling change) prove the set is restorable end-to-end:
+
+1. Restore DB + object store + KEK into a throwaway environment (see **Restore**).
+2. `GET /readyz` → `200`.
+3. Open a document and confirm bytes decrypt (exercises DEK unwrap → `get_blob`).
+4. Verify a file's version chain and export+verify the audit log
+   (`dochub verify-audit`) — proves the hash chains survived the round-trip.
+5. Tear the environment down. Record the date; a backup unverified for a quarter
+   is a risk, not an asset.
 
 ## Integrity & tamper response
 
