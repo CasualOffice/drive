@@ -16,7 +16,20 @@
 
 ## 1. TL;DR
 
-The **inherited Drive spine is shipped and solid** (storage facade, portable migrations, append-only audit log, projects/roles/invites, Argon2id+OIDC auth, share links, two-origin model, AES-GCM secret-envelope) and **RBAC/ACLs landed recently** (`dochub-authz`, PR #85). The **registry foundations are mid-flight** (Phase 0: rename, documents-only allowlist, `dochub-crypto` document-byte envelope, hash-chain version engine). The big surprise: **full-text content search is further along than `PIPELINE.md` says** — `dochub-index` (Tantivy 0.26) and `GET /api/search/content` are built **and tested**, and are already **wired into the SPA** (Command Palette + Files search run content search in parallel with metadata search, rendering highlighted `SearchSnippet`s). The real remaining search gap is **Office/PDF text extraction** — today only text formats (md/txt/csv/json/yaml) are extracted; `.docx/.xlsx/.pdf` index title+extension only. Everything the founder asked to "build properly" — **search-by-tag, RAG, MCP, an agentic pipeline, a durable job runner, a real frontend state layer (Redux), and shared UI primitives** — is **not-started or design-only** (there are no `dochub-ai`, `dochub-mcp`, or worker crates). **Recommended start:** finish Phase 0's hash-chain/crypto gate, then land the **extraction + background worker** half of the indexing backbone (search is already end-to-end for text formats), because RAG, MCP, and search-by-tag all build on it.
+> _The original TL;DR (written when RAG/MCP/worker were unbuilt) is preserved at the bottom of this file under "Historical §1" for provenance. This is the current, verified state._
+
+The backend is **mature and released** (`casualoffice/dochub` v0.0.1/v0.0.2, multi-arch). Shipped and tested on `main`: the storage/DB spine, Argon2id+OIDC auth, RBAC/ACLs (`dochub-authz`), append-only **hash-chained** audit log + Activity UI, **mandatory at-rest encryption** (per-workspace DEKs, boot-refuses-without-KEK, zero-downtime KEK rotation), immutable **hash-chained version history** (`verify_chain`, restore-as-new, Ed25519 provenance), documents-only ingest (allowlist + magic-byte sniff), Office/PDF **text extraction**, Tantivy **content search** (SPA-wired), **search-by-tag**, **RAG** (`dochub-ai`: semantic + `ask`), **MCP** (`dochub-mcp`, bearer-PAT auth), an **agentic** ReAct research loop, and a **durable job queue + worker** (`dochub-worker`). Two-origin isolation, CSRF, rate limiting, graceful shutdown, `/metrics`, and Postgres-in-CI are all in place. **Genuine gaps remaining:** a real frontend state layer (Redux/RTK Query — ad-hoc today), shared UI primitives + broader mobile/skeleton polish, native co-editing depth, and later-phase compliance/vault UX (see §2/§3).
+
+### 1a. Production-hardening sweep — 2026-07-19
+
+A dedicated security + operability campaign hardened the released backend. Five adversarial reviews (find → double-verify → fix) plus a production-readiness gap scan; every double-confirmed finding fixed, each as a self-contained CI-green PR.
+
+- **Security (confirmed + fixed):** share `/raw` served ciphertext → server-side decrypt (#216); KEK rotation was single-key → **dual-KEK zero-downtime unwrap** (#217); WOPI GetFile/PutFile TOCTOU + collab-room IDOR + presence-beat DoS (#218); `panic="abort"` silently defeated `catch_unwind`+`CatchPanicLayer` → **`unwind`** so a crafted PDF can't crash the process (#219); BYO-storage **SSRF** via hostname→internal-IP resolution (#220). Clean-bill dimensions (no confirmed findings): request-security core (auth/session/CSRF/two-origin/authz), OIDC, MCP/agent token scoping, membership privilege-escalation.
+- **Resilience (fail-fast, no hang):** every external dependency now bounded — DB pool acquire + AI/OIDC HTTP clients (#221) and S3 storage ops via OpenDAL `TimeoutLayer` (#225). (Deliberately **not** a global request timeout — it would sever SSE presence + large transfers.)
+- **Observability:** background-job SLIs on `/metrics` — queue depth, running/failed counts, oldest-queued-age (processing lag) — with RUNBOOK alert rules (#222).
+- **Verification posture:** ~613 test fns; CI gate per PR = rustfmt + `clippy -Dwarnings` + workspace/postgres tests + playwright + `cargo audit` + `cargo deny` + docker build.
+
+**Still open (honest):** verified DNS-rebinding protection for BYO SSRF (needs socket-level IP pinning); Tantivy index-writer durability on SIGKILL (recoverable via idempotent reindex, undocumented); RUNBOOK backup/restore + KEK-rotation drill completeness; frontend state layer + UI primitives.
 
 ---
 
@@ -46,6 +59,8 @@ The **inherited Drive spine is shipped and solid** (storage facade, portable mig
 ---
 
 ## 3. Per-capability pipelines
+
+> **Authoritative status is §2 (matrix) + §1a**, not the section headers below. These per-capability plans are the ORIGINAL build blueprints; many items marked "Design-only / Not-started / In progress / Partial" here have since **shipped** (RAG, MCP, agentic pipeline + durable worker, provenance/hash-chain, encryption, chained audit, search-by-tag, Office/PDF extraction, index-maintenance on new-version + tombstone). Kept as the design record + acceptance-test reference; cross-check §2 before trusting a header.
 
 ### Indexing + text extraction — Partial
 **Goal:** every committed document version's text is extracted and indexed (all allowed formats), kept fresh on new-version, and removed on tombstone — driven by a durable background worker.
@@ -171,6 +186,14 @@ Phase 0 (MUST be green first): rename · documents-only allowlist · dochub-cryp
         └─ Track F — Production hardening (parallel, no deps):
               Redux + typed API layer · shared UI primitives · error/validation envelope · notes-paste bug
 ```
+
+---
+
+## Historical §1 (superseded — kept for provenance)
+
+> This was the TL;DR when the tracker was first written, before RAG/MCP/worker/extraction shipped. It is factually out of date (see §1, §1a, §2); retained only to show where the project started.
+
+The **inherited Drive spine is shipped and solid** (storage facade, portable migrations, append-only audit log, projects/roles/invites, Argon2id+OIDC auth, share links, two-origin model, AES-GCM secret-envelope) and **RBAC/ACLs landed recently** (`dochub-authz`, PR #85). The **registry foundations are mid-flight** (Phase 0: rename, documents-only allowlist, `dochub-crypto` document-byte envelope, hash-chain version engine). The big surprise: **full-text content search is further along than `PIPELINE.md` says** — `dochub-index` (Tantivy 0.26) and `GET /api/search/content` are built **and tested**, and are already **wired into the SPA**. The real remaining search gap is **Office/PDF text extraction**. Everything the founder asked to "build properly" — **search-by-tag, RAG, MCP, an agentic pipeline, a durable job runner, a real frontend state layer (Redux), and shared UI primitives** — is **not-started or design-only** (there are no `dochub-ai`, `dochub-mcp`, or worker crates). **Recommended start:** land the **extraction + background worker** half of the indexing backbone.
 
 Phase mapping: Track A = **Phase 3**; Tags/Vaults ride Phase 3/UI; Provenance/Encryption/RBAC-audit = **Phase 0–1**; compliance signing = **Phase 4**; RAG/MCP/agentic = **Phase 5 (AI layer, read-only, audited)**. A durable **job runner** is the shared substrate under A, C, and E — build it once, early.
 
