@@ -6,7 +6,9 @@ Phased delivery plan for the Drive→Doc-Hub revamp. Each phase has scope, non-g
 
 ## Where we are
 
-- **Current phase: Phase 0 — Rename, narrow, and lay the hub foundations.** The former Casual Drive is a working, tested storage app; this phase turns it into a document registry. Nothing after Phase 2 starts until each predecessor's acceptance tests are green.
+- **Foundations through Phase 3 have shipped and are released** (`casualoffice/dochub` v0.0.1/v0.0.2). Phase 0 (rename, documents-only ingest, `dochub-crypto` document-byte envelope, hash-chain version + audit engine, two-origin isolation), Phase 1 (encryption at rest + KEK rotation + provenance), and the search/AI backbone (Tantivy content search, Office/PDF extraction, tags, RAG, MCP, agentic worker) are all merged and tested on `main`. See [`docs/CAPABILITY-TRACKER.md`](./docs/CAPABILITY-TRACKER.md) §2 for the verified matrix.
+- **Current focus: production hardening** — a security + operability sweep (2026-07-19) closed a batch of adversarial-review findings and every unbounded-hang vector; see CAPABILITY-TRACKER §1a. Remaining work is native co-editing depth, later-phase compliance/vault UX, and the frontend state layer.
+- The original phase-gate rule still holds for *new* later-phase features: don't start a phase's code before its predecessors' acceptance tests are green. (Physical erasure remains a deliberate Phase-4 item — not started.)
 
 ## Starting point (inherited from Casual Drive)
 
