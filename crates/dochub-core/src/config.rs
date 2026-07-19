@@ -34,9 +34,9 @@ pub enum Backend {
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// e.g. `https://drive.casualoffice.org`.
+    /// e.g. `https://doc-hub.casualoffice.org`.
     pub app_origin: Url,
-    /// e.g. `https://usercontent-drive.casualoffice.org`. Must differ from
+    /// e.g. `https://usercontent-doc-hub.casualoffice.org`. Must differ from
     /// `app_origin` in production (boot refuses to start otherwise).
     pub usercontent_origin: Url,
     pub bind: SocketAddr,

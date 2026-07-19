@@ -82,7 +82,7 @@ Each H2 carries **Rule / Why / How / Phase**. The threat model, OWASP walkthroug
 
 ## 4. Serving files safely — THE critical item
 
-**Rule.** All user content (share-link bytes) serves from a **separate registrable origin** from the Doc-Hub app. App origin (e.g. `hub.example.org`) is reserved for trusted code; user content lives at e.g. `usercontent-dochub.example.org`. Non-previewable types ship with `Content-Disposition: attachment`. Every response carries `X-Content-Type-Options: nosniff`. CSPs differ per origin.
+**Rule.** All user content (share-link bytes) serves from a **separate registrable origin** from the Doc-Hub app. App origin (e.g. `hub.example.org`) is reserved for trusted code; user content lives at e.g. `usercontent-doc-hub.example.org`. Non-previewable types ship with `Content-Disposition: attachment`. Every response carries `X-Content-Type-Options: nosniff`. CSPs differ per origin.
 
 **Why.** Google's 2012 [Content hosting for the modern web](https://security.googleblog.com/2012/08/content-hosting-for-modern-web.html) and 2023 [Securely Hosting User Data](https://security.googleblog.com/2023/04/securely-hosting-user-data-in-modern.html) are canonical: same-origin user content means XSS via uploaded content, cookie-scope issues, weakened framing. PDFs execute JS (PDF.js CVE-2024-4367, [Codean Labs](https://codeanlabs.com/blog/research/cve-2024-4367-arbitrary-js-execution-in-pdf-js/)) — and PDF is on our allowlist, so the isolation matters.
 

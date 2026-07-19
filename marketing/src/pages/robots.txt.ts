@@ -12,7 +12,7 @@ import type { APIRoute } from "astro";
 export const prerender = true;
 
 export const GET: APIRoute = ({ site }) => {
-  const origin = (site?.toString() ?? "https://drive.casualoffice.org").replace(/\/$/, "");
+  const origin = (site?.toString() ?? "https://doc-hub.casualoffice.org").replace(/\/$/, "");
   const body = `# robots.txt — managed by marketing/src/pages/robots.txt.ts
 User-agent: *
 Allow: /

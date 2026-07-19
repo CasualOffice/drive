@@ -107,7 +107,7 @@ Techniques:
   2. Copy `web/dist/` → `marketing/public/demo-app/` (the Astro `/demo` route loads this).
   3. Run `astro build` → `marketing/dist/` is the deploy artifact.
 - Deploy via `actions/upload-pages-artifact@v3` + `actions/deploy-pages@v4`.
-- Initial host: `https://<gh-org>.github.io/dochub/` (need `site` + `base` in `astro.config.mjs`). Migrate to `dochub.casualoffice.org` when DNS lands — flip `site` + drop `base`.
+- Initial host: `https://<gh-org>.github.io/dochub/` (need `site` + `base` in `astro.config.mjs`). Migrate to `doc-hub.casualoffice.org` when DNS lands — flip `site` + drop `base`.
 - `404.html` is Astro's default 404 page (not the SPA fallback hack — Astro routes are static so 404 lookups land on the right thing).
 
 ## Out of scope (v0)

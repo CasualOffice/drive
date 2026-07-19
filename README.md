@@ -11,7 +11,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](https://www.rust-lang.org/)
 
-[Live demo](https://dochub.casualoffice.org/demo) &nbsp;·&nbsp; [Docs](https://dochub.casualoffice.org/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Runbook](./docs/ops/RUNBOOK.md) &nbsp;·&nbsp; [Testing](./docs/TESTING.md) &nbsp;·&nbsp; [Plan](./PLAN.md)
+[Live demo](https://doc-hub.casualoffice.org/demo) &nbsp;·&nbsp; [Docs](https://doc-hub.casualoffice.org/docs/install) &nbsp;·&nbsp; [Architecture](./docs/ARCHITECTURE.md) &nbsp;·&nbsp; [Runbook](./docs/ops/RUNBOOK.md) &nbsp;·&nbsp; [Testing](./docs/TESTING.md) &nbsp;·&nbsp; [Plan](./PLAN.md)
 
 </div>
 
@@ -43,14 +43,14 @@ docker run -d --name hub \
   -v $HOME/dochub-data:/data \
   -e DOCHUB_BIND=0.0.0.0:8080 \
   -e DOCHUB_APP_ORIGIN=https://hub.your-server \
-  -e DOCHUB_USERCONTENT_ORIGIN=https://usercontent-dochub.your-server \
+  -e DOCHUB_USERCONTENT_ORIGIN=https://usercontent-doc-hub.your-server \
   -e DOCHUB_STORAGE_BACKEND=fs \
   -e DOCHUB_FS_ROOT=/data \
   -e DOCHUB_MASTER_KEY=<32-byte base64 KEK> \
   casualoffice/dochub:latest
 ```
 
-Visit `https://hub.your-server`, complete the one-time admin setup, create a project, upload a document, edit it, and watch the version chain grow. Full env-var matrix at <https://dochub.casualoffice.org/docs/configuration>.
+Visit `https://hub.your-server`, complete the one-time admin setup, create a project, upload a document, edit it, and watch the version chain grow. Full env-var matrix at <https://doc-hub.casualoffice.org/docs/configuration>.
 
 ## Full stack in one command
 
@@ -130,7 +130,7 @@ dochub/
     dochub-http/          Axum router, two-origin middleware, every API surface
     dochub-bin/           Binary entry point
   web/                   React SPA (embedded editors), embedded into the binary via rust-embed
-  marketing/             Astro 5 site (dochub.casualoffice.org) + the /demo SPA
+  marketing/             Astro 5 site (doc-hub.casualoffice.org) + the /demo SPA
   docs/
     ARCHITECTURE.md      System architecture
     TESTING.md           Test strategy: unit + integration + property + e2e/use-cases

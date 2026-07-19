@@ -14,7 +14,7 @@ docker run -d --name hub \
   -v $HOME/dochub-data:/data \
   -e DOCHUB_BIND=0.0.0.0:8080 \
   -e DOCHUB_APP_ORIGIN=https://hub.your-server \
-  -e DOCHUB_USERCONTENT_ORIGIN=https://usercontent-dochub.your-server \
+  -e DOCHUB_USERCONTENT_ORIGIN=https://usercontent-doc-hub.your-server \
   -e DOCHUB_STORAGE_BACKEND=fs \
   -e DOCHUB_FS_ROOT=/data \
   -e DOCHUB_MASTER_KEY=<32-byte base64 KEK> \
@@ -59,7 +59,7 @@ These six are non-negotiable in production:
 |---|---|
 | `DOCHUB_BIND` | TCP bind address. Use `0.0.0.0:8080` behind a reverse proxy. |
 | `DOCHUB_APP_ORIGIN` | The origin the app lives on (`https://hub.example.com`). Cookies + CSP scope here. |
-| `DOCHUB_USERCONTENT_ORIGIN` | The origin that serves raw bytes (`https://usercontent-dochub.example.com`). Must differ from `DOCHUB_APP_ORIGIN`. |
+| `DOCHUB_USERCONTENT_ORIGIN` | The origin that serves raw bytes (`https://usercontent-doc-hub.example.com`). Must differ from `DOCHUB_APP_ORIGIN`. |
 | `DOCHUB_STORAGE_BACKEND` | `fs`, `s3`, `minio`, or `memory`. |
 | `DOCHUB_DATABASE_URL` | `sqlite:///data/hub.db` or `postgres://user:pass@host/db`. |
 | `DOCHUB_MASTER_KEY` | The master KEK that wraps every workspace data key. Boot aborts without it (or a configured KMS). |
@@ -86,7 +86,7 @@ hub.your-server {
   reverse_proxy localhost:8080
 }
 
-usercontent-dochub.your-server {
+usercontent-doc-hub.your-server {
   reverse_proxy localhost:8080
 }
 ```

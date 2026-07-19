@@ -514,7 +514,7 @@ Cross-cutting invariants every flow honours:
 
 **Goal.** Someone with a link accesses the document, optionally entering a password, and downloads or opens a read-only view.
 
-**Trigger.** Recipient opens `https://usercontent-dochub.<host>/s/<token>` (the recipient page renders on the app origin; bytes come from the user-content origin).
+**Trigger.** Recipient opens `https://usercontent-doc-hub.<host>/s/<token>` (the recipient page renders on the app origin; bytes come from the user-content origin).
 
 **Happy path — no password.**
 

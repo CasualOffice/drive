@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react";
 
 /**
- * Top-of-shell strip shown when VITE_DEMO_MODE=1 (the drive.casualoffice.org
+ * Top-of-shell strip shown when VITE_DEMO_MODE=1 (the doc-hub.casualoffice.org
  * Pages build). Tells the visitor up front that there is no server and
  * their changes won't survive a reload.
  */

@@ -127,7 +127,7 @@ Same-origin, same session cookie, no token mint. Decryption is in-process and tr
 
 ## What this plan does NOT change
 
-- **The two-origin model.** App origin (`hub.<host>`) serves the SPA, JSON API, and the decrypted editor byte streams; the user-content origin (`usercontent-dochub.<host>`) serves `/raw/{token}` share downloads only. The content endpoints serve from the app origin under the authenticated session; they never move to the user-content origin.
+- **The two-origin model.** App origin (`hub.<host>`) serves the SPA, JSON API, and the decrypted editor byte streams; the user-content origin (`usercontent-doc-hub.<host>`) serves `/raw/{token}` share downloads only. The content endpoints serve from the app origin under the authenticated session; they never move to the user-content origin.
 - **Encryption invariants.** No plaintext document bytes reach any storage backend. Boot still refuses to start without a master KEK/KMS.
 - **Append-only history.** A save only ever appends; no code path here overwrites or hard-deletes a version, blob, or audit row.
 - **WOPI interop.** It coexists as an optional external-client path; a WOPI PutFile funnels through the same version-commit path so external saves are still chained. It is not exercised by the core use-cases.

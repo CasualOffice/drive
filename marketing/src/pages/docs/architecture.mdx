@@ -13,7 +13,7 @@ layout: ../../layouts/DocLayout.astro
                                  │
                 ┌────────────────┼─────────────────────┐
                 │                │                     │
-        hub.example.com        │     usercontent-dochub.example.com
+        hub.example.com        │     usercontent-doc-hub.example.com
         ┌─────────────────┐      │     ┌──────────────────────────┐
         │  SPA · JSON API │      │     │  /raw/{token} (bytes)    │
         │  Editor streams │      │     │  CSP: sandbox; none      │
@@ -72,7 +72,7 @@ file_versions(file_id, seq, storage_key, size, content_hash, prev_hash, author_i
 The app and the document bytes live on different origins. This is non-negotiable.
 
 - **`hub.example.com`** — the SPA, the JSON API, the embedded-editor byte streams. Cookies live here. A strict CSP locks the page down.
-- **`usercontent-dochub.example.com`** — the only place raw bytes are ever served, via `/raw/{token}` for share links and isolated content. `Content-Security-Policy: sandbox; default-src 'none'`. No cookies. Every non-previewable type gets `Content-Disposition: attachment` forced.
+- **`usercontent-doc-hub.example.com`** — the only place raw bytes are ever served, via `/raw/{token}` for share links and isolated content. `Content-Security-Policy: sandbox; default-src 'none'`. No cookies. Every non-previewable type gets `Content-Disposition: attachment` forced.
 
 The hub **refuses to start** in production if the two origins are configured the same. Neither CSP is weakened; `/raw/{token}` never moves to the app origin.
 

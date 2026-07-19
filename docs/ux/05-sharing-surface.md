@@ -26,7 +26,7 @@ Recipient page: stripped chrome, document card front-and-center, one primary act
 │                                                                       │
 │   ┌─ Link card (active) ────────────────────────────────────────┐    │
 │   │   🔗  Anyone with the link  · View                          │    │
-│   │       https://usercontent-dochub.…/s/Z3kQ…aB1                │    │
+│   │       https://usercontent-doc-hub.…/s/Z3kQ…aB1                │    │
 │   │       [ ⊕ Copy link ]                          [ ⋯ Options ]│    │
 │   └─────────────────────────────────────────────────────────────┘    │
 │                                                                       │
@@ -124,7 +124,7 @@ Response (201):
 {
   "id": "shl_…",
   "token": "Z3kQ…aB1",            // 16 random bytes → URL-safe base64
-  "url": "https://usercontent-dochub.<host>/s/Z3kQ…aB1",
+  "url": "https://usercontent-doc-hub.<host>/s/Z3kQ…aB1",
   "permissions": "view",
   "has_password": false,
   "expires_at": "2026-06-13T22:00:00Z",

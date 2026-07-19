@@ -56,7 +56,7 @@ file_versions(file_id, seq, storage_key, size, content_hash, prev_hash, author_i
 ## Two-origin security model
 
 - **App origin** (`hub.<host>`): SPA, JSON API, editor byte streams. Strict CSP. Session cookies live here only.
-- **User-content origin** (`usercontent-dochub.<host>`): serves `/raw/{token}` for share-links and isolated content. `CSP: sandbox; default-src 'none'`, no cookies, `Content-Disposition: attachment` for non-previewable types.
+- **User-content origin** (`usercontent-doc-hub.<host>`): serves `/raw/{token}` for share-links and isolated content. `CSP: sandbox; default-src 'none'`, no cookies, `Content-Disposition: attachment` for non-previewable types.
 - Boot **refuses to start in production** if the two origins are equal. Neither CSP is weakened; `/raw/{token}` never moves to the app origin.
 
 ## Token model

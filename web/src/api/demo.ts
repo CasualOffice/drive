@@ -1,6 +1,6 @@
 // Demo-mode backend shim — no server, browser-storage backed.
 //
-// Compiled in when VITE_DEMO_MODE=1 (GitHub Pages build at drive.casualoffice.org).
+// Compiled in when VITE_DEMO_MODE=1 (GitHub Pages build at doc-hub.casualoffice.org).
 // Metadata persists across reloads via localStorage under `cd-demo-state-v1`.
 // Uploaded file blobs live in a module-scope Map (not persisted — too large
 // for localStorage). Pipeline issue #12 upgrades blob persistence to IndexedDB.

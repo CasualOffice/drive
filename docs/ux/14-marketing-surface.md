@@ -1,6 +1,6 @@
 # 14 — Marketing site surface
 
-Companion to `docs/research/07-marketing-site.md`. Page-by-page surface spec for the Astro marketing site at `dochub.casualoffice.org`. This is the one place the voice may be persuasive — but still tight, honest, sentence-case, and free of exclamation marks and hype.
+Companion to `docs/research/07-marketing-site.md`. Page-by-page surface spec for the Astro marketing site at `doc-hub.casualoffice.org`. This is the one place the voice may be persuasive — but still tight, honest, sentence-case, and free of exclamation marks and hype.
 
 ## Flows
 
@@ -130,7 +130,7 @@ Companion to `docs/research/07-marketing-site.md`. Page-by-page surface spec for
 
 ## `/docs/architecture`
 
-- Embedded SVG diagram (hand-authored): browser ↔ `hub.host` ↔ `usercontent-dochub.host` ↔ encryption layer ↔ Storage adapter ↔ {fs, S3, MinIO}, with the version + hash-chain engine and the Tantivy index called out.
+- Embedded SVG diagram (hand-authored): browser ↔ `hub.host` ↔ `usercontent-doc-hub.host` ↔ encryption layer ↔ Storage adapter ↔ {fs, S3, MinIO}, with the version + hash-chain engine and the Tantivy index called out.
 - Encryption + envelope-key section (DEK wrapped by KEK/KMS; no plaintext at rest).
 - Immutable version + hash-chain section (content_hash / prev_hash, restore-as-new, verify).
 - Token model section.

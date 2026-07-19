@@ -99,7 +99,7 @@ jobs:
         working-directory: marketing
         env:
           # Override per environment via repo Variables when DNS changes.
-          ASTRO_SITE: ${{ vars.MARKETING_SITE_URL || 'https://drive.casualoffice.org' }}
+          ASTRO_SITE: ${{ vars.MARKETING_SITE_URL || 'https://doc-hub.casualoffice.org' }}
           ASTRO_BASE: ${{ vars.MARKETING_SITE_BASE || '' }}
           # `astro check` walks every .astro file's TS — the Phase 3
           # content additions push it over Node's 4 GB default. 8 GB is

@@ -28,7 +28,7 @@ Casual Drive stored arbitrary files and handed them to sibling editors over WOPI
 | Session layer | `tower-sessions`, server-side, `__Host-` cookie | 02 §3, 05 §4 |
 | Password hash | `argon2id`, OWASP minimum `m=19 MiB, t=2, p=1` | 02 §3, 06 §7 |
 | OIDC | Authorization Code + PKCE against any compliant IdP; sessions stay Doc-Hub-side | 12, 02 |
-| Two-origin model | App origin `hub.<host>` vs user-content origin `usercontent-dochub.<host>`. **Boot refuses prod if they match.** | 06 §4 (non-negotiable #1) |
+| Two-origin model | App origin `hub.<host>` vs user-content origin `usercontent-doc-hub.<host>`. **Boot refuses prod if they match.** | 06 §4 (non-negotiable #1) |
 | Ingest guard | Documents-only MIME allowlist enforced on every ingest path — by extension **and** magic-byte sniff. Reject, don't quarantine | CLAUDE, 06 §3 |
 | Build & deploy | `rust-embed` SPA in a single static binary, `cargo-chef` multi-stage Dockerfile, `debian:trixie-slim` runtime | 05 §10–11 |
 | DB | SQLite default, Postgres for production; every migration portable (TEXT ULIDs, ISO-8601 UTC, INTEGER 0/1 bools; no JSONB/enum/native-UUID) | 05, 06 |
@@ -70,7 +70,7 @@ Resolved:
 
 Still open (does not block the current phase):
 
-- **Domain operational shape** — the two-origin split (`dochub.casualoffice.org` + `usercontent-dochub.casualoffice.org`) and reverse-proxy examples. Park until deployment-config phase.
+- **Domain operational shape** — the two-origin split (`doc-hub.casualoffice.org` + `usercontent-doc-hub.casualoffice.org`) and reverse-proxy examples. Park until deployment-config phase.
 - **AI provider defaults per install** — Claude via the Anthropic API by default; the local-model adapter's exact runtime (llama.cpp/ONNX) is a Phase 5 decision.
 - **Transparency-log anchoring** — optional Ed25519-signed anchoring of chain heads for third-party-verifiable provenance; shape sketched in Phase 4, not yet locked.
 
