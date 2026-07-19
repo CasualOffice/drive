@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { Provider } from "react-redux";
 
 import "@fontsource-variable/inter"; // variable — covers 450 body through 700 heavy display
 import "@fontsource/jetbrains-mono/400.css";
@@ -9,11 +10,14 @@ import "./styles/dialog.css";
 import "./styles/notes.css";
 import { App } from "./App.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
+import { store } from "./store/store.ts";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary surface="app">
-      <App />
+      <Provider store={store}>
+        <App />
+      </Provider>
     </ErrorBoundary>
   </StrictMode>,
 );

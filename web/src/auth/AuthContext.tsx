@@ -1,6 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 import * as api from "../api/client.ts";
+import { baseApi } from "../store/baseApi.ts";
+import { store } from "../store/store.ts";
+
+// Session reads flow through RTK Query so the result is cached + inspectable and
+// future components can `useMeQuery()`/`useSetupStatusQuery()` off the same
+// entry. This provider keeps its exact bootstrap/sign-in/out control flow — it
+// just sources the data imperatively from the store instead of calling the raw
+// client, so behavior is unchanged while the session slice moves into Redux.
+const fetchMe = () =>
+  store.dispatch(baseApi.endpoints.me.initiate(undefined, { forceRefetch: true })).unwrap();
+const fetchSetupStatus = () =>
+  store
+    .dispatch(baseApi.endpoints.setupStatus.initiate(undefined, { forceRefetch: true }))
+    .unwrap();
 
 export type AuthStatus =
   | { kind: "loading" }
@@ -27,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // /api/me to decide between anonymous and authed.
   const bootstrap = useCallback(async () => {
     try {
-      const setup = await api.setupStatus();
+      const setup = await fetchSetupStatus();
       if (setup.needs_setup) {
         setStatus({ kind: "needs-setup" });
         return;
@@ -37,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // already-initialized and go straight to the /api/me check.
     }
     try {
-      const me = await api.me();
+      const me = await fetchMe();
       setStatus({ kind: "authed", me });
     } catch {
       setStatus({ kind: "anonymous" });
@@ -55,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // cookie is set and we ARE authenticated.
       await api.signIn(username, password);
       try {
-        const me = await api.me();
+        const me = await fetchMe();
         setStatus({ kind: "authed", me });
       } catch {
         // Session is live but the profile fetch blipped (network/500). Do NOT
@@ -70,6 +84,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api.signOut();
     } finally {
+      // Drop the cached session so any RTK Query consumer re-derives it.
+      store.dispatch(baseApi.util.invalidateTags(["Session"]));
       setStatus({ kind: "anonymous" });
     }
   }, []);
